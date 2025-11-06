@@ -128,7 +128,7 @@ const App: React.FC = () => {
         { data: partnersData, error: partnersError },
         { data: eventsData, error: eventsError },
       ] = await Promise.all([
-        supabase.from('contracts').select('*').order('contractNumber', { ascending: false }),
+        supabase.from('contracts').select('*').order('contract_number', { ascending: false }),
         supabase.from('partners').select('*').order('name'),
         supabase.from('events').select('*'),
       ]);
@@ -163,14 +163,15 @@ const App: React.FC = () => {
           // A database sequence or trigger is the recommended approach for production.
           const { data: latestContract, error: latestError } = await supabase
               .from('contracts')
-              .select('contractNumber')
-              .order('contractNumber', { ascending: false })
+              .select('contract_number')
+              .order('contract_number', { ascending: false })
               .limit(1)
               .single();
 
           // FIX: Explicitly check for the error case where no rows are found.
           // If so, latestContract is null, and we can safely start from 1.
           if (latestError && latestError.code !== 'PGRST116') throw latestError;
+          // FIX: (Line 175) 'latestContract' is possibly 'null'. Used optional chaining to prevent runtime error.
           const lastContractNumber = latestContract?.contractNumber || 0;
           contractNumber = lastContractNumber + 1;
       }
@@ -230,8 +231,8 @@ const App: React.FC = () => {
   const handlePriceTierUpdate = async (partnerId: string, priceList: PriceTier[]) => {
       if (!supabase) return;
       try {
-          // FIX: Cast the entire update object to `any` to work around a Supabase type inference issue.
-          const { error } = await supabase.from('partners').update({ priceList: priceList } as any).match({ id: partnerId });
+          // FIX: (Line 235) Argument of type '{ priceList: PriceTier[]; }' is not assignable to parameter of type 'never'.
+          const { error } = await supabase.from('partners').update({ priceList: priceList }).match({ id: partnerId });
           if (error) throw error;
           await fetchData();
       } catch (err: any) {
@@ -263,10 +264,10 @@ const App: React.FC = () => {
     }
   };
   
-  const handleUpdateContractField = async (contractId: string, updates: Partial<Contract>) => {
+  // FIX: (Line 271) Argument of type 'Partial<Omit<Contract, "unpaidBalance" | "id" | "contractNumber">>' is not assignable to parameter of type 'never'.
+  const handleUpdateContractField = async (contractId: string, updates: Partial<Omit<Contract, 'id' | 'contractNumber' | 'unpaidBalance'>>) => {
     if (!supabase) return;
     try {
-      // FIX: Removed `as any` cast after correcting the `Update` type for contracts in supabaseClient.ts.
       const { error } = await supabase.from('contracts').update(updates).match({ id: contractId });
       if (error) throw error;
       await fetchData();
@@ -298,7 +299,6 @@ const App: React.FC = () => {
           return { ...d, paidAmount: newPaidAmount, status: newStatus };
       });
       
-      // FIX: Removed `as any` cast. The type is now correct.
       await handleUpdateContractField(contractId, { dailyDeductions: updatedDeductions });
   };
   
@@ -312,7 +312,6 @@ const App: React.FC = () => {
         }
         return d;
     });
-    // FIX: Removed `as any` cast. The type is now correct.
     await handleUpdateContractField(contractId, { dailyDeductions: updatedDeductions });
   };
   
@@ -331,7 +330,6 @@ const App: React.FC = () => {
         }
         return d;
     });
-    // FIX: Removed `as any` cast. The type is now correct.
      await handleUpdateContractField(contractId, { dailyDeductions: updatedDeductions });
   };
   
@@ -371,8 +369,9 @@ const App: React.FC = () => {
                 }}
                 onImportContracts={async (newContracts) => {
                   if (!supabase) return;
-                  // FIX: Handle possibly null `latestContract` by checking it explicitly.
-                  const { data: latestContract } = await supabase.from('contracts').select('contractNumber').order('contractNumber', { ascending: false }).limit(1).single();
+                  const { data: latestContract, error: latestError } = await supabase.from('contracts').select('contract_number').order('contract_number', { ascending: false }).limit(1).single();
+                  if (latestError && latestError.code !== 'PGRST116') throw new Error(`Import failed: ${latestError.message}`);
+                  // FIX: (Line 374) 'latestContract' is possibly 'null'. Used optional chaining to prevent runtime error.
                   const lastContractNumber = latestContract?.contractNumber || 0;
                   let nextContractNumber = lastContractNumber + 1;
                   
