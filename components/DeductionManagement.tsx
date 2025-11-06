@@ -1,3 +1,4 @@
+
 import React, { useMemo, useState } from 'react';
 import { Contract, Partner, DeductionStatus, ContractStatus } from '../types';
 import { formatDate, formatCurrency } from '../lib/utils';
@@ -108,7 +109,7 @@ const ContractDeductionCard: React.FC<{
                 onClick={onToggle}
             >
                 <div className="flex-1">
-                    <p className="font-bold text-white text-lg">[#<span className="text-indigo-400">{contract.contractNumber}</span>] - {contract.lesseeName}</p>
+                    <p className="font-bold text-white text-lg">[#<span className="text-indigo-400">{contract.contract_number}</span>] - {contract.lesseeName}</p>
                     <p className="text-sm text-slate-400">{contract.deviceName} / {partnerName}</p>
                 </div>
                 <div className="flex-1 text-right px-4">

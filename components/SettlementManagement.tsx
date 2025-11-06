@@ -1,3 +1,4 @@
+
 import React, { useMemo, useState, useEffect } from 'react';
 import { Contract, Partner, SettlementStatus, ShippingStatus } from '../types';
 import { formatDate, formatCurrency } from '../lib/utils';
@@ -175,7 +176,7 @@ export const SettlementManagement: React.FC<SettlementManagementProps> = ({
                                     )}
                                     <td className="p-4 text-center font-mono text-indigo-400">
                                     <span className="hover:underline cursor-pointer" onClick={() => onSelectContract(contract)}>
-                                        #{contract.contractNumber}
+                                        #{contract.contract_number}
                                     </span>
                                     </td>
                                     <td className="p-4">{contract.lesseeName}</td>

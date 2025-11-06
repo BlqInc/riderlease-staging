@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Contract, Partner, ContractStatus, DeductionStatus, DailyDeductionLog, ProcurementStatus } from '../types';
 import { formatDate, formatCurrency, getDaysDifference } from '../lib/utils';
@@ -51,7 +52,7 @@ export const ContractDetailModal: React.FC<ContractDetailModalProps> = ({ contra
   const overdueCharge = overdueDays * contract.dailyDeduction;
 
   const handleDelete = () => {
-    if (window.confirm(`[#${contract.contractNumber}] '${contract.deviceName}' 계약을 정말 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`)) {
+    if (window.confirm(`[#${contract.contract_number}] '${contract.deviceName}' 계약을 정말 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`)) {
       onDelete(contract.id);
     }
   };
@@ -61,7 +62,7 @@ export const ContractDetailModal: React.FC<ContractDetailModalProps> = ({ contra
       <div className="bg-slate-800 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col">
         <header className="flex justify-between items-center p-6 border-b border-slate-700">
           <div>
-            <h2 className="text-2xl font-bold text-white">[#<span className="text-indigo-400">{contract.contractNumber}</span>] {contract.deviceName}</h2>
+            <h2 className="text-2xl font-bold text-white">[#<span className="text-indigo-400">{contract.contract_number}</span>] {contract.deviceName}</h2>
             <p className="text-slate-400">{partner.name} / {contract.color}</p>
           </div>
           <button onClick={onClose} className="p-2 rounded-full hover:bg-slate-700 transition-colors">

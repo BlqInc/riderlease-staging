@@ -154,10 +154,10 @@ const App: React.FC = () => {
 
   // --- CRUD Handlers ---
 
-  const handleSaveContract = async (data: Omit<Contract, 'dailyDeductions' | 'unpaidBalance' | 'id' | 'contractNumber'> & { id?: string }) => {
+  const handleSaveContract = async (data: Omit<Contract, 'dailyDeductions' | 'unpaidBalance' | 'id' | 'contract_number'> & { id?: string }) => {
     if (!supabase) return;
     try {
-      let contractNumber = data.id ? undefined : 0;
+      let contract_number = data.id ? undefined : 0;
       if (!data.id) {
           // NOTE: This is not an atomic operation and can cause race conditions.
           // A database sequence or trigger is the recommended approach for production.
@@ -168,17 +168,15 @@ const App: React.FC = () => {
               .limit(1)
               .single();
 
-          // FIX: Explicitly check for the error case where no rows are found.
-          // If so, latestContract is null, and we can safely start from 1.
           if (latestError && latestError.code !== 'PGRST116') throw latestError;
-          // FIX: (Line 175) 'latestContract' is possibly 'null'. Used optional chaining to prevent runtime error.
-          const lastContractNumber = latestContract?.contractNumber || 0;
-          contractNumber = lastContractNumber + 1;
+          // FIX: (Line 171) Explicitly handle possibly null `latestContract` to resolve type error.
+          const lastContractNumber = latestContract ? latestContract.contract_number : 0;
+          contract_number = lastContractNumber + 1;
       }
       
       const payload = data.id 
           ? { ...data } 
-          : { ...data, contractNumber };
+          : { ...data, contract_number };
 
       const { error } = await supabase.from('contracts').upsert(payload as any);
       if (error) throw error;
@@ -231,7 +229,6 @@ const App: React.FC = () => {
   const handlePriceTierUpdate = async (partnerId: string, priceList: PriceTier[]) => {
       if (!supabase) return;
       try {
-          // FIX: (Line 235) Argument of type '{ priceList: PriceTier[]; }' is not assignable to parameter of type 'never'.
           const { error } = await supabase.from('partners').update({ priceList: priceList }).match({ id: partnerId });
           if (error) throw error;
           await fetchData();
@@ -264,8 +261,7 @@ const App: React.FC = () => {
     }
   };
   
-  // FIX: (Line 271) Argument of type 'Partial<Omit<Contract, "unpaidBalance" | "id" | "contractNumber">>' is not assignable to parameter of type 'never'.
-  const handleUpdateContractField = async (contractId: string, updates: Partial<Omit<Contract, 'id' | 'contractNumber' | 'unpaidBalance'>>) => {
+  const handleUpdateContractField = async (contractId: string, updates: Partial<Omit<Contract, 'id' | 'contract_number' | 'unpaidBalance'>>) => {
     if (!supabase) return;
     try {
       const { error } = await supabase.from('contracts').update(updates).match({ id: contractId });
@@ -371,11 +367,11 @@ const App: React.FC = () => {
                   if (!supabase) return;
                   const { data: latestContract, error: latestError } = await supabase.from('contracts').select('contract_number').order('contract_number', { ascending: false }).limit(1).single();
                   if (latestError && latestError.code !== 'PGRST116') throw new Error(`Import failed: ${latestError.message}`);
-                  // FIX: (Line 374) 'latestContract' is possibly 'null'. Used optional chaining to prevent runtime error.
-                  const lastContractNumber = latestContract?.contractNumber || 0;
+                  // FIX: (Line 368) Explicitly handle possibly null `latestContract` to resolve type error.
+                  const lastContractNumber = latestContract ? latestContract.contract_number : 0;
                   let nextContractNumber = lastContractNumber + 1;
                   
-                  const contractsToInsert = newContracts.map(c => ({...c, contractNumber: nextContractNumber++}));
+                  const contractsToInsert = newContracts.map(c => ({...c, contract_number: nextContractNumber++}));
                   
                   const { error } = await supabase.from('contracts').insert(contractsToInsert as any);
                   if (error) throw new Error(`Import failed: ${error.message}`);
@@ -441,7 +437,7 @@ const App: React.FC = () => {
           onEdit={(c) => { setSelectedContract(null); setEditingContract(c); }}
           onDelete={handleDeleteContract}
           onDuplicate={(c) => {
-              const { id, contractNumber, dailyDeductions, ...template } = c;
+              const { id, contract_number, dailyDeductions, ...template } = c;
               setNewContractTemplate(template);
               setSelectedContract(null);
               setEditingContract('new');

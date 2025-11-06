@@ -1,3 +1,5 @@
+
+
 import React, { useState, useMemo, Fragment, useRef } from 'react';
 import { Contract, ContractStatus, Partner, DeductionStatus } from '../types';
 import { formatDate, formatCurrency } from '../lib/utils';
@@ -52,9 +54,8 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
         const data = await file.arrayBuffer();
         const workbook = read(data);
         const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-        // FIX: The type of jsonData was 'unknown', causing type errors when accessing its properties.
-        // Changing it to `Record<string, any>[]` correctly types it as an array of objects.
-        const jsonData: Record<string, any>[] = utils.sheet_to_json(worksheet, { cellDates: true });
+        // FIX: (Line 56) Removed `cellDates` option from `sheet_to_json` as it is not recognized by the current type definitions.
+        const jsonData: Record<string, any>[] = utils.sheet_to_json(worksheet);
 
         if (!Array.isArray(jsonData)) {
           throw new Error("엑셀 파일의 형식이 올바르지 않습니다. 객체의 배열이어야 합니다.");
@@ -87,7 +88,6 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
             let hasError = false;
 
             for (const rawHeader of Object.keys(row)) {
-                // FIX: Explicitly convert rawHeader to a string to handle cases where it is inferred as 'unknown'.
                 const header = String(rawHeader).replace(/\(.*?\)/g, '').trim();
                 const field = headerToFieldMap[header];
                 if (field) {
@@ -214,7 +214,7 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
 
       return group.contracts.some(c =>
         c.deviceName.toLowerCase().includes(lowerSearchTerm) ||
-        String(c.contractNumber).includes(searchTerm) ||
+        String(c.contract_number).includes(searchTerm) ||
         (partnerMap.get(c.partnerId) || '').toLowerCase().includes(lowerSearchTerm)
       );
     });
@@ -443,7 +443,7 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
                                   const remaining = contract.totalAmount - totalPaid;
                                   return (
                                     <tr key={contract.id} onClick={(e) => { e.stopPropagation(); onSelectContract(contract); }} className="border-b border-slate-700 last:border-b-0 hover:bg-slate-700/70 cursor-pointer transition-colors">
-                                      <td className="p-3 text-center font-mono text-indigo-400">#{contract.contractNumber}</td>
+                                      <td className="p-3 text-center font-mono text-indigo-400">#{contract.contract_number}</td>
                                       <td className="p-3 font-medium text-white">{contract.deviceName}</td>
                                       <td className="p-3">{partnerMap.get(contract.partnerId)}</td>
                                       <td className="p-3">{formatDate(contract.expiryDate)}</td>

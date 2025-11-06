@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { Contract, Partner, ShippingStatus, ProcurementStatus } from '../types';
 import { formatDate, formatCurrency } from '../lib/utils';
@@ -38,7 +39,7 @@ export const ShippingManagement: React.FC<ShippingManagementProps> = ({ contract
       .filter(c => {
         const partnerName = partnerMap.get(c.partnerId) || '';
         const lesseeName = c.lesseeName || '';
-        const contractNumberString = String(c.contractNumber);
+        const contractNumberString = String(c.contract_number);
         return (
           c.deviceName.toLowerCase().includes(searchTerm.toLowerCase()) ||
           partnerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -83,7 +84,7 @@ export const ShippingManagement: React.FC<ShippingManagementProps> = ({ contract
             <tbody>
               {filteredContracts.map(contract => (
                 <tr key={contract.id} onClick={() => onSelectContract(contract)} className="border-b border-slate-700 hover:bg-slate-700/50 cursor-pointer transition-colors">
-                  <td className="p-4 text-center font-mono text-indigo-400">#{contract.contractNumber}</td>
+                  <td className="p-4 text-center font-mono text-indigo-400">#{contract.contract_number}</td>
                   <td className="p-4">{contract.lesseeName}</td>
                   <td className="p-4 font-medium text-white">{contract.deviceName}</td>
                   <td className="p-4 text-center"><ProcurementStatusBadge status={contract.procurementStatus} /></td>

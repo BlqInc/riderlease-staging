@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Partner, PriceTier } from '../types';
 import { CloseIcon, UploadIcon } from './icons/IconComponents';
@@ -13,7 +14,7 @@ interface PartnerFormModalProps {
 
 export const PartnerFormModal: React.FC<PartnerFormModalProps> = ({ isOpen, onClose, onSave, partnerToEdit, isTemplate: isNewTemplate }) => {
   const [name, setName] = useState('');
-  const [businessNumber, setBusinessNumber] = useState('');
+  const [business_number, setBusiness_number] = useState('');
   const [address, setAddress] = useState('');
   const [isTemplate, setIsTemplate] = useState(false);
   const [priceList, setPriceList] = useState<PriceTier[]>([]);
@@ -25,13 +26,13 @@ export const PartnerFormModal: React.FC<PartnerFormModalProps> = ({ isOpen, onCl
     if (isOpen) {
         if (partnerToEdit) {
             setName(partnerToEdit.name);
-            setBusinessNumber(partnerToEdit.businessNumber || '');
+            setBusiness_number(partnerToEdit.business_number || '');
             setAddress(partnerToEdit.address || '');
             setIsTemplate(!!partnerToEdit.isTemplate);
             setPriceList(partnerToEdit.priceList || []);
         } else {
             setName('');
-            setBusinessNumber('');
+            setBusiness_number('');
             setAddress('');
             setIsTemplate(!!isNewTemplate);
             setPriceList([]);
@@ -91,7 +92,7 @@ export const PartnerFormModal: React.FC<PartnerFormModalProps> = ({ isOpen, onCl
     }
     const saveData: Omit<Partner, 'id'> & { id?: string; priceList?: PriceTier[]; isTemplate: boolean } = {
       name,
-      businessNumber,
+      business_number,
       address,
       isTemplate,
       priceList: priceList,
@@ -164,12 +165,12 @@ export const PartnerFormModal: React.FC<PartnerFormModalProps> = ({ isOpen, onCl
                  {!isTemplate && (
                      <>
                         <div>
-                            <label htmlFor="businessNumber" className="block text-sm font-medium text-slate-400 mb-2">사업자 번호</label>
+                            <label htmlFor="business_number" className="block text-sm font-medium text-slate-400 mb-2">사업자 번호</label>
                             <input 
-                                id="businessNumber"
+                                id="business_number"
                                 type="text" 
-                                value={businessNumber} 
-                                onChange={(e) => setBusinessNumber(e.target.value)} 
+                                value={business_number} 
+                                onChange={(e) => setBusiness_number(e.target.value)} 
                                 placeholder="예: 123-45-67890" 
                                 className="w-full bg-slate-700 text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" 
                             />

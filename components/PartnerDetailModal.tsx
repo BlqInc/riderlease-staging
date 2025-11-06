@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Partner, PriceTier } from '../types';
 import { CloseIcon, EditIcon, TrashIcon, PlusIcon } from './icons/IconComponents';
@@ -129,7 +130,7 @@ export const PartnerDetailModal: React.FC<PartnerDetailModalProps> = ({
           <header className="flex justify-between items-center p-6 border-b border-slate-700">
             <div>
               <h2 className="text-2xl font-bold text-white">{partner.name}</h2>
-              <p className="text-sm text-slate-400">{partner.businessNumber ? `사업자번호: ${partner.businessNumber}` : '사업자 정보 미등록'}</p>
+              <p className="text-sm text-slate-400">{partner.business_number ? `사업자번호: ${partner.business_number}` : '사업자 정보 미등록'}</p>
             </div>
              <div className="flex items-center space-x-2">
               <button onClick={() => onEdit(partner)} className="p-2 rounded-full hover:bg-slate-700 transition-colors" aria-label="파트너 정보 수정">

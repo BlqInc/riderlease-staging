@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Contract, Partner, ContractStatus, ShippingStatus, PriceTier, ProcurementStatus, SettlementStatus } from '../types';
 import { CloseIcon } from './icons/IconComponents';
@@ -5,13 +6,13 @@ import { CloseIcon } from './icons/IconComponents';
 interface ContractFormModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (contract: Omit<Contract, 'dailyDeductions' | 'unpaidBalance' | 'id' | 'contractNumber' | 'settlementDocumentUrl'> & { id?: string }) => void;
+  onSave: (contract: Omit<Contract, 'dailyDeductions' | 'unpaidBalance' | 'id' | 'contract_number' | 'settlementDocumentUrl'> & { id?: string }) => void;
   partners: Partner[];
   contractToEdit: Contract | null;
   template?: Partial<Contract>;
 }
 
-type FormState = Omit<Contract, 'dailyDeductions' | 'unpaidBalance' | 'deviceName' | 'id' | 'contractNumber'> & {
+type FormState = Omit<Contract, 'dailyDeductions' | 'unpaidBalance' | 'deviceName' | 'id' | 'contract_number'> & {
   id?: string;
   model: string;
   storage: string;
@@ -212,7 +213,7 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
         }
     });
 
-    const finalContractData: Omit<Contract, 'dailyDeductions' | 'unpaidBalance' | 'id' | 'contractNumber' | 'settlementDocumentUrl'> & { id?: string } = { ...contractData, deviceName };
+    const finalContractData: Omit<Contract, 'dailyDeductions' | 'unpaidBalance' | 'id' | 'contract_number' | 'settlementDocumentUrl'> & { id?: string } = { ...contractData, deviceName };
     
     if (!contractToEdit?.id) {
         delete finalContractData.id;
@@ -221,7 +222,7 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
     onSave(finalContractData);
   };
   
-  const title = contractToEdit ? `[#${contractToEdit.contractNumber}] 계약 정보 수정` : '신규 계약 추가';
+  const title = contractToEdit ? `[#${contractToEdit.contract_number}] 계약 정보 수정` : '신규 계약 추가';
   const isPricingLocked = !contractToEdit && !!selectedPartner?.priceList && availableModels.length > 0;
   const inputClass = "w-full bg-slate-700 text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500";
   const disabledInputClass = `${inputClass} disabled:opacity-50`;

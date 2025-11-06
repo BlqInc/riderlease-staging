@@ -1,3 +1,4 @@
+
 export enum ContractStatus {
   ACTIVE = '진행중',
   EXPIRED = '만료',
@@ -49,7 +50,7 @@ export interface PriceTier {
 export interface Partner {
   id: string;
   name: string;
-  businessNumber?: string;
+  business_number?: string;
   address?: string;
   priceList?: PriceTier[];
   isTemplate?: boolean;
@@ -57,7 +58,7 @@ export interface Partner {
 
 export interface Contract {
   id: string;
-  contractNumber: number; // 계약 고유 번호
+  contract_number: number; // 계약 고유 번호
   partnerId: string;
   deviceName: string;
   color: string;
