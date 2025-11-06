@@ -1,5 +1,4 @@
 
-
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Sidebar, View } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
@@ -44,7 +43,7 @@ const App: React.FC = () => {
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string>('');
 
   const selectedPartner = selectedPartnerId ? partners.find(p => p.id === selectedPartnerId) ?? null : null;
-  const priceTemplates = useMemo(() => partners.filter(p => p.isTemplate), [partners]);
+  const priceTemplates = useMemo(() => partners.filter(p => p.is_template), [partners]);
 
   // Client-side processing to generate daily deduction logs and calculate balances
   const processContracts = (rawContracts: Contract[]): Contract[] => {

@@ -16,18 +16,19 @@ const PartnerCard: React.FC<{ partner: Partner; onSelect: () => void; }> = ({ pa
         className="bg-slate-800 p-5 rounded-lg shadow-lg cursor-pointer transition-transform transform hover:-translate-y-1 hover:shadow-indigo-500/20 border border-slate-700 hover:border-indigo-600"
     >
         <h3 className="text-lg font-bold text-white truncate">{partner.name}</h3>
-        {partner.isTemplate ? (
+        {partner.is_template ? (
             <p className="text-xs text-indigo-400 font-semibold mt-1">단가표 템플릿</p>
         ) : (
-            <p className="text-sm text-slate-400 mt-1 truncate">{partner.businessNumber || '사업자 정보 미등록'}</p>
+            // FIX: (Line 22) Corrected property name from `businessNumber` to `business_number` to match the `Partner` type definition.
+            <p className="text-sm text-slate-400 mt-1 truncate">{partner.business_number || '사업자 정보 미등록'}</p>
         )}
         <p className="text-xs text-slate-500 mt-3">{partner.priceList?.length || 0}개 단가 항목</p>
     </div>
 );
 
 export const PartnersManagement: React.FC<PartnersManagementProps> = ({ partners, onSelectPartner, onAddPartner, onAddTemplate }) => {
-  const regularPartners = partners.filter(p => !p.isTemplate);
-  const templatePartners = partners.filter(p => p.isTemplate);
+  const regularPartners = partners.filter(p => !p.is_template);
+  const templatePartners = partners.filter(p => p.is_template);
 
   return (
     <div className="p-8">

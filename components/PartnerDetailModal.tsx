@@ -136,7 +136,7 @@ export const PartnerDetailModal: React.FC<PartnerDetailModalProps> = ({
               <button onClick={() => onEdit(partner)} className="p-2 rounded-full hover:bg-slate-700 transition-colors" aria-label="파트너 정보 수정">
                 <EditIcon className="w-6 h-6 text-yellow-400" />
               </button>
-              {!partner.isTemplate && (
+              {!partner.is_template && (
                   <button onClick={handleDelete} className="p-2 rounded-full hover:bg-slate-700 transition-colors" aria-label="파트너 삭제">
                   <TrashIcon className="w-6 h-6 text-red-500" />
                   </button>
@@ -155,7 +155,7 @@ export const PartnerDetailModal: React.FC<PartnerDetailModalProps> = ({
                
                <div className="flex justify-between items-center mb-4">
                  <h3 className="text-xl font-bold text-white">단가표 관리</h3>
-                 {!partner.isTemplate && (
+                 {!partner.is_template && (
                     <button
                         onClick={() => setIsTemplatePickerOpen(true)}
                         className="flex items-center bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition-colors whitespace-nowrap shadow-md"

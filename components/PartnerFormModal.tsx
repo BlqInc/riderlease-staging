@@ -28,7 +28,7 @@ export const PartnerFormModal: React.FC<PartnerFormModalProps> = ({ isOpen, onCl
             setName(partnerToEdit.name);
             setBusiness_number(partnerToEdit.business_number || '');
             setAddress(partnerToEdit.address || '');
-            setIsTemplate(!!partnerToEdit.isTemplate);
+            setIsTemplate(!!partnerToEdit.is_template);
             setPriceList(partnerToEdit.priceList || []);
         } else {
             setName('');
@@ -90,11 +90,11 @@ export const PartnerFormModal: React.FC<PartnerFormModalProps> = ({ isOpen, onCl
         alert('파트너사/템플릿 이름을 입력해주세요.');
         return;
     }
-    const saveData: Omit<Partner, 'id'> & { id?: string; priceList?: PriceTier[]; isTemplate: boolean } = {
+    const saveData: Omit<Partner, 'id'> & { id?: string; priceList?: PriceTier[] } = {
       name,
       business_number,
       address,
-      isTemplate,
+      is_template: isTemplate,
       priceList: priceList,
     };
     if (partnerToEdit?.id) {

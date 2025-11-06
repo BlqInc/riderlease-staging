@@ -53,7 +53,7 @@ export interface Partner {
   business_number?: string;
   address?: string;
   priceList?: PriceTier[];
-  isTemplate?: boolean;
+  is_template?: boolean;
 }
 
 export interface Contract {
