@@ -1,0 +1,4 @@
+/* 
+  This file is deprecated. 
+  All data is now fetched live from Supabase in App.tsx.
+*/
