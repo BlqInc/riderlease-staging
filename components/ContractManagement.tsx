@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, Fragment, useRef } from 'react';
-import { Contract, ContractStatus, Partner, DeductionStatus } from '../types';
+import { Contract, ContractStatus, Partner, DeductionStatus, SettlementStatus, ShippingStatus, ProcurementStatus } from '../types';
 import { formatDate, formatCurrency } from '../lib/utils';
 import { PlusIcon, ChevronDownIcon, DuplicateIcon, UserPlusIcon, UploadIcon } from './icons/IconComponents';
 import { read, utils } from 'xlsx';
@@ -10,7 +10,6 @@ interface ContractManagementProps {
   partners: Partner[];
   onSelectContract: (contract: Contract) => void;
   onAddContract: (template?: Partial<Contract>) => void;
-  // FIX: onImportContracts should expect an array of contracts
   onImportContracts: (contracts: Partial<Omit<Contract, 'id' | 'contract_number' | 'unpaid_balance' | 'daily_deductions'>>[]) => Promise<void>;
 }
 
@@ -74,7 +73,13 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
         const errors: string[] = [];
 
         jsonData.forEach((row, index) => {
-            const newContract: Partial<Contract> = {};
+            const newContract: Partial<Contract> = {
+                status: ContractStatus.ACTIVE,
+                settlement_status: SettlementStatus.NOT_READY,
+                is_lessee_contract_signed: false,
+                shipping_status: ShippingStatus.PREPARING,
+                procurement_status: ProcurementStatus.UNSECURED,
+            };
             let hasError = false;
 
             for (const rawHeader of Object.keys(row)) {
