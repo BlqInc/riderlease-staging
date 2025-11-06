@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { CalendarEvent } from '../types';
 
@@ -48,14 +49,29 @@ export const Calendar: React.FC<CalendarProps> = ({ events, onAddEvent, onEditEv
   }, [firstDayOfMonth, lastDayOfMonth]);
 
   const eventsByDate = useMemo(() => {
-    return events.reduce((acc, event) => {
-      const dateKey = event.date;
-      if (!acc[dateKey]) {
-        acc[dateKey] = [];
+    const acc: Record<string, CalendarEvent[]> = {};
+    events.forEach(event => {
+      const startDate = new Date(event.date);
+      startDate.setMinutes(startDate.getMinutes() + startDate.getTimezoneOffset());
+      
+      const endDate = event.end_date ? new Date(event.end_date) : new Date(startDate);
+      endDate.setMinutes(endDate.getMinutes() + endDate.getTimezoneOffset());
+
+      let currentDate = new Date(startDate);
+      while (currentDate <= endDate) {
+        const dateKey = currentDate.toISOString().split('T')[0];
+        if (!acc[dateKey]) {
+          acc[dateKey] = [];
+        }
+        acc[dateKey].push(event);
+        currentDate.setDate(currentDate.getDate() + 1);
       }
-      acc[dateKey].push(event);
-      return acc;
-    }, {} as Record<string, CalendarEvent[]>);
+    });
+
+    for (const dateKey in acc) {
+      acc[dateKey].sort((a, b) => (a.time || '23:59').localeCompare(b.time || '23:59'));
+    }
+    return acc;
   }, [events]);
 
   const changeMonth = (amount: number) => {
@@ -104,16 +120,19 @@ export const Calendar: React.FC<CalendarProps> = ({ events, onAddEvent, onEditEv
                       <div key={index} className={dayClasses} onClick={() => onAddEvent(dateString)}>
                           <div className={`font-semibold mb-1 ${isToday ? 'text-indigo-300' : dayOfWeek === 0 ? 'text-red-500' : dayOfWeek === 6 ? 'text-blue-500' : ''}`}>{date.getDate()}</div>
                           <div className="space-y-1 overflow-y-auto flex-grow h-0">
-                              {dayEvents.map(event => (
+                              {dayEvents.map(event => {
+                                const displayTitle = `${event.time ? `${event.time} ` : ''}[${event.user}] ${event.title}`;
+                                return (
                                   <div 
                                       key={event.id}
                                       onClick={(e) => { e.stopPropagation(); onEditEvent(event); }}
                                       className={`${event.color} text-white text-xs p-1 rounded-md truncate cursor-pointer hover:opacity-80`}
-                                      title={`[${event.user}] ${event.title}`}
+                                      title={displayTitle}
                                   >
-                                      [{event.user}] {event.title}
+                                    {displayTitle}
                                   </div>
-                              ))}
+                                )
+                              })}
                           </div>
                       </div>
                   );
