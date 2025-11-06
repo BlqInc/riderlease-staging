@@ -50,10 +50,10 @@ export interface PriceTier {
 export interface Partner {
   id: string;
   name: string;
-  business_number?: string;
-  address?: string;
-  price_list?: PriceTier[];
-  is_template?: boolean;
+  business_number: string | null;
+  address: string | null;
+  price_list: PriceTier[] | null;
+  is_template: boolean | null;
 }
 
 export interface Contract {
@@ -70,37 +70,37 @@ export interface Contract {
   daily_deductions: DailyDeductionLog[];
   unpaid_balance: number; // Client-side calculated
   status: ContractStatus;
-  contract_file_url?: string;
+  contract_file_url: string | null;
   
-  settlement_round?: number;
-  execution_date?: string;
-  shipping_date?: string;
-  shipping_company?: string;
-  tracking_number?: string;
-  shipping_status?: ShippingStatus;
-  settlement_date?: string;
-  manager_name?: string;
-  lessee_name?: string;
-  lessee_contact?: string;
-  lessee_business_number?: string;
-  lessee_business_address?: string;
+  settlement_round: number | null;
+  execution_date: string | null;
+  shipping_date: string | null;
+  shipping_company: string | null;
+  tracking_number: string | null;
+  shipping_status: ShippingStatus | null;
+  settlement_date: string | null;
+  manager_name: string | null;
+  lessee_name: string | null;
+  lessee_contact: string | null;
+  lessee_business_number: string | null;
+  lessee_business_address: string | null;
 
-  distributor_name?: string;
-  distributor_contact?: string;
-  distributor_business_number?: string;
-  distributor_address?: string;
+  distributor_name: string | null;
+  distributor_contact: string | null;
+  distributor_business_number: string | null;
+  distributor_address: string | null;
 
-  procurement_status?: ProcurementStatus;
-  procurement_source?: string;
-  procurement_cost?: number;
-  units_required?: number;
-  units_secured?: number;
-  delivery_method_to_lessee?: string;
+  procurement_status: ProcurementStatus | null;
+  procurement_source: string | null;
+  procurement_cost: number | null;
+  units_required: number | null;
+  units_secured: number | null;
+  delivery_method_to_lessee: string | null;
 
   settlement_status: SettlementStatus;
   is_lessee_contract_signed: boolean;
-  settlement_request_date?: string;
-  settlement_document_url?: string;
+  settlement_request_date: string | null;
+  settlement_document_url: string | null;
 }
 
 export interface CalendarEvent {
@@ -109,4 +109,6 @@ export interface CalendarEvent {
   date: string; // YYYY-MM-DD
   user: string;
   color: string;
+  end_date: string | null; // YYYY-MM-DD
+  time: string | null; // HH:MM
 }

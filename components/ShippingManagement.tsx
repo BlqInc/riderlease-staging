@@ -1,6 +1,5 @@
 
 import React, { useState, useMemo } from 'react';
-// FIX: Cannot find name 'Partner'.
 import { Contract, Partner, ShippingStatus, ProcurementStatus } from '../types';
 import { formatDate, formatCurrency } from '../lib/utils';
 

@@ -9,7 +9,7 @@ interface ContractFormModalProps {
   onSave: (contract: Omit<Contract, 'daily_deductions' | 'unpaid_balance' | 'id' | 'contract_number'> & { id?: string }) => void;
   partners: Partner[];
   contractToEdit: Contract | null;
-  template?: Partial<Contract>;
+  template?: Partial<Contract> | null;
 }
 
 type FormState = Omit<Contract, 'daily_deductions' | 'unpaid_balance' | 'device_name' | 'id' | 'contract_number'> & {
@@ -34,28 +34,28 @@ const initialFormState: FormState = {
   procurement_status: ProcurementStatus.UNSECURED,
   units_required: 1,
   units_secured: 0,
-  settlement_round: undefined,
-  execution_date: undefined,
-  shipping_date: undefined,
-  shipping_company: undefined,
-  tracking_number: undefined,
-  settlement_date: undefined,
-  manager_name: undefined,
-  lessee_name: undefined,
-  lessee_contact: undefined,
-  lessee_business_number: undefined,
-  lessee_business_address: undefined,
-  distributor_name: undefined,
-  distributor_contact: undefined,
-  distributor_business_number: undefined,
-  distributor_address: undefined,
-  contract_file_url: '',
-  procurement_source: undefined,
-  procurement_cost: undefined,
-  delivery_method_to_lessee: undefined,
-  settlement_request_date: undefined,
+  settlement_round: null,
+  execution_date: null,
+  shipping_date: null,
+  shipping_company: null,
+  tracking_number: null,
+  settlement_date: null,
+  manager_name: null,
+  lessee_name: null,
+  lessee_contact: null,
+  lessee_business_number: null,
+  lessee_business_address: null,
+  distributor_name: null,
+  distributor_contact: null,
+  distributor_business_number: null,
+  distributor_address: null,
+  contract_file_url: null,
+  procurement_source: null,
+  procurement_cost: null,
+  delivery_method_to_lessee: null,
+  settlement_request_date: null,
   settlement_status: SettlementStatus.NOT_READY,
-  settlement_document_url: undefined,
+  settlement_document_url: null,
 };
 
 const FormSection: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
@@ -114,9 +114,9 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
                 storage: storage,
                 contract_date: contractToEdit.contract_date.split('T')[0],
                 expiry_date: contractToEdit.expiry_date.split('T')[0],
-                execution_date: contractToEdit.execution_date?.split('T')[0],
-                shipping_date: contractToEdit.shipping_date?.split('T')[0],
-                settlement_date: contractToEdit.settlement_date?.split('T')[0],
+                execution_date: contractToEdit.execution_date?.split('T')[0] || null,
+                shipping_date: contractToEdit.shipping_date?.split('T')[0] || null,
+                settlement_date: contractToEdit.settlement_date?.split('T')[0] || null,
             });
         } else {
             const newFormState = { ...initialFormState, ...(template || {})};
@@ -172,7 +172,7 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
     const isNumeric = numericFields.includes(name);
 
     setFormState(prev => {
-        const parsedValue = isCheckbox ? checked : (isNumeric ? Number(value) : value);
+        const parsedValue = isCheckbox ? checked : (isNumeric ? (value === '' ? 0 : Number(value)) : value);
         let newState = { ...prev, [name]: parsedValue };
 
         if (name === 'partner_id') {
@@ -206,11 +206,12 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
 
     const tempObject = { ...formState, execution_date };
     const { model, storage, ...contractData } = tempObject;
-
-    Object.keys(contractData).forEach(key => {
-        const value = contractData[key as keyof typeof contractData];
-        if (value === '') {
-            delete contractData[key as keyof typeof contractData];
+    
+    // Convert empty strings to null for fields that can be null
+    Object.keys(contractData).forEach(keyStr => {
+        const key = keyStr as keyof typeof contractData;
+        if (contractData[key] === '') {
+            (contractData as any)[key] = null;
         }
     });
 
@@ -290,7 +291,7 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
             
             <FormSection title="조달 및 고객 배송 정보">
                 <FormField label="조달 상태">
-                    <select name="procurement_status" value={formState.procurement_status} onChange={handleChange} className={inputClass}>
+                    <select name="procurement_status" value={formState.procurement_status ?? ''} onChange={handleChange} className={inputClass}>
                         {Object.values(ProcurementStatus).map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                 </FormField>
@@ -314,7 +315,7 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
 
             <FormSection title="고객 배송 정보">
                 <FormField label="배송 상태">
-                    <select name="shipping_status" value={formState.shipping_status} onChange={handleChange} className={inputClass}>
+                    <select name="shipping_status" value={formState.shipping_status ?? ''} onChange={handleChange} className={inputClass}>
                         {Object.values(ShippingStatus).map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                 </FormField>

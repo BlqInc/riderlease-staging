@@ -33,7 +33,7 @@ const App: React.FC = () => {
   
   const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
   const [editingContract, setEditingContract] = useState<EditingContractState>(null);
-  const [newContractTemplate, setNewContractTemplate] = useState<Partial<Contract> | undefined>(undefined);
+  const [newContractTemplate, setNewContractTemplate] = useState<Partial<Contract> | null>(null);
 
   const [selectedPartnerId, setSelectedPartnerId] = useState<string | null>(null);
   const [editingPartner, setEditingPartner] = useState<EditingPartnerState>(null);
@@ -135,9 +135,8 @@ const App: React.FC = () => {
       if (contractsError) throw new Error(`계약 정보 로딩 실패: ${contractsError.message}`);
       if (partnersError) throw new Error(`파트너 정보 로딩 실패: ${partnersError.message}`);
       if (eventsError) throw new Error(`캘린더 정보 로딩 실패: ${eventsError.message}`);
-
-      // FIX: Cast contractsData to `any` to handle the mismatch between DB's `null` and app's `undefined` for optional fields.
-      const processedContracts = processContracts((contractsData as any) || []);
+      
+      const processedContracts = processContracts(contractsData || []);
       setContracts(processedContracts);
       setPartners(partnersData || []);
       setEvents(eventsData || []);
@@ -175,7 +174,7 @@ const App: React.FC = () => {
           ? { ...data } 
           : { ...data, contract_number };
 
-      const { error } = await supabase.from('contracts').upsert(payload as any);
+      const { error } = await supabase.from('contracts').upsert(payload);
       if (error) throw error;
       
       setEditingContract(null);
@@ -200,7 +199,7 @@ const App: React.FC = () => {
   const handleSavePartner = async (data: Omit<Partner, 'id'> & { id?: string }) => {
     if (!supabase) return;
     try {
-      const { error } = await supabase.from('partners').upsert(data as any);
+      const { error } = await supabase.from('partners').upsert(data);
       if (error) throw error;
       setEditingPartner(null);
       await fetchData();
@@ -223,10 +222,10 @@ const App: React.FC = () => {
     }
   };
 
-  const handlePriceTierUpdate = async (partnerId: string, price_list: PriceTier[]) => {
+  const handlePriceTierUpdate = async (partnerId: string, price_list: PriceTier[] | null) => {
       if (!supabase) return;
       try {
-          const { error } = await supabase.from('partners').update({ price_list: price_list } as any).match({ id: partnerId });
+          const { error } = await supabase.from('partners').update({ price_list }).match({ id: partnerId });
           if (error) throw error;
           await fetchData();
       } catch (err: any) {
@@ -261,7 +260,7 @@ const App: React.FC = () => {
   const handleUpdateContractField = async (contractId: string, updates: Partial<Omit<Contract, 'id' | 'contract_number' | 'unpaid_balance'>>) => {
     if (!supabase) return;
     try {
-      const { error } = await supabase.from('contracts').update(updates as any).match({ id: contractId });
+      const { error } = await supabase.from('contracts').update(updates).match({ id: contractId });
       if (error) throw error;
       await fetchData();
       return true;
@@ -326,7 +325,7 @@ const App: React.FC = () => {
      await handleUpdateContractField(contractId, { daily_deductions: updatedDeductions });
   };
   
-  const handleBulkUpdate = async (updates: { id: string; [key: string]: any }[]) => {
+  const handleBulkUpdate = async (updates: ({ id: string; } & Partial<Omit<Contract, 'id' | 'contract_number' | 'unpaid_balance'>>) []) => {
       if (!supabase) return;
       try {
           const { error } = await supabase.from('contracts').upsert(updates);
@@ -357,7 +356,7 @@ const App: React.FC = () => {
                 partners={partners}
                 onSelectContract={setSelectedContract}
                 onAddContract={(template) => {
-                  setNewContractTemplate(template);
+                  setNewContractTemplate(template ?? null);
                   setEditingContract('new');
                 }}
                 onImportContracts={async (newContracts) => {
@@ -370,7 +369,7 @@ const App: React.FC = () => {
                   
                   const contractsToInsert = newContracts.map(c => ({...c, contract_number: nextContractNumber++}));
                   
-                  const { error } = await supabase.from('contracts').insert(contractsToInsert as any);
+                  const { error } = await supabase.from('contracts').insert(contractsToInsert);
                   if (error) throw new Error(`Import failed: ${error.message}`);
                   await fetchData();
                 }}
@@ -448,7 +447,7 @@ const App: React.FC = () => {
           onSave={handleSaveContract}
           partners={partners.filter(p => !p.is_template)}
           contractToEdit={editingContract === 'new' ? null : editingContract}
-          template={editingContract === 'new' ? newContractTemplate : undefined}
+          template={editingContract === 'new' ? newContractTemplate : null}
         />
       )}
       {selectedPartner && (

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { CalendarEvent } from '../types';
 import { CloseIcon, TrashIcon } from './icons/IconComponents';
@@ -25,12 +26,16 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({ isOpen, onClose,
   const [title, setTitle] = useState('');
   const [user, setUser] = useState('');
   const [color, setColor] = useState(colorPalette[0]);
+  const [endDate, setEndDate] = useState<string | null>(null);
+  const [time, setTime] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
       setTitle(eventToEdit?.title || '');
       setUser(eventToEdit?.user || '');
       setColor(eventToEdit?.color || colorPalette[0]);
+      setEndDate(eventToEdit?.end_date || null);
+      setTime(eventToEdit?.time || null);
     }
   }, [eventToEdit, isOpen]);
 
@@ -47,6 +52,8 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({ isOpen, onClose,
       user,
       date: eventToEdit?.date || selectedDate,
       color: color,
+      end_date: endDate || null,
+      time: time || null,
     };
     if (eventToEdit?.id) {
         saveData.id = eventToEdit.id;
@@ -61,12 +68,14 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({ isOpen, onClose,
   }
   
   const titleText = eventToEdit && eventToEdit.id ? '일정 수정' : '새 일정 추가';
-  const dateText = new Date(eventToEdit?.date || selectedDate).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+  const startDateText = new Date(eventToEdit?.date || selectedDate).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
+  const endDateText = endDate ? new Date(endDate).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' }) : '';
+  const dateText = endDate && endDate !== (eventToEdit?.date || selectedDate) ? `${startDateText} ~ ${endDateText}` : startDateText;
 
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 animate-fade-in">
-      <div className="bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md flex flex-col">
+      <div className="bg-slate-800 rounded-2xl shadow-2xl w-full max-w-lg flex flex-col">
         <header className="flex justify-between items-center p-6 border-b border-slate-700">
           <div>
             <h2 className="text-2xl font-bold text-white">{titleText}</h2>
@@ -104,6 +113,31 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({ isOpen, onClose,
                         required
                     />
                 </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                     <div>
+                        <label htmlFor="endDate" className="block text-sm font-medium text-slate-400 mb-2">종료일 (선택)</label>
+                        <input
+                            id="endDate"
+                            type="date"
+                            value={endDate || ''}
+                            onChange={(e) => setEndDate(e.target.value || null)}
+                            min={eventToEdit?.date || selectedDate}
+                            className="w-full bg-slate-700 text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                    </div>
+                     <div>
+                        <label htmlFor="time" className="block text-sm font-medium text-slate-400 mb-2">시간 (선택)</label>
+                        <input
+                            id="time"
+                            type="time"
+                            value={time || ''}
+                            onChange={(e) => setTime(e.target.value || null)}
+                            className="w-full bg-slate-700 text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                    </div>
+                </div>
+
                 <div>
                   <label className="block text-sm font-medium text-slate-400 mb-2">표시 색상</label>
                   <div className="flex space-x-2">
