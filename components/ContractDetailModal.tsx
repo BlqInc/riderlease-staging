@@ -1,267 +1,178 @@
 
-import React, { useState } from 'react';
-import { Partner, PriceTier } from '../types';
-import { CloseIcon, EditIcon, TrashIcon, PlusIcon } from './icons/IconComponents';
-import { formatCurrency } from '../lib/utils';
-import { PriceListPickerModal } from './MasterPriceListPickerModal';
-import { TemplatePickerModal } from './TemplatePickerModal';
+import React from 'react';
+import { Contract, Partner, DeductionStatus } from '../types';
+import { formatDate, formatCurrency, getDaysDifference } from '../lib/utils';
+import { CloseIcon, EditIcon, TrashIcon, DuplicateIcon } from './icons/IconComponents';
 
-interface PartnerDetailModalProps {
+interface ContractDetailModalProps {
+  contract: Contract | null;
   partner: Partner | null;
-  priceTemplates: Partner[];
   onClose: () => void;
-  onEdit: (partner: Partner) => void;
-  onDelete: (partnerId: string) => void;
-  onAddPriceTier: (partnerId: string, priceTier: Omit<PriceTier, 'id'>) => void;
-  onUpdatePriceTier: (partnerId: string, priceTierId: string, data: Omit<PriceTier, 'id'>) => void;
-  onDeletePriceTier: (partnerId: string, priceTierId: string) => void;
-  onAddPriceTiersFromMaster: (partnerId: string, tiers: PriceTier[]) => void;
+  onEdit: (contract: Contract) => void;
+  onDelete: (contractId: string) => void;
+  onDuplicate: (contract: Contract) => void;
 }
 
-const AddPriceTierForm: React.FC<{ partnerId: string; onAdd: PartnerDetailModalProps['onAddPriceTier']}> = ({ partnerId, onAdd }) => {
-    const initialState = {
-        model: '', storage: '', duration_days: 180, total_amount: 0, daily_deduction: 0
-    };
-    const [formState, setFormState] = React.useState(initialState);
+const DetailSection: React.FC<{ title: string, children: React.ReactNode }> = ({ title, children }) => (
+    <div>
+        <h3 className="text-xl font-bold text-white mb-4 border-b border-slate-700 pb-2">{title}</h3>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-y-4 gap-x-6">
+            {children}
+        </div>
+    </div>
+);
 
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-        const { name, value } = e.target;
-        const isNumeric = ['duration_days', 'total_amount', 'daily_deduction'].includes(name);
-        setFormState(prev => ({ ...prev, [name]: isNumeric ? Number(value) : value }));
-    };
+const DetailItem: React.FC<{ label: string; value: React.ReactNode; className?: string }> = ({ label, value, className }) => (
+    <div className={`flex flex-col ${className}`}>
+        <span className="text-sm text-slate-400">{label}</span>
+        <span className="text-md font-semibold text-white">{value || 'N/A'}</span>
+    </div>
+);
 
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!formState.model || !formState.storage || !formState.total_amount) {
-            alert('기종, 용량, 총 채권액은 필수 항목입니다.');
-            return;
-        }
-        onAdd(partnerId, formState);
-        setFormState(initialState);
-    };
-    
-    return (
-        <form onSubmit={handleSubmit} className="bg-slate-900/50 p-4 rounded-lg mt-6">
-            <h4 className="text-lg font-bold text-white mb-3">신규 단가 직접 추가</h4>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                <input type="text" name="model" value={formState.model} onChange={handleChange} placeholder="기종 (예: 아이폰 16)" className="bg-slate-700 col-span-2 md:col-span-1 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
-                <input type="text" name="storage" value={formState.storage} onChange={handleChange} placeholder="용량 (예: 256GB)" className="bg-slate-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
-                <select name="duration_days" value={formState.duration_days} onChange={handleChange} className="bg-slate-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                    <option value={180}>180일</option>
-                    <option value={210}>210일</option>
-                </select>
-                <input type="number" name="total_amount" value={formState.total_amount} onChange={handleChange} placeholder="총 채권액" className="bg-slate-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
-                <input type="number" name="daily_deduction" value={formState.daily_deduction} onChange={handleChange} placeholder="일차감" className="bg-slate-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-                 <button type="submit" className="flex items-center justify-center bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-3 rounded-lg transition-colors">
-                    <PlusIcon className="w-5 h-5 mr-1" />
-                    추가
-                </button>
-            </div>
-        </form>
-    );
+const DeductionStatusBadge: React.FC<{ status: DeductionStatus }> = ({ status }) => {
+  const baseClasses = "px-2 py-1 text-xs font-semibold rounded-full";
+  const statusClasses = {
+    [DeductionStatus.PAID]: "bg-green-500/20 text-green-300",
+    [DeductionStatus.UNPAID]: "bg-red-500/20 text-red-300",
+    [DeductionStatus.PENDING]: "bg-slate-500/20 text-slate-300",
+    [DeductionStatus.PARTIAL]: "bg-yellow-500/20 text-yellow-300",
+  };
+  return <span className={`${baseClasses} ${statusClasses[status]}`}>{status}</span>;
 };
 
-export const PartnerDetailModal: React.FC<PartnerDetailModalProps> = ({ 
-    partner, 
-    priceTemplates, 
-    onClose, 
-    onEdit, 
-    onDelete, 
-    onAddPriceTier, 
-    onUpdatePriceTier, 
-    onDeletePriceTier, 
-    onAddPriceTiersFromMaster 
-}) => {
-  const [editingTierId, setEditingTierId] = useState<string | null>(null);
-  const [editedTierData, setEditedTierData] = useState<Omit<PriceTier, 'id'>>({ model: '', storage: '', duration_days: 0, total_amount: 0, daily_deduction: 0 });
-  
-  const [isTemplatePickerOpen, setIsTemplatePickerOpen] = useState(false);
-  const [isPricePickerOpen, setIsPricePickerOpen] = useState(false);
-  const [selectedTemplate, setSelectedTemplate] = useState<Partner | null>(null);
+const ContractDetailModal: React.FC<ContractDetailModalProps> = ({ contract, partner, onClose, onEdit, onDelete, onDuplicate }) => {
+  if (!contract || !partner) return null;
 
-  if (!partner) return null;
-  
-  const handleStartEdit = (tier: PriceTier) => {
-    setEditingTierId(tier.id);
-    setEditedTierData({
-        model: tier.model,
-        storage: tier.storage,
-        duration_days: tier.duration_days,
-        total_amount: tier.total_amount,
-        daily_deduction: tier.daily_deduction,
-    });
-  };
+  const totalPaid = (contract.daily_deductions || [])
+    .filter(d => d.status === DeductionStatus.PAID || d.status === DeductionStatus.PARTIAL)
+    .reduce((sum, d) => sum + d.paid_amount, 0);
 
-  const handleCancelEdit = () => {
-    setEditingTierId(null);
-  };
-  
-  const handleSaveEdit = () => {
-    if (editingTierId) {
-        onUpdatePriceTier(partner.id, editingTierId, editedTierData);
-        setEditingTierId(null);
+  const remainingPrincipal = contract.total_amount - totalPaid;
+  const isOverdue = new Date(contract.expiry_date) < new Date() && contract.status !== '정산완료';
+
+  const handleDelete = () => {
+    if (window.confirm(`[#${contract.contract_number}] '${contract.device_name}' 계약을 정말 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`)) {
+      onDelete(contract.id);
     }
   };
 
-  const handleTierChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setEditedTierData(prev => ({...prev, [name]: Number(value)}));
-  };
-
-  const handleDelete = () => {
-      onDelete(partner.id);
-  };
-  
-  const handleSelectTemplate = (template: Partner) => {
-    setSelectedTemplate(template);
-    setIsTemplatePickerOpen(false);
-    setIsPricePickerOpen(true);
-  };
-
-  const handleClosePricePicker = () => {
-    setIsPricePickerOpen(false);
-    setSelectedTemplate(null);
-  };
-
   return (
-    <>
-      <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 animate-fade-in">
-        <div className="bg-slate-800 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col">
-          <header className="flex justify-between items-center p-6 border-b border-slate-700">
-            <div>
-              <h2 className="text-2xl font-bold text-white">{partner.name}</h2>
-              <p className="text-sm text-slate-400">{partner.business_number ? `사업자번호: ${partner.business_number}` : '사업자 정보 미등록'}</p>
+    <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 animate-fade-in">
+      <div className="bg-slate-800 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col">
+        <header className="flex justify-between items-center p-6 border-b border-slate-700">
+          <div>
+            <h2 className="text-2xl font-bold text-white">[#<span className="text-indigo-400">{contract.contract_number}</span>] {contract.device_name}</h2>
+            <p className="text-slate-400">{partner.name} / {contract.color}</p>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-full hover:bg-slate-700 transition-colors">
+            <CloseIcon className="w-6 h-6 text-slate-400" />
+          </button>
+        </header>
+        
+        <main className="p-8 overflow-y-auto space-y-8">
+            <div className="bg-slate-900/50 p-6 rounded-lg grid grid-cols-2 md:grid-cols-5 gap-6">
+                <DetailItem label="총 채권액" value={formatCurrency(contract.total_amount)} />
+                <DetailItem label="총 납부액" value={<span className="text-green-400">{formatCurrency(totalPaid)}</span>} />
+                <DetailItem label="원금 기준 잔액" value={<span className="text-yellow-400">{formatCurrency(remainingPrincipal)}</span>} />
+                <DetailItem label="총 미납액 (연체 포함)" value={<span className="text-red-400">{formatCurrency(contract.unpaid_balance)}</span>} />
+                <DetailItem label="상태" value={contract.status} />
             </div>
-             <div className="flex items-center space-x-2">
-              <button onClick={() => onEdit(partner)} className="p-2 rounded-full hover:bg-slate-700 transition-colors" aria-label="파트너 정보 수정">
-                <EditIcon className="w-6 h-6 text-yellow-400" />
-              </button>
-              {!partner.is_template && (
-                  <button onClick={handleDelete} className="p-2 rounded-full hover:bg-slate-700 transition-colors" aria-label="파트너 삭제">
-                  <TrashIcon className="w-6 h-6 text-red-500" />
-                  </button>
-              )}
-              <button onClick={onClose} className="p-2 rounded-full hover:bg-slate-700 transition-colors" aria-label="닫기">
-                <CloseIcon className="w-6 h-6 text-slate-400" />
-              </button>
+
+             {isOverdue && contract.unpaid_balance > 0 && (
+                <div className="bg-red-900/50 border border-red-700 text-red-300 p-4 rounded-lg">
+                    <h4 className="font-bold">연체 정보</h4>
+                    <p>만료일이 지났으나 미납액이 남아있습니다. 총 미납액은 연체료를 포함하여 계산됩니다.</p>
+                </div>
+            )}
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div className="space-y-8">
+                    <DetailSection title="계약 정보">
+                        <DetailItem label="계약일" value={formatDate(contract.contract_date)} />
+                        <DetailItem label="실행일" value={contract.execution_date ? formatDate(contract.execution_date) : 'N/A'} />
+                        <DetailItem label="만료일" value={formatDate(contract.expiry_date)} />
+                        <DetailItem label="계약 기간" value={`${contract.duration_days}일`} />
+                        <DetailItem label="일차감" value={formatCurrency(contract.daily_deduction)} />
+                        <DetailItem label="첨부된 계약서" value={contract.contract_file_url ? <a href={contract.contract_file_url} target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline">파일 보기</a> : '없음'} />
+                    </DetailSection>
+
+                    <DetailSection title="조달 정보">
+                        <DetailItem label="조달 상태" value={contract.procurement_status} />
+                        <DetailItem label="확보/필요 수량" value={`${contract.units_secured || 0} / ${contract.units_required || 0}`} />
+                        <DetailItem label="조달처" value={contract.procurement_source} />
+                        <DetailItem label="조달 비용" value={contract.procurement_cost ? formatCurrency(contract.procurement_cost) : 'N/A'} />
+                    </DetailSection>
+
+                    <DetailSection title="배송 정보">
+                        <DetailItem label="고객 배송 방법" value={contract.delivery_method_to_lessee} />
+                        <DetailItem label="배송 상태" value={contract.shipping_status} />
+                        <DetailItem label="배송일" value={contract.shipping_date ? formatDate(contract.shipping_date) : 'N/A'} />
+                        <DetailItem label="배송 업체" value={contract.shipping_company} className="col-span-2"/>
+                        <DetailItem label="운송장 번호" value={contract.tracking_number} className="col-span-2"/>
+                    </DetailSection>
+                    
+                     <DetailSection title="정산 정보">
+                        <DetailItem label="정산 상태" value={contract.settlement_status} />
+                        <DetailItem label="고객 계약 완료" value={contract.is_lessee_contract_signed ? '완료' : '미완료'} />
+                        <DetailItem label="정산 요청일" value={contract.settlement_request_date ? formatDate(contract.settlement_request_date) : 'N/A'} />
+                        <DetailItem label="정산 완료일" value={contract.settlement_date ? formatDate(contract.settlement_date) : 'N/A'} />
+                        <DetailItem label="정산차수" value={contract.settlement_round ? `${contract.settlement_round}차` : 'N/A'} />
+                        <DetailItem label="담당자" value={contract.manager_name} />
+                    </DetailSection>
+
+                    <DetailSection title="총판 정보">
+                        <DetailItem label="총판명" value={contract.distributor_name} />
+                        <DetailItem label="연락처" value={contract.distributor_contact} />
+                        <DetailItem label="사업자번호" value={contract.distributor_business_number} />
+                        <DetailItem label="사업자주소" value={contract.distributor_address} className="col-span-2"/>
+                    </DetailSection>
+
+                    <DetailSection title="계약자 정보">
+                        <DetailItem label="계약자(라이더)" value={contract.lessee_name} />
+                        <DetailItem label="연락처" value={contract.lessee_contact} />
+                        <DetailItem label="사업자번호" value={contract.lessee_business_number} />
+                        <DetailItem label="사업자주소" value={contract.lessee_business_address} className="col-span-2"/>
+                    </DetailSection>
+                </div>
+                 <div>
+                    <h3 className="text-xl font-bold text-white mb-4">일일 차감 내역</h3>
+                    <div className="space-y-2 max-h-96 overflow-y-auto pr-2">
+                        {(contract.daily_deductions || []).length > 0 ? [...(contract.daily_deductions || [])].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(d => (
+                            <div key={d.id} className="bg-slate-700 p-3 rounded-lg flex justify-between items-center">
+                                <div>
+                                    <p className="font-semibold text-white">{formatDate(d.date)}</p>
+                                    <p className="text-sm font-semibold">{formatCurrency(d.amount)}</p>
+                                </div>
+                                <DeductionStatusBadge status={d.status} />
+                            </div>
+                        )) : <p className="text-slate-400 text-center py-4">일차감 내역이 없습니다.</p>}
+                    </div>
+                </div>
             </div>
-          </header>
-          
-          <main className="p-6 overflow-y-auto">
-               <div className="bg-slate-900/50 p-4 rounded-lg mb-6">
-                  <h3 className="font-bold text-white mb-2">사업자 정보</h3>
-                  <p className="text-slate-300">주소: {partner.address || 'N/A'}</p>
-               </div>
-               
-               <div className="flex justify-between items-center mb-4">
-                 <h3 className="text-xl font-bold text-white">단가표 관리</h3>
-                 {!partner.is_template && (
-                    <button
-                        onClick={() => setIsTemplatePickerOpen(true)}
-                        className="flex items-center bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition-colors whitespace-nowrap shadow-md"
-                    >
-                       <PlusIcon className="w-5 h-5 mr-2" />
-                        템플릿에서 가져오기
-                    </button>
-                 )}
-               </div>
-
-              <div className="bg-slate-800 rounded-lg shadow-inner overflow-hidden">
-                  <div className="overflow-x-auto max-h-[40vh]">
-                      <table className="w-full text-left">
-                          <thead className="bg-slate-700/50 sticky top-0">
-                              <tr>
-                                  <th className="p-3 font-semibold text-slate-400">기종</th>
-                                  <th className="p-3 font-semibold text-slate-400">용량</th>
-                                  <th className="p-3 font-semibold text-slate-400">기간</th>
-                                  <th className="p-3 font-semibold text-slate-400 text-right">총 채권액</th>
-                                  <th className="p-3 font-semibold text-slate-400 text-right">일차감</th>
-                                  <th className="p-3 font-semibold text-slate-400 text-center">작업</th>
-                              </tr>
-                          </thead>
-                          <tbody>
-                          {(partner.price_list && partner.price_list.length > 0) ? partner.price_list.map(pt => (
-                              <tr key={pt.id} className="border-b border-slate-700">
-                                  {editingTierId === pt.id ? (
-                                      <>
-                                          <td className="p-3 font-medium text-white">{pt.model}</td>
-                                          <td className="p-3">{pt.storage}</td>
-                                          <td className="p-3">{pt.duration_days}일</td>
-                                          <td className="p-2 text-right">
-                                              <input type="number" name="total_amount" value={editedTierData.total_amount} onChange={handleTierChange} className="bg-slate-600 text-white w-28 rounded px-2 py-1 text-right focus:outline-none focus:ring-2 focus:ring-indigo-500"/>
-                                          </td>
-                                          <td className="p-2 text-right">
-                                              <input type="number" name="daily_deduction" value={editedTierData.daily_deduction} onChange={handleTierChange} className="bg-slate-600 text-white w-24 rounded px-2 py-1 text-right focus:outline-none focus:ring-2 focus:ring-indigo-500"/>
-                                          </td>
-                                          <td className="p-3 text-center">
-                                              <div className="flex justify-center space-x-2">
-                                                  <button onClick={handleSaveEdit} className="text-green-400 hover:text-green-300 font-bold py-1 px-2 text-sm">저장</button>
-                                                  <button onClick={handleCancelEdit} className="text-slate-400 hover:text-slate-300 font-bold py-1 px-2 text-sm">취소</button>
-                                              </div>
-                                          </td>
-                                      </>
-                                  ) : (
-                                      <>
-                                          <td className="p-3 font-medium text-white">{pt.model}</td>
-                                          <td className="p-3">{pt.storage}</td>
-                                          <td className="p-3">{pt.duration_days}일</td>
-                                          <td className="p-3 text-right">{formatCurrency(pt.total_amount)}</td>
-                                          <td className="p-3 text-right text-yellow-400">{formatCurrency(pt.daily_deduction)}</td>
-                                          <td className="p-3 text-center">
-                                              <div className="flex justify-center space-x-2">
-                                                  <button onClick={() => handleStartEdit(pt)} className="p-1 text-yellow-500 hover:text-yellow-400" title="단가 수정">
-                                                      <EditIcon className="w-5 h-5"/>
-                                                  </button>
-                                                  <button onClick={() => onDeletePriceTier(partner.id, pt.id)} className="p-1 text-red-500 hover:text-red-400" title="단가 삭제">
-                                                      <TrashIcon className="w-5 h-5"/>
-                                                  </button>
-                                              </div>
-                                          </td>
-                                      </>
-                                  )}
-                              </tr>
-                          )) : (
-                              <tr>
-                                  <td colSpan={6} className="p-8 text-center text-slate-400">등록된 단가표가 없습니다.</td>
-                              </tr>
-                          )}
-                          </tbody>
-                      </table>
-                  </div>
-              </div>
-
-              <AddPriceTierForm partnerId={partner.id} onAdd={onAddPriceTier} />
-          </main>
-          
-          <footer className="p-6 mt-auto border-t border-slate-700 bg-slate-800/50 flex justify-end">
-              <button onClick={onClose} className="bg-slate-600 hover:bg-slate-700 text-white font-bold py-2 px-6 rounded-lg transition-colors">
-                  닫기
-              </button>
-          </footer>
-        </div>
+        </main>
+        
+        <footer className="p-6 mt-auto border-t border-slate-700 bg-slate-800/50 flex justify-between items-center">
+            <button onClick={handleDelete} className="flex items-center bg-red-600/80 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition-colors">
+                <TrashIcon className="w-5 h-5 mr-2" />
+                삭제
+            </button>
+            <div className="flex space-x-4">
+                <button onClick={() => onDuplicate(contract)} className="flex items-center bg-sky-600 hover:bg-sky-700 text-white font-bold py-2 px-4 rounded-lg transition-colors">
+                    <DuplicateIcon className="w-5 h-5 mr-2" />
+                    복제
+                </button>
+                <button onClick={() => onEdit(contract)} className="flex items-center bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded-lg transition-colors">
+                    <EditIcon className="w-5 h-5 mr-2" />
+                    수정
+                </button>
+                <button onClick={onClose} className="bg-slate-600 hover:bg-slate-700 text-white font-bold py-2 px-4 rounded-lg transition-colors">
+                    닫기
+                </button>
+            </div>
+        </footer>
       </div>
-      
-      {isTemplatePickerOpen && (
-        <TemplatePickerModal
-          isOpen={isTemplatePickerOpen}
-          onClose={() => setIsTemplatePickerOpen(false)}
-          templates={priceTemplates}
-          onSelect={handleSelectTemplate}
-        />
-      )}
-
-      {isPricePickerOpen && selectedTemplate && (
-        <PriceListPickerModal
-          isOpen={isPricePickerOpen}
-          onClose={handleClosePricePicker}
-          priceList={selectedTemplate.price_list || []}
-          existingPriceList={partner.price_list || []}
-          onAddTiers={(tiers) => {
-              onAddPriceTiersFromMaster(partner.id, tiers);
-              handleClosePricePicker();
-          }}
-        />
-      )}
-    </>
+    </div>
   );
 };
+
+export default ContractDetailModal;

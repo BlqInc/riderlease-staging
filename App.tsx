@@ -8,7 +8,7 @@ import { ShippingManagement } from './components/ShippingManagement';
 import { SettlementManagement } from './components/SettlementManagement';
 import { CreditorSettlementData } from './components/CreditorSettlementData';
 import { PartnersManagement } from './components/PartnersManagement';
-import { ContractDetailModal } from './components/ContractDetailModal';
+import ContractDetailModal from './components/ContractDetailModal';
 import { ContractFormModal } from './components/ContractFormModal';
 import { PartnerDetailModal } from './components/PartnerDetailModal';
 import { PartnerFormModal } from './components/PartnerFormModal';
@@ -60,13 +60,15 @@ const App: React.FC = () => {
           const startDate = new Date(contract.execution_date);
           const expiryDate = new Date(contract.expiry_date);
           
-          const finalDeductions: DailyDeductionLog[] = [];
+          let finalDeductions: DailyDeductionLog[] = [];
           const existingDeductionsMap = new Map((contract.daily_deductions || []).map(d => [d.date, d]));
           
           let currentDate = new Date(startDate);
           currentDate.setDate(currentDate.getDate() + 1);
 
-          while (currentDate <= expiryDate) {
+          const loopEndDate = today > expiryDate ? today : expiryDate;
+
+          while (currentDate <= loopEndDate) {
               const dateString = currentDate.toISOString().split('T')[0];
               const existingDeduction = existingDeductionsMap.get(dateString);
 
@@ -134,7 +136,8 @@ const App: React.FC = () => {
       if (partnersError) throw new Error(`파트너 정보 로딩 실패: ${partnersError.message}`);
       if (eventsError) throw new Error(`캘린더 정보 로딩 실패: ${eventsError.message}`);
 
-      const processedContracts = processContracts(contractsData || []);
+      // FIX: Cast contractsData to `any` to handle the mismatch between DB's `null` and app's `undefined` for optional fields.
+      const processedContracts = processContracts((contractsData as any) || []);
       setContracts(processedContracts);
       setPartners(partnersData || []);
       setEvents(eventsData || []);
@@ -172,7 +175,7 @@ const App: React.FC = () => {
           ? { ...data } 
           : { ...data, contract_number };
 
-      const { error } = await supabase.from('contracts').upsert(payload);
+      const { error } = await supabase.from('contracts').upsert(payload as any);
       if (error) throw error;
       
       setEditingContract(null);
@@ -197,7 +200,7 @@ const App: React.FC = () => {
   const handleSavePartner = async (data: Omit<Partner, 'id'> & { id?: string }) => {
     if (!supabase) return;
     try {
-      const { error } = await supabase.from('partners').upsert(data);
+      const { error } = await supabase.from('partners').upsert(data as any);
       if (error) throw error;
       setEditingPartner(null);
       await fetchData();
@@ -208,7 +211,7 @@ const App: React.FC = () => {
 
   const handleDeletePartner = async (partnerId: string) => {
     if (!supabase) return;
-    if (window.confirm('정말 이 파트너사를 삭제하시겠습니까? 연결된 계약이 있을 경우 문제가 발생할 수 있습니다.')) {
+    if (window.confirm('정말 이 파트너사/템플릿을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) {
         try {
             const { error } = await supabase.from('partners').delete().match({ id: partnerId });
             if (error) throw error;
@@ -223,7 +226,7 @@ const App: React.FC = () => {
   const handlePriceTierUpdate = async (partnerId: string, price_list: PriceTier[]) => {
       if (!supabase) return;
       try {
-          const { error } = await supabase.from('partners').update({ price_list: price_list }).match({ id: partnerId });
+          const { error } = await supabase.from('partners').update({ price_list: price_list } as any).match({ id: partnerId });
           if (error) throw error;
           await fetchData();
       } catch (err: any) {
@@ -258,7 +261,7 @@ const App: React.FC = () => {
   const handleUpdateContractField = async (contractId: string, updates: Partial<Omit<Contract, 'id' | 'contract_number' | 'unpaid_balance'>>) => {
     if (!supabase) return;
     try {
-      const { error } = await supabase.from('contracts').update(updates).match({ id: contractId });
+      const { error } = await supabase.from('contracts').update(updates as any).match({ id: contractId });
       if (error) throw error;
       await fetchData();
       return true;
@@ -367,7 +370,7 @@ const App: React.FC = () => {
                   
                   const contractsToInsert = newContracts.map(c => ({...c, contract_number: nextContractNumber++}));
                   
-                  const { error } = await supabase.from('contracts').insert(contractsToInsert);
+                  const { error } = await supabase.from('contracts').insert(contractsToInsert as any);
                   if (error) throw new Error(`Import failed: ${error.message}`);
                   await fetchData();
                 }}
@@ -443,7 +446,7 @@ const App: React.FC = () => {
           isOpen={!!editingContract}
           onClose={() => setEditingContract(null)}
           onSave={handleSaveContract}
-          partners={partners}
+          partners={partners.filter(p => !p.is_template)}
           contractToEdit={editingContract === 'new' ? null : editingContract}
           template={editingContract === 'new' ? newContractTemplate : undefined}
         />
