@@ -16,7 +16,7 @@ import { Calendar } from './components/Calendar';
 import { EventFormModal } from './components/EventFormModal';
 import { DatabaseManagement } from './components/DatabaseManagement';
 import { ConfigurationError } from './components/ConfigurationError';
-import { Contract, Partner, PriceTier, SettlementStatus, CalendarEvent, ContractStatus, DeductionStatus, DailyDeductionLog, ShippingStatus, ProcurementStatus } from './types';
+import { Contract, Partner, PriceTier, SettlementStatus, CalendarEvent, ContractStatus, DeductionStatus, DailyDeductionLog, ShippingStatus } from './types';
 import { supabase, isSupabaseConfigured } from './lib/supabaseClient';
 
 type EditingContractState = Contract | 'new' | null;
@@ -45,26 +45,24 @@ const App: React.FC = () => {
   const selectedPartner = selectedPartnerId ? partners.find(p => p.id === selectedPartnerId) ?? null : null;
   const priceTemplates = useMemo(() => partners.filter(p => p.is_template), [partners]);
 
-  // Client-side processing to generate daily deduction logs and calculate balances
-  const processContracts = (rawContracts: Contract[]): Contract[] => {
+  const processContracts = (rawContracts: Omit<Contract, 'unpaid_balance'>[]): Contract[] => {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
       return rawContracts.map(contract => {
-          if (!contract.executionDate || !contract.expiryDate) {
-              const unpaid = (contract.dailyDeductions || [])
+          if (!contract.execution_date || !contract.expiry_date) {
+              const unpaid = (contract.daily_deductions || [])
                   .filter(d => d.status !== DeductionStatus.PAID)
-                  .reduce((sum, d) => sum + (d.amount - d.paidAmount), 0);
-              return { ...contract, unpaidBalance: unpaid };
+                  .reduce((sum, d) => sum + (d.amount - d.paid_amount), 0);
+              return { ...contract, unpaid_balance: unpaid };
           }
   
-          const startDate = new Date(contract.executionDate);
-          const expiryDate = new Date(contract.expiryDate);
+          const startDate = new Date(contract.execution_date);
+          const expiryDate = new Date(contract.expiry_date);
           
           const finalDeductions: DailyDeductionLog[] = [];
-          const existingDeductionsMap = new Map((contract.dailyDeductions || []).map(d => [d.date, d]));
+          const existingDeductionsMap = new Map((contract.daily_deductions || []).map(d => [d.date, d]));
           
-          // Deductions start the day after the execution date
           let currentDate = new Date(startDate);
           currentDate.setDate(currentDate.getDate() + 1);
 
@@ -78,41 +76,41 @@ const App: React.FC = () => {
                   finalDeductions.push({
                       id: `${contract.id}-${dateString}`,
                       date: dateString,
-                      amount: contract.dailyDeduction,
+                      amount: contract.daily_deduction,
                       status: currentDate < today ? DeductionStatus.UNPAID : DeductionStatus.PENDING,
-                      paidAmount: 0,
+                      paid_amount: 0,
                   });
               }
               currentDate.setDate(currentDate.getDate() + 1);
           }
           
-          const unpaidBalance = finalDeductions
+          const unpaid_balance = finalDeductions
             .filter(d => d.status !== DeductionStatus.PAID)
-            .reduce((sum, d) => sum + (d.amount - d.paidAmount), 0);
+            .reduce((sum, d) => sum + (d.amount - d.paid_amount), 0);
 
           let finalStatus = contract.status;
-          if (contract.status === ContractStatus.ACTIVE && new Date(contract.expiryDate) < today) {
+          if (contract.status === ContractStatus.ACTIVE && new Date(contract.expiry_date) < today) {
               finalStatus = ContractStatus.EXPIRED;
           }
 
           const isSettlementReady = 
-            contract.shippingStatus === ShippingStatus.DELIVERED &&
-            contract.isLesseeContractSigned &&
-            !!contract.settlementDocumentUrl;
+            contract.shipping_status === ShippingStatus.DELIVERED &&
+            contract.is_lessee_contract_signed &&
+            !!contract.settlement_document_url;
 
-          let settlementStatus = contract.settlementStatus;
-          if (settlementStatus === SettlementStatus.NOT_READY && isSettlementReady) {
-              settlementStatus = SettlementStatus.READY;
-          } else if (settlementStatus === SettlementStatus.READY && !isSettlementReady) {
-              settlementStatus = SettlementStatus.NOT_READY;
+          let settlement_status = contract.settlement_status;
+          if (settlement_status === SettlementStatus.NOT_READY && isSettlementReady) {
+              settlement_status = SettlementStatus.READY;
+          } else if (settlement_status === SettlementStatus.READY && !isSettlementReady) {
+              settlement_status = SettlementStatus.NOT_READY;
           }
 
           return {
             ...contract,
-            dailyDeductions: finalDeductions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
-            unpaidBalance,
+            daily_deductions: finalDeductions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
+            unpaid_balance,
             status: finalStatus,
-            settlementStatus
+            settlement_status
           };
       });
   };
@@ -153,13 +151,11 @@ const App: React.FC = () => {
 
   // --- CRUD Handlers ---
 
-  const handleSaveContract = async (data: Omit<Contract, 'dailyDeductions' | 'unpaidBalance' | 'id' | 'contract_number'> & { id?: string }) => {
+  const handleSaveContract = async (data: Omit<Contract, 'daily_deductions' | 'unpaid_balance' | 'id' | 'contract_number'> & { id?: string }) => {
     if (!supabase) return;
     try {
       let contract_number = data.id ? undefined : 0;
       if (!data.id) {
-          // NOTE: This is not an atomic operation and can cause race conditions.
-          // A database sequence or trigger is the recommended approach for production.
           const { data: latestContract, error: latestError } = await supabase
               .from('contracts')
               .select('contract_number')
@@ -168,7 +164,6 @@ const App: React.FC = () => {
               .single();
 
           if (latestError && latestError.code !== 'PGRST116') throw latestError;
-          // FIX: (Line 171) Explicitly handle possibly null `latestContract` to resolve type error.
           const lastContractNumber = latestContract ? latestContract.contract_number : 0;
           contract_number = lastContractNumber + 1;
       }
@@ -177,7 +172,7 @@ const App: React.FC = () => {
           ? { ...data } 
           : { ...data, contract_number };
 
-      const { error } = await supabase.from('contracts').upsert(payload as any);
+      const { error } = await supabase.from('contracts').upsert(payload);
       if (error) throw error;
       
       setEditingContract(null);
@@ -202,7 +197,7 @@ const App: React.FC = () => {
   const handleSavePartner = async (data: Omit<Partner, 'id'> & { id?: string }) => {
     if (!supabase) return;
     try {
-      const { error } = await supabase.from('partners').upsert(data as any);
+      const { error } = await supabase.from('partners').upsert(data);
       if (error) throw error;
       setEditingPartner(null);
       await fetchData();
@@ -225,10 +220,10 @@ const App: React.FC = () => {
     }
   };
 
-  const handlePriceTierUpdate = async (partnerId: string, priceList: PriceTier[]) => {
+  const handlePriceTierUpdate = async (partnerId: string, price_list: PriceTier[]) => {
       if (!supabase) return;
       try {
-          const { error } = await supabase.from('partners').update({ priceList: priceList }).match({ id: partnerId });
+          const { error } = await supabase.from('partners').update({ price_list: price_list }).match({ id: partnerId });
           if (error) throw error;
           await fetchData();
       } catch (err: any) {
@@ -239,7 +234,7 @@ const App: React.FC = () => {
   const handleSaveEvent = async (data: Omit<CalendarEvent, 'id'> & { id?: string }) => {
     if (!supabase) return;
     try {
-      const { error } = await supabase.from('events').upsert(data as any);
+      const { error } = await supabase.from('events').upsert(data);
       if (error) throw error;
       setEditingEvent(null);
       await fetchData();
@@ -260,7 +255,7 @@ const App: React.FC = () => {
     }
   };
   
-  const handleUpdateContractField = async (contractId: string, updates: Partial<Omit<Contract, 'id' | 'contract_number' | 'unpaidBalance'>>) => {
+  const handleUpdateContractField = async (contractId: string, updates: Partial<Omit<Contract, 'id' | 'contract_number' | 'unpaid_balance'>>) => {
     if (!supabase) return;
     try {
       const { error } = await supabase.from('contracts').update(updates).match({ id: contractId });
@@ -275,63 +270,63 @@ const App: React.FC = () => {
 
   const handleAddPayment = async (contractId: string, amount: number) => {
       const contract = contracts.find(c => c.id === contractId);
-      if (!contract || !contract.dailyDeductions) return;
+      if (!contract || !contract.daily_deductions) return;
 
       let remainingAmount = amount;
-      const updatedDeductions = contract.dailyDeductions.map(d => {
+      const updatedDeductions = contract.daily_deductions.map(d => {
           if (remainingAmount <= 0 || d.status === DeductionStatus.PAID) {
               return d;
           }
 
-          const needed = d.amount - d.paidAmount;
+          const needed = d.amount - d.paid_amount;
           const payment = Math.min(needed, remainingAmount);
           
-          const newPaidAmount = d.paidAmount + payment;
+          const newPaidAmount = d.paid_amount + payment;
           remainingAmount -= payment;
 
           const newStatus = newPaidAmount >= d.amount ? DeductionStatus.PAID : DeductionStatus.PARTIAL;
 
-          return { ...d, paidAmount: newPaidAmount, status: newStatus };
+          return { ...d, paid_amount: newPaidAmount, status: newStatus };
       });
       
-      await handleUpdateContractField(contractId, { dailyDeductions: updatedDeductions });
+      await handleUpdateContractField(contractId, { daily_deductions: updatedDeductions });
   };
   
   const handleSettleDeduction = async (contractId: string, deductionId: string) => {
     const contract = contracts.find(c => c.id === contractId);
-    if (!contract || !contract.dailyDeductions) return;
+    if (!contract || !contract.daily_deductions) return;
 
-    const updatedDeductions = contract.dailyDeductions.map(d => {
+    const updatedDeductions = contract.daily_deductions.map(d => {
         if (d.id === deductionId) {
-            return { ...d, status: DeductionStatus.PAID, paidAmount: d.amount };
+            return { ...d, status: DeductionStatus.PAID, paid_amount: d.amount };
         }
         return d;
     });
-    await handleUpdateContractField(contractId, { dailyDeductions: updatedDeductions });
+    await handleUpdateContractField(contractId, { daily_deductions: updatedDeductions });
   };
   
   const handleCancelDeduction = async (contractId: string, deductionId: string) => {
     const contract = contracts.find(c => c.id === contractId);
-    if (!contract || !contract.dailyDeductions) return;
+    if (!contract || !contract.daily_deductions) return;
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const updatedDeductions = contract.dailyDeductions.map(d => {
+    const updatedDeductions = contract.daily_deductions.map(d => {
         if (d.id === deductionId) {
             const deductionDate = new Date(d.date);
             const newStatus = deductionDate < today ? DeductionStatus.UNPAID : DeductionStatus.PENDING;
-            return { ...d, status: newStatus, paidAmount: 0 };
+            return { ...d, status: newStatus, paid_amount: 0 };
         }
         return d;
     });
-     await handleUpdateContractField(contractId, { dailyDeductions: updatedDeductions });
+     await handleUpdateContractField(contractId, { daily_deductions: updatedDeductions });
   };
   
   const handleBulkUpdate = async (updates: { id: string; [key: string]: any }[]) => {
       if (!supabase) return;
       try {
-          const { error } = await supabase.from('contracts').upsert(updates as any);
+          const { error } = await supabase.from('contracts').upsert(updates);
           if (error) throw error;
           await fetchData();
       } catch (err: any) {
@@ -366,13 +361,13 @@ const App: React.FC = () => {
                   if (!supabase) return;
                   const { data: latestContract, error: latestError } = await supabase.from('contracts').select('contract_number').order('contract_number', { ascending: false }).limit(1).single();
                   if (latestError && latestError.code !== 'PGRST116') throw new Error(`Import failed: ${latestError.message}`);
-                  // FIX: (Line 368) Explicitly handle possibly null `latestContract` to resolve type error.
+                  
                   const lastContractNumber = latestContract ? latestContract.contract_number : 0;
                   let nextContractNumber = lastContractNumber + 1;
                   
                   const contractsToInsert = newContracts.map(c => ({...c, contract_number: nextContractNumber++}));
                   
-                  const { error } = await supabase.from('contracts').insert(contractsToInsert as any);
+                  const { error } = await supabase.from('contracts').insert(contractsToInsert);
                   if (error) throw new Error(`Import failed: ${error.message}`);
                   await fetchData();
                 }}
@@ -399,11 +394,11 @@ const App: React.FC = () => {
                     contracts={contracts}
                     partners={partners}
                     onSelectContract={setSelectedContract}
-                    onRequestSettlement={(id) => handleUpdateContractField(id, { settlementStatus: SettlementStatus.REQUESTED, settlementRequestDate: new Date().toISOString() })}
-                    onCompleteSettlement={(id) => handleUpdateContractField(id, { settlementStatus: SettlementStatus.COMPLETED, settlementDate: new Date().toISOString() })}
+                    onRequestSettlement={(id) => handleUpdateContractField(id, { settlement_status: SettlementStatus.REQUESTED, settlement_request_date: new Date().toISOString() })}
+                    onCompleteSettlement={(id) => handleUpdateContractField(id, { settlement_status: SettlementStatus.COMPLETED, settlement_date: new Date().toISOString() })}
                     onUpdatePrerequisites={(id, updates) => handleUpdateContractField(id, updates)}
-                    onBulkRequestSettlement={(ids) => handleBulkUpdate(ids.map(id => ({ id, settlementStatus: SettlementStatus.REQUESTED, settlementRequestDate: new Date().toISOString() })))}
-                    onBulkCompleteSettlement={(ids) => handleBulkUpdate(ids.map(id => ({ id, settlementStatus: SettlementStatus.COMPLETED, settlementDate: new Date().toISOString() })))}
+                    onBulkRequestSettlement={(ids) => handleBulkUpdate(ids.map(id => ({ id, settlement_status: SettlementStatus.REQUESTED, settlement_request_date: new Date().toISOString() })))}
+                    onBulkCompleteSettlement={(ids) => handleBulkUpdate(ids.map(id => ({ id, settlement_status: SettlementStatus.COMPLETED, settlement_date: new Date().toISOString() })))}
                 />
             )}
             {currentView === 'creditorSettlementData' && <CreditorSettlementData contracts={contracts} />}
@@ -431,12 +426,12 @@ const App: React.FC = () => {
       {selectedContract && (
         <ContractDetailModal
           contract={selectedContract}
-          partner={partners.find(p => p.id === selectedContract.partnerId) || null}
+          partner={partners.find(p => p.id === selectedContract.partner_id) || null}
           onClose={() => setSelectedContract(null)}
           onEdit={(c) => { setSelectedContract(null); setEditingContract(c); }}
           onDelete={handleDeleteContract}
           onDuplicate={(c) => {
-              const { id, contract_number, dailyDeductions, ...template } = c;
+              const { id, contract_number, daily_deductions, ...template } = c;
               setNewContractTemplate(template);
               setSelectedContract(null);
               setEditingContract('new');
@@ -464,26 +459,26 @@ const App: React.FC = () => {
                 const p = partners.find(p => p.id === partnerId);
                 if (!p) return;
                 const newTier = { ...tier, id: `pt-${Date.now()}` };
-                const updatedPriceList = [...(p.priceList || []), newTier];
+                const updatedPriceList = [...(p.price_list || []), newTier];
                 handlePriceTierUpdate(partnerId, updatedPriceList);
             }}
             onUpdatePriceTier={(partnerId, tierId, data) => {
                 const p = partners.find(p => p.id === partnerId);
-                if (!p || !p.priceList) return;
-                const updatedPriceList = p.priceList.map(t => t.id === tierId ? { ...t, ...data } : t);
+                if (!p || !p.price_list) return;
+                const updatedPriceList = p.price_list.map(t => t.id === tierId ? { ...t, ...data } : t);
                 handlePriceTierUpdate(partnerId, updatedPriceList);
             }}
             onDeletePriceTier={(partnerId, tierId) => {
                  const p = partners.find(p => p.id === partnerId);
-                if (!p || !p.priceList) return;
-                const updatedPriceList = p.priceList.filter(t => t.id !== tierId);
+                if (!p || !p.price_list) return;
+                const updatedPriceList = p.price_list.filter(t => t.id !== tierId);
                 handlePriceTierUpdate(partnerId, updatedPriceList);
             }}
             onAddPriceTiersFromMaster={(partnerId, tiers) => {
                 const p = partners.find(p => p.id === partnerId);
                 if (!p) return;
                 const newTiers = tiers.map(t => ({...t, id: `pt-${Date.now()}-${Math.random()}`}));
-                const updatedPriceList = [...(p.priceList || []), ...newTiers];
+                const updatedPriceList = [...(p.price_list || []), ...newTiers];
                 handlePriceTierUpdate(partnerId, updatedPriceList);
             }}
         />

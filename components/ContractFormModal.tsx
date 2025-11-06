@@ -6,55 +6,56 @@ import { CloseIcon } from './icons/IconComponents';
 interface ContractFormModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (contract: Omit<Contract, 'dailyDeductions' | 'unpaidBalance' | 'id' | 'contract_number' | 'settlementDocumentUrl'> & { id?: string }) => void;
+  onSave: (contract: Omit<Contract, 'daily_deductions' | 'unpaid_balance' | 'id' | 'contract_number'> & { id?: string }) => void;
   partners: Partner[];
   contractToEdit: Contract | null;
   template?: Partial<Contract>;
 }
 
-type FormState = Omit<Contract, 'dailyDeductions' | 'unpaidBalance' | 'deviceName' | 'id' | 'contract_number'> & {
+type FormState = Omit<Contract, 'daily_deductions' | 'unpaid_balance' | 'device_name' | 'id' | 'contract_number'> & {
   id?: string;
   model: string;
   storage: string;
 };
 
 const initialFormState: FormState = {
-  partnerId: '',
+  partner_id: '',
   model: '',
   storage: '',
   color: '',
-  contractDate: new Date().toISOString().split('T')[0],
-  expiryDate: '',
-  durationDays: 0,
-  totalAmount: 0,
-  dailyDeduction: 0,
+  contract_date: new Date().toISOString().split('T')[0],
+  expiry_date: '',
+  duration_days: 0,
+  total_amount: 0,
+  daily_deduction: 0,
   status: ContractStatus.ACTIVE,
-  isLesseeContractSigned: false,
-  shippingStatus: ShippingStatus.PREPARING,
-  procurementStatus: ProcurementStatus.UNSECURED,
-  unitsRequired: 1,
-  unitsSecured: 0,
-  settlementRound: undefined,
-  executionDate: undefined,
-  shippingDate: undefined,
-  shippingCompany: undefined,
-  trackingNumber: undefined,
-  settlementDate: undefined,
-  managerName: undefined,
-  lesseeName: undefined,
-  lesseeContact: undefined,
-  lesseeBusinessNumber: undefined,
-  lesseeBusinessAddress: undefined,
-  distributorName: undefined,
-  distributorContact: undefined,
-  distributorBusinessNumber: undefined,
-  distributorAddress: undefined,
-  contractFileUrl: '',
-  procurementSource: undefined,
-  procurementCost: undefined,
-  deliveryMethodToLessee: undefined,
-  settlementRequestDate: undefined,
-  settlementStatus: SettlementStatus.NOT_READY,
+  is_lessee_contract_signed: false,
+  shipping_status: ShippingStatus.PREPARING,
+  procurement_status: ProcurementStatus.UNSECURED,
+  units_required: 1,
+  units_secured: 0,
+  settlement_round: undefined,
+  execution_date: undefined,
+  shipping_date: undefined,
+  shipping_company: undefined,
+  tracking_number: undefined,
+  settlement_date: undefined,
+  manager_name: undefined,
+  lessee_name: undefined,
+  lessee_contact: undefined,
+  lessee_business_number: undefined,
+  lessee_business_address: undefined,
+  distributor_name: undefined,
+  distributor_contact: undefined,
+  distributor_business_number: undefined,
+  distributor_address: undefined,
+  contract_file_url: '',
+  procurement_source: undefined,
+  procurement_cost: undefined,
+  delivery_method_to_lessee: undefined,
+  settlement_request_date: undefined,
+  settlement_status: SettlementStatus.NOT_READY,
+  settlement_document_url: undefined,
 };
 
 const FormSection: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
@@ -76,33 +77,33 @@ const FormField: React.FC<{ label: string; children: React.ReactNode }> = ({ lab
 export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, onClose, onSave, partners, contractToEdit, template }) => {
   const [formState, setFormState] = useState<FormState>(initialFormState);
 
-  const selectedPartner = useMemo(() => partners.find(p => p.id === formState.partnerId), [partners, formState.partnerId]);
+  const selectedPartner = useMemo(() => partners.find(p => p.id === formState.partner_id), [partners, formState.partner_id]);
   
   const availableModels = useMemo(() => {
-    if (!selectedPartner?.priceList) return [];
-    return [...new Set(selectedPartner.priceList.map(p => p.model))];
+    if (!selectedPartner?.price_list) return [];
+    return [...new Set(selectedPartner.price_list.map(p => p.model))];
   }, [selectedPartner]);
 
   const availableStorages = useMemo(() => {
-    if (!selectedPartner?.priceList || !formState.model) return [];
-    const storages = selectedPartner.priceList
+    if (!selectedPartner?.price_list || !formState.model) return [];
+    const storages = selectedPartner.price_list
       .filter(p => p.model === formState.model)
       .map(p => p.storage);
     return [...new Set(storages)];
   }, [selectedPartner, formState.model]);
   
   const availableDurations = useMemo(() => {
-    if (!selectedPartner?.priceList || !formState.model || !formState.storage) return [];
-    return selectedPartner.priceList
+    if (!selectedPartner?.price_list || !formState.model || !formState.storage) return [];
+    return selectedPartner.price_list
       .filter(p => p.model === formState.model && p.storage === formState.storage)
-      .map(p => p.durationDays);
+      .map(p => p.duration_days);
   }, [selectedPartner, formState.model, formState.storage]);
 
 
   useEffect(() => {
     if (isOpen) {
         if (contractToEdit) {
-            const parts = contractToEdit.deviceName.split(' ');
+            const parts = contractToEdit.device_name.split(' ');
             const storage = parts.pop() || '';
             const model = parts.join(' ');
 
@@ -111,16 +112,16 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
                 ...contractToEdit,
                 model: model,
                 storage: storage,
-                contractDate: contractToEdit.contractDate.split('T')[0],
-                expiryDate: contractToEdit.expiryDate.split('T')[0],
-                executionDate: contractToEdit.executionDate?.split('T')[0],
-                shippingDate: contractToEdit.shippingDate?.split('T')[0],
-                settlementDate: contractToEdit.settlementDate?.split('T')[0],
+                contract_date: contractToEdit.contract_date.split('T')[0],
+                expiry_date: contractToEdit.expiry_date.split('T')[0],
+                execution_date: contractToEdit.execution_date?.split('T')[0],
+                shipping_date: contractToEdit.shipping_date?.split('T')[0],
+                settlement_date: contractToEdit.settlement_date?.split('T')[0],
             });
         } else {
             const newFormState = { ...initialFormState, ...(template || {})};
-            if (!newFormState.executionDate) {
-                newFormState.executionDate = newFormState.contractDate;
+            if (!newFormState.execution_date) {
+                newFormState.execution_date = newFormState.contract_date;
             }
             setFormState(newFormState);
         }
@@ -130,35 +131,35 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
   useEffect(() => {
     if (contractToEdit) return;
 
-    if (selectedPartner?.priceList && formState.model && formState.storage && formState.durationDays) {
-      const priceTier = selectedPartner.priceList.find(
-        p => p.model === formState.model && p.storage === formState.storage && p.durationDays === formState.durationDays
+    if (selectedPartner?.price_list && formState.model && formState.storage && formState.duration_days) {
+      const priceTier = selectedPartner.price_list.find(
+        p => p.model === formState.model && p.storage === formState.storage && p.duration_days === formState.duration_days
       );
       if (priceTier) {
         setFormState(prev => ({
           ...prev,
-          totalAmount: priceTier.totalAmount,
-          dailyDeduction: priceTier.dailyDeduction,
+          total_amount: priceTier.total_amount,
+          daily_deduction: priceTier.daily_deduction,
         }));
       }
     } else {
         setFormState(prev => ({
             ...prev,
-            totalAmount: 0,
-            dailyDeduction: 0,
+            total_amount: 0,
+            daily_deduction: 0,
         }));
     }
-  }, [formState.model, formState.storage, formState.durationDays, selectedPartner, contractToEdit]);
+  }, [formState.model, formState.storage, formState.duration_days, selectedPartner, contractToEdit]);
   
   useEffect(() => {
-    if (formState.executionDate && formState.durationDays > 0) {
-      const startDate = new Date(formState.executionDate);
-      startDate.setDate(startDate.getDate() + formState.durationDays);
-      setFormState(prev => ({...prev, expiryDate: startDate.toISOString().split('T')[0]}));
+    if (formState.execution_date && formState.duration_days > 0) {
+      const startDate = new Date(formState.execution_date);
+      startDate.setDate(startDate.getDate() + formState.duration_days);
+      setFormState(prev => ({...prev, expiry_date: startDate.toISOString().split('T')[0]}));
     } else {
-      setFormState(prev => ({...prev, expiryDate: ''}));
+      setFormState(prev => ({...prev, expiry_date: ''}));
     }
-  }, [formState.executionDate, formState.durationDays]);
+  }, [formState.execution_date, formState.duration_days]);
 
   if (!isOpen) return null;
 
@@ -167,27 +168,27 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
     const isCheckbox = type === 'checkbox';
     const checked = isCheckbox ? (e.target as HTMLInputElement).checked : undefined;
     
-    const numericFields = ['durationDays', 'totalAmount', 'dailyDeduction', 'settlementRound', 'procurementCost', 'unitsRequired', 'unitsSecured'];
+    const numericFields = ['duration_days', 'total_amount', 'daily_deduction', 'settlement_round', 'procurement_cost', 'units_required', 'units_secured'];
     const isNumeric = numericFields.includes(name);
 
     setFormState(prev => {
         const parsedValue = isCheckbox ? checked : (isNumeric ? Number(value) : value);
         let newState = { ...prev, [name]: parsedValue };
 
-        if (name === 'partnerId') {
+        if (name === 'partner_id') {
             newState.model = '';
             newState.storage = '';
-            newState.durationDays = 0;
+            newState.duration_days = 0;
         }
         if (name === 'model') {
             newState.storage = '';
-            newState.durationDays = 0;
+            newState.duration_days = 0;
         }
         if (name === 'storage') {
-           newState.durationDays = 0;
+           newState.duration_days = 0;
         }
-        if (name === 'contractDate' && !newState.executionDate) {
-            newState.executionDate = value;
+        if (name === 'contract_date' && !newState.execution_date) {
+            newState.execution_date = value;
         }
         return newState;
     });
@@ -195,15 +196,15 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formState.partnerId || !formState.model || !formState.storage || !formState.durationDays) {
+    if (!formState.partner_id || !formState.model || !formState.storage || !formState.duration_days) {
       alert('파트너사, 기종, 용량, 계약 기간은 필수 항목입니다.');
       return;
     }
-    const deviceName = `${formState.model} ${formState.storage}`;
+    const device_name = `${formState.model} ${formState.storage}`;
     
-    const executionDate = formState.executionDate || formState.contractDate;
+    const execution_date = formState.execution_date || formState.contract_date;
 
-    const tempObject = { ...formState, executionDate };
+    const tempObject = { ...formState, execution_date };
     const { model, storage, ...contractData } = tempObject;
 
     Object.keys(contractData).forEach(key => {
@@ -213,7 +214,7 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
         }
     });
 
-    const finalContractData: Omit<Contract, 'dailyDeductions' | 'unpaidBalance' | 'id' | 'contract_number' | 'settlementDocumentUrl'> & { id?: string } = { ...contractData, deviceName };
+    const finalContractData: Omit<Contract, 'daily_deductions' | 'unpaid_balance' | 'id' | 'contract_number'> & { id?: string } = { ...contractData, device_name };
     
     if (!contractToEdit?.id) {
         delete finalContractData.id;
@@ -223,7 +224,7 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
   };
   
   const title = contractToEdit ? `[#${contractToEdit.contract_number}] 계약 정보 수정` : '신규 계약 추가';
-  const isPricingLocked = !contractToEdit && !!selectedPartner?.priceList && availableModels.length > 0;
+  const isPricingLocked = !contractToEdit && !!selectedPartner?.price_list && availableModels.length > 0;
   const inputClass = "w-full bg-slate-700 text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500";
   const disabledInputClass = `${inputClass} disabled:opacity-50`;
   const readonlyInputClass = `${inputClass} bg-slate-600 text-slate-300 cursor-not-allowed`;
@@ -241,13 +242,13 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
         <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-6">
             <FormSection title="기본 정보">
                 <FormField label="파트너사">
-                    <select name="partnerId" value={formState.partnerId} onChange={handleChange} required className={inputClass}>
+                    <select name="partner_id" value={formState.partner_id} onChange={handleChange} required className={inputClass}>
                         <option value="" disabled>파트너사 선택</option>
                         {partners.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
                 </FormField>
                 <FormField label="기종">
-                    <select name="model" value={formState.model} onChange={handleChange} required disabled={!formState.partnerId} className={disabledInputClass}>
+                    <select name="model" value={formState.model} onChange={handleChange} required disabled={!formState.partner_id} className={disabledInputClass}>
                         <option value="" disabled>기종 선택</option>
                         {availableModels.map(model => <option key={model} value={model}>{model}</option>)}
                     </select>
@@ -265,96 +266,96 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
 
             <FormSection title="계약 및 금액 정보">
                 <FormField label="계약 기간 (일)">
-                    <select name="durationDays" value={formState.durationDays} onChange={handleChange} required disabled={!formState.storage} className={disabledInputClass}>
+                    <select name="duration_days" value={formState.duration_days} onChange={handleChange} required disabled={!formState.storage} className={disabledInputClass}>
                         <option value={0} disabled>기간 선택</option>
                         {availableDurations.map(days => <option key={days} value={days}>{days}일</option>)}
                     </select>
                 </FormField>
                 <FormField label="계약일">
-                    <input type="date" name="contractDate" value={formState.contractDate} onChange={handleChange} required className={inputClass} />
+                    <input type="date" name="contract_date" value={formState.contract_date} onChange={handleChange} required className={inputClass} />
                 </FormField>
                 <FormField label="실행일 (미입력 시 계약일과 동일)">
-                    <input type="date" name="executionDate" value={formState.executionDate || ''} onChange={handleChange} className={inputClass} />
+                    <input type="date" name="execution_date" value={formState.execution_date || ''} onChange={handleChange} className={inputClass} />
                 </FormField>
                 <FormField label="만료일 (자동 계산)">
-                    <input type="date" name="expiryDate" value={formState.expiryDate} readOnly className={readonlyInputClass} />
+                    <input type="date" name="expiry_date" value={formState.expiry_date} readOnly className={readonlyInputClass} />
                 </FormField>
                  <FormField label="총 채권액 (원)">
-                      <input type="number" name="totalAmount" value={formState.totalAmount} onChange={handleChange} required readOnly={isPricingLocked} className={isPricingLocked ? readonlyInputClass : inputClass} />
+                      <input type="number" name="total_amount" value={formState.total_amount} onChange={handleChange} required readOnly={isPricingLocked} className={isPricingLocked ? readonlyInputClass : inputClass} />
                  </FormField>
                  <FormField label="일차감 (원)">
-                      <input type="number" name="dailyDeduction" value={formState.dailyDeduction} onChange={handleChange} required readOnly={isPricingLocked} className={isPricingLocked ? readonlyInputClass : inputClass} />
+                      <input type="number" name="daily_deduction" value={formState.daily_deduction} onChange={handleChange} required readOnly={isPricingLocked} className={isPricingLocked ? readonlyInputClass : inputClass} />
                  </FormField>
             </FormSection>
             
             <FormSection title="조달 및 고객 배송 정보">
                 <FormField label="조달 상태">
-                    <select name="procurementStatus" value={formState.procurementStatus} onChange={handleChange} className={inputClass}>
+                    <select name="procurement_status" value={formState.procurement_status} onChange={handleChange} className={inputClass}>
                         {Object.values(ProcurementStatus).map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                 </FormField>
                 <FormField label="조달처">
-                    <input type="text" name="procurementSource" value={formState.procurementSource || ''} onChange={handleChange} placeholder="예: KT 공식 대리점" className={inputClass} />
+                    <input type="text" name="procurement_source" value={formState.procurement_source || ''} onChange={handleChange} placeholder="예: KT 공식 대리점" className={inputClass} />
                 </FormField>
                 <FormField label="조달 비용 (원)">
-                    <input type="number" name="procurementCost" value={formState.procurementCost || ''} onChange={handleChange} className={inputClass} />
+                    <input type="number" name="procurement_cost" value={formState.procurement_cost || ''} onChange={handleChange} className={inputClass} />
                 </FormField>
                  <FormField label="확보/필요 수량">
                     <div className="flex items-center space-x-2">
-                        <input type="number" name="unitsSecured" value={formState.unitsSecured || 0} onChange={handleChange} className={inputClass} />
+                        <input type="number" name="units_secured" value={formState.units_secured || 0} onChange={handleChange} className={inputClass} />
                          <span className="text-slate-400">/</span>
-                        <input type="number" name="unitsRequired" value={formState.unitsRequired || 1} onChange={handleChange} className={inputClass} />
+                        <input type="number" name="units_required" value={formState.units_required || 1} onChange={handleChange} className={inputClass} />
                     </div>
                 </FormField>
                 <FormField label="고객 배송 방법">
-                    <input type="text" name="deliveryMethodToLessee" value={formState.deliveryMethodToLessee || ''} onChange={handleChange} placeholder="예: 택배, 퀵서비스" className={inputClass} />
+                    <input type="text" name="delivery_method_to_lessee" value={formState.delivery_method_to_lessee || ''} onChange={handleChange} placeholder="예: 택배, 퀵서비스" className={inputClass} />
                 </FormField>
             </FormSection>
 
             <FormSection title="고객 배송 정보">
                 <FormField label="배송 상태">
-                    <select name="shippingStatus" value={formState.shippingStatus} onChange={handleChange} className={inputClass}>
+                    <select name="shipping_status" value={formState.shipping_status} onChange={handleChange} className={inputClass}>
                         {Object.values(ShippingStatus).map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                 </FormField>
                 <FormField label="배송일">
-                    <input type="date" name="shippingDate" value={formState.shippingDate || ''} onChange={handleChange} className={inputClass} />
+                    <input type="date" name="shipping_date" value={formState.shipping_date || ''} onChange={handleChange} className={inputClass} />
                 </FormField>
                 <FormField label="배송 업체">
-                    <input type="text" name="shippingCompany" value={formState.shippingCompany || ''} onChange={handleChange} className={inputClass} />
+                    <input type="text" name="shipping_company" value={formState.shipping_company || ''} onChange={handleChange} className={inputClass} />
                 </FormField>
                 <FormField label="운송장 번호">
-                    <input type="text" name="trackingNumber" value={formState.trackingNumber || ''} onChange={handleChange} className={inputClass} />
+                    <input type="text" name="tracking_number" value={formState.tracking_number || ''} onChange={handleChange} className={inputClass} />
                 </FormField>
             </FormSection>
 
             <FormSection title="총판 정보 (선택)">
                 <FormField label="총판명">
-                     <input type="text" name="distributorName" value={formState.distributorName || ''} onChange={handleChange} className={inputClass} />
+                     <input type="text" name="distributor_name" value={formState.distributor_name || ''} onChange={handleChange} className={inputClass} />
                 </FormField>
                 <FormField label="연락처">
-                    <input type="text" name="distributorContact" value={formState.distributorContact || ''} onChange={handleChange} className={inputClass} />
+                    <input type="text" name="distributor_contact" value={formState.distributor_contact || ''} onChange={handleChange} className={inputClass} />
                 </FormField>
                 <FormField label="사업자번호">
-                    <input type="text" name="distributorBusinessNumber" value={formState.distributorBusinessNumber || ''} onChange={handleChange} className={inputClass} />
+                    <input type="text" name="distributor_business_number" value={formState.distributor_business_number || ''} onChange={handleChange} className={inputClass} />
                 </FormField>
                 <FormField label="사업자주소">
-                    <input type="text" name="distributorAddress" value={formState.distributorAddress || ''} onChange={handleChange} className={inputClass} />
+                    <input type="text" name="distributor_address" value={formState.distributor_address || ''} onChange={handleChange} className={inputClass} />
                 </FormField>
             </FormSection>
 
             <FormSection title="계약자(라이더) 정보">
                 <FormField label="계약자명">
-                     <input type="text" name="lesseeName" value={formState.lesseeName || ''} onChange={handleChange} className={inputClass} />
+                     <input type="text" name="lessee_name" value={formState.lessee_name || ''} onChange={handleChange} className={inputClass} />
                 </FormField>
                 <FormField label="연락처">
-                    <input type="text" name="lesseeContact" value={formState.lesseeContact || ''} onChange={handleChange} className={inputClass} />
+                    <input type="text" name="lessee_contact" value={formState.lessee_contact || ''} onChange={handleChange} className={inputClass} />
                 </FormField>
                 <FormField label="사업자번호">
-                    <input type="text" name="lesseeBusinessNumber" value={formState.lesseeBusinessNumber || ''} onChange={handleChange} className={inputClass} />
+                    <input type="text" name="lessee_business_number" value={formState.lessee_business_number || ''} onChange={handleChange} className={inputClass} />
                 </FormField>
                 <FormField label="사업자주소">
-                    <input type="text" name="lesseeBusinessAddress" value={formState.lesseeBusinessAddress || ''} onChange={handleChange} className={inputClass} />
+                    <input type="text" name="lessee_business_address" value={formState.lessee_business_address || ''} onChange={handleChange} className={inputClass} />
                 </FormField>
             </FormSection>
 
@@ -365,27 +366,27 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
                     </select>
                 </FormField>
                 <FormField label="정산차수">
-                    <input type="number" name="settlementRound" value={formState.settlementRound || ''} onChange={handleChange} className={inputClass} />
+                    <input type="number" name="settlement_round" value={formState.settlement_round || ''} onChange={handleChange} className={inputClass} />
                 </FormField>
                 <FormField label="정산일">
-                    <input type="date" name="settlementDate" value={formState.settlementDate || ''} onChange={handleChange} className={inputClass} />
+                    <input type="date" name="settlement_date" value={formState.settlement_date || ''} onChange={handleChange} className={inputClass} />
                 </FormField>
                 <FormField label="담당자">
-                    <input type="text" name="managerName" value={formState.managerName || ''} onChange={handleChange} className={inputClass} />
+                    <input type="text" name="manager_name" value={formState.manager_name || ''} onChange={handleChange} className={inputClass} />
                 </FormField>
                 <FormField label="계약서 파일 URL">
-                    <input type="text" name="contractFileUrl" value={formState.contractFileUrl || ''} onChange={handleChange} className={inputClass} />
+                    <input type="text" name="contract_file_url" value={formState.contract_file_url || ''} onChange={handleChange} className={inputClass} />
                 </FormField>
                  <div className="flex items-center pt-2">
                     <input
                         type="checkbox"
-                        id="isLesseeContractSigned"
-                        name="isLesseeContractSigned"
-                        checked={formState.isLesseeContractSigned}
+                        id="is_lessee_contract_signed"
+                        name="is_lessee_contract_signed"
+                        checked={formState.is_lessee_contract_signed}
                         onChange={handleChange}
                         className="h-4 w-4 rounded border-slate-500 bg-slate-700 text-indigo-600 focus:ring-indigo-500"
                     />
-                    <label htmlFor="isLesseeContractSigned" className="ml-2 block text-sm text-slate-300">
+                    <label htmlFor="is_lessee_contract_signed" className="ml-2 block text-sm text-slate-300">
                         고객 계약 완료 여부
                     </label>
                 </div>

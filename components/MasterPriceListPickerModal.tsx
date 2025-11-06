@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { PriceTier } from '../types';
 import { CloseIcon, PlusIcon } from './icons/IconComponents';
@@ -23,13 +24,13 @@ export const PriceListPickerModal: React.FC<PriceListPickerModalProps> = ({
 
   const existingTierKeys = useMemo(() => {
     return new Set(
-      existingPriceList.map(t => `${t.model}-${t.storage}-${t.durationDays}`)
+      existingPriceList.map(t => `${t.model}-${t.storage}-${t.duration_days}`)
     );
   }, [existingPriceList]);
 
   const availableTiers = useMemo(() => {
     return priceList.filter(tier => {
-      const key = `${tier.model}-${tier.storage}-${tier.durationDays}`;
+      const key = `${tier.model}-${tier.storage}-${tier.duration_days}`;
       const nameMatch = tier.model.toLowerCase().includes(searchTerm.toLowerCase());
       return !existingTierKeys.has(key) && nameMatch;
     });
@@ -115,9 +116,9 @@ export const PriceListPickerModal: React.FC<PriceListPickerModalProps> = ({
                         </td>
                         <td className="p-3 font-medium text-white">{tier.model}</td>
                         <td className="p-3">{tier.storage}</td>
-                        <td className="p-3">{tier.durationDays}일</td>
-                        <td className="p-3 text-right">{formatCurrency(tier.totalAmount)}</td>
-                        <td className="p-3 text-right text-yellow-400">{formatCurrency(tier.dailyDeduction)}</td>
+                        <td className="p-3">{tier.duration_days}일</td>
+                        <td className="p-3 text-right">{formatCurrency(tier.total_amount)}</td>
+                        <td className="p-3 text-right text-yellow-400">{formatCurrency(tier.daily_deduction)}</td>
                     </tr>
                     ))}
                     {availableTiers.length === 0 && (

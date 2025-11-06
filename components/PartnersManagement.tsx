@@ -19,10 +19,9 @@ const PartnerCard: React.FC<{ partner: Partner; onSelect: () => void; }> = ({ pa
         {partner.is_template ? (
             <p className="text-xs text-indigo-400 font-semibold mt-1">단가표 템플릿</p>
         ) : (
-            // FIX: (Line 22) Corrected property name from `businessNumber` to `business_number` to match the `Partner` type definition.
             <p className="text-sm text-slate-400 mt-1 truncate">{partner.business_number || '사업자 정보 미등록'}</p>
         )}
-        <p className="text-xs text-slate-500 mt-3">{partner.priceList?.length || 0}개 단가 항목</p>
+        <p className="text-xs text-slate-500 mt-3">{partner.price_list?.length || 0}개 단가 항목</p>
     </div>
 );
 

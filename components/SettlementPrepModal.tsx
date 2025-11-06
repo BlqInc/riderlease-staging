@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Contract, ShippingStatus } from '../types';
 import { CloseIcon } from './icons/IconComponents';
@@ -7,9 +8,9 @@ interface SettlementPrepModalProps {
   onClose: () => void;
   contract: Contract;
   onSave: (contractId: string, updates: { 
-    shippingStatus?: ShippingStatus; 
-    isLesseeContractSigned: boolean; 
-    settlementDocumentUrl?: string; 
+    shipping_status?: ShippingStatus; 
+    is_lessee_contract_signed: boolean; 
+    settlement_document_url?: string; 
   }) => void;
 }
 
@@ -19,14 +20,14 @@ export const SettlementPrepModal: React.FC<SettlementPrepModalProps> = ({
   contract,
   onSave,
 }) => {
-  const [shippingStatus, setShippingStatus] = useState(contract.shippingStatus || ShippingStatus.PREPARING);
-  const [isLesseeContractSigned, setIsLesseeContractSigned] = useState(contract.isLesseeContractSigned);
-  const [settlementDocumentUrl, setSettlementDocumentUrl] = useState(contract.settlementDocumentUrl || '');
+  const [shipping_status, setShippingStatus] = useState(contract.shipping_status || ShippingStatus.PREPARING);
+  const [is_lessee_contract_signed, setIsLesseeContractSigned] = useState(contract.is_lessee_contract_signed);
+  const [settlement_document_url, setSettlementDocumentUrl] = useState(contract.settlement_document_url || '');
 
   useEffect(() => {
-    setShippingStatus(contract.shippingStatus || ShippingStatus.PREPARING);
-    setIsLesseeContractSigned(contract.isLesseeContractSigned);
-    setSettlementDocumentUrl(contract.settlementDocumentUrl || '');
+    setShippingStatus(contract.shipping_status || ShippingStatus.PREPARING);
+    setIsLesseeContractSigned(contract.is_lessee_contract_signed);
+    setSettlementDocumentUrl(contract.settlement_document_url || '');
   }, [contract]);
 
   if (!isOpen) return null;
@@ -34,9 +35,9 @@ export const SettlementPrepModal: React.FC<SettlementPrepModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSave(contract.id, {
-      shippingStatus,
-      isLesseeContractSigned,
-      settlementDocumentUrl,
+      shipping_status,
+      is_lessee_contract_signed,
+      settlement_document_url,
     });
   };
 
@@ -46,7 +47,7 @@ export const SettlementPrepModal: React.FC<SettlementPrepModalProps> = ({
         <header className="flex justify-between items-center p-6 border-b border-slate-700">
           <div>
             <h2 className="text-2xl font-bold text-white">정산 준비</h2>
-            <p className="text-slate-400">{contract.lesseeName} / {contract.deviceName}</p>
+            <p className="text-slate-400">{contract.lessee_name} / {contract.device_name}</p>
           </div>
           <button onClick={onClose} className="p-2 rounded-full hover:bg-slate-700 transition-colors">
             <CloseIcon className="w-6 h-6 text-slate-400" />
@@ -56,10 +57,10 @@ export const SettlementPrepModal: React.FC<SettlementPrepModalProps> = ({
         <form onSubmit={handleSubmit}>
             <div className="p-6 space-y-6">
                 <div>
-                    <label htmlFor="shippingStatus" className="block text-sm font-medium text-slate-400 mb-2">1. 배송 상태</label>
+                    <label htmlFor="shipping_status" className="block text-sm font-medium text-slate-400 mb-2">1. 배송 상태</label>
                     <select
-                        id="shippingStatus"
-                        value={shippingStatus}
+                        id="shipping_status"
+                        value={shipping_status}
                         onChange={(e) => setShippingStatus(e.target.value as ShippingStatus)}
                         className="w-full bg-slate-700 text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     >
@@ -71,22 +72,22 @@ export const SettlementPrepModal: React.FC<SettlementPrepModalProps> = ({
                 <div className="flex items-center">
                     <input
                         type="checkbox"
-                        id="isLesseeContractSigned"
-                        checked={isLesseeContractSigned}
+                        id="is_lessee_contract_signed"
+                        checked={is_lessee_contract_signed}
                         onChange={(e) => setIsLesseeContractSigned(e.target.checked)}
                         className="h-5 w-5 rounded border-slate-500 bg-slate-700 text-indigo-600 focus:ring-indigo-500"
                     />
-                    <label htmlFor="isLesseeContractSigned" className="ml-3 block font-medium text-slate-300">
+                    <label htmlFor="is_lessee_contract_signed" className="ml-3 block font-medium text-slate-300">
                         2. 고객 계약 완료 여부
                     </label>
                 </div>
                 
                 <div>
-                    <label htmlFor="settlementDocumentUrl" className="block text-sm font-medium text-slate-400 mb-2">3. 정산서 파일 URL</label>
+                    <label htmlFor="settlement_document_url" className="block text-sm font-medium text-slate-400 mb-2">3. 정산서 파일 URL</label>
                     <input 
-                        id="settlementDocumentUrl"
+                        id="settlement_document_url"
                         type="text" 
-                        value={settlementDocumentUrl} 
+                        value={settlement_document_url} 
                         onChange={(e) => setSettlementDocumentUrl(e.target.value)} 
                         placeholder="정산서가 업로드된 URL을 입력하세요"
                         className="w-full bg-slate-700 text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" 

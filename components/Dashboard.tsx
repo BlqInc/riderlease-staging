@@ -1,7 +1,6 @@
 
-
 import React from 'react';
-import { Contract, ContractStatus, DeductionStatus, SettlementStatus } from '../types';
+import { Contract, DeductionStatus, SettlementStatus } from '../types';
 import { formatCurrency } from '../lib/utils';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
@@ -18,27 +17,27 @@ const StatCard: React.FC<{ title: string; value: string | number; description: s
 );
 
 export const Dashboard: React.FC<DashboardProps> = ({ contracts }) => {
-  const totalReceivables = contracts.reduce((sum, c) => sum + c.totalAmount, 0);
+  const totalReceivables = contracts.reduce((sum, c) => sum + c.total_amount, 0);
   const totalPaid = contracts.reduce((sum, c) => {
-      const paidDeductions = (c.dailyDeductions || [])
+      const paidDeductions = (c.daily_deductions || [])
           .filter(d => d.status === DeductionStatus.PAID)
           .reduce((deductionSum, d) => deductionSum + d.amount, 0);
       return sum + paidDeductions;
   }, 0);
-  const activeContracts = contracts.filter(c => c.status === ContractStatus.ACTIVE).length;
+  const activeContracts = contracts.filter(c => c.status === '진행중').length;
   
   const totalSettlementRequested = contracts
-    .filter(c => c.settlementStatus === SettlementStatus.REQUESTED || c.settlementStatus === SettlementStatus.COMPLETED)
-    .reduce((sum, c) => sum + c.totalAmount, 0);
+    .filter(c => c.settlement_status === SettlementStatus.REQUESTED || c.settlement_status === SettlementStatus.COMPLETED)
+    .reduce((sum, c) => sum + c.total_amount, 0);
 
 
   const chartData = contracts.map(c => {
-      const paidAmount = (c.dailyDeductions || [])
+      const paidAmount = (c.daily_deductions || [])
         .filter(d => d.status === DeductionStatus.PAID)
         .reduce((sum, d) => sum + d.amount, 0);
       return {
-          name: c.deviceName.slice(0, 10) + '...',
-          '총 채권': c.totalAmount,
+          name: c.device_name.slice(0, 10) + '...',
+          '총 채권': c.total_amount,
           '납부액': paidAmount,
       };
   });

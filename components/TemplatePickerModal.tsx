@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { Partner } from '../types';
 import { CloseIcon } from './icons/IconComponents';
@@ -56,7 +57,7 @@ export const TemplatePickerModal: React.FC<TemplatePickerModalProps> = ({
               >
                 <h3 className="font-bold text-white text-lg">{template.name}</h3>
                 <p className="text-sm text-slate-400">
-                  {template.priceList?.length || 0}개의 단가 항목 포함
+                  {template.price_list?.length || 0}개의 단가 항목 포함
                 </p>
               </div>
             ))}

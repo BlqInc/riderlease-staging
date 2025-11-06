@@ -1,20 +1,17 @@
 import { createClient } from '@supabase/supabase-js'
 import { Contract, Partner, CalendarEvent } from '../types';
 
-// Vite environment variables are exposed to the client-side code
-// if they are prefixed with `VITE_`.
-// Ensure your Vercel environment variables are named accordingly.
-// FIX: (Line 7, 8) Cast `import.meta` to `any` to access Vite environment variables without TypeScript errors.
 const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL;
 const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY;
 
+// FIX: Refactor Database types to be more explicit and correct to avoid 'never' type errors in App.tsx.
 type Database = {
   public: {
     Tables: {
       contracts: {
-        Row: Contract
-        Insert: Omit<Contract, 'id' | 'dailyDeductions' | 'unpaidBalance'>
-        Update: Partial<Omit<Contract, 'id' | 'contractNumber' | 'unpaidBalance'>>
+        Row: Omit<Contract, 'unpaid_balance'>
+        Insert: Omit<Contract, 'id' | 'unpaid_balance' | 'daily_deductions'>
+        Update: Partial<Omit<Contract, 'id' | 'unpaid_balance' | 'contract_number'>>
       }
       partners: {
         Row: Partner
@@ -32,5 +29,4 @@ type Database = {
 
 export const isSupabaseConfigured = supabaseUrl && supabaseAnonKey;
 
-// Initialize the client only if the configuration is provided
 export const supabase = isSupabaseConfigured ? createClient<Database>(supabaseUrl!, supabaseAnonKey!) : null;

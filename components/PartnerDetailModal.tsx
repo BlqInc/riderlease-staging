@@ -20,19 +20,19 @@ interface PartnerDetailModalProps {
 
 const AddPriceTierForm: React.FC<{ partnerId: string; onAdd: PartnerDetailModalProps['onAddPriceTier']}> = ({ partnerId, onAdd }) => {
     const initialState = {
-        model: '', storage: '', durationDays: 180, totalAmount: 0, dailyDeduction: 0
+        model: '', storage: '', duration_days: 180, total_amount: 0, daily_deduction: 0
     };
     const [formState, setFormState] = React.useState(initialState);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
-        const isNumeric = ['durationDays', 'totalAmount', 'dailyDeduction'].includes(name);
+        const isNumeric = ['duration_days', 'total_amount', 'daily_deduction'].includes(name);
         setFormState(prev => ({ ...prev, [name]: isNumeric ? Number(value) : value }));
     };
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!formState.model || !formState.storage || !formState.totalAmount) {
+        if (!formState.model || !formState.storage || !formState.total_amount) {
             alert('기종, 용량, 총 채권액은 필수 항목입니다.');
             return;
         }
@@ -46,12 +46,12 @@ const AddPriceTierForm: React.FC<{ partnerId: string; onAdd: PartnerDetailModalP
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 <input type="text" name="model" value={formState.model} onChange={handleChange} placeholder="기종 (예: 아이폰 16)" className="bg-slate-700 col-span-2 md:col-span-1 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
                 <input type="text" name="storage" value={formState.storage} onChange={handleChange} placeholder="용량 (예: 256GB)" className="bg-slate-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
-                <select name="durationDays" value={formState.durationDays} onChange={handleChange} className="bg-slate-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <select name="duration_days" value={formState.duration_days} onChange={handleChange} className="bg-slate-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                     <option value={180}>180일</option>
                     <option value={210}>210일</option>
                 </select>
-                <input type="number" name="totalAmount" value={formState.totalAmount} onChange={handleChange} placeholder="총 채권액" className="bg-slate-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
-                <input type="number" name="dailyDeduction" value={formState.dailyDeduction} onChange={handleChange} placeholder="일차감" className="bg-slate-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                <input type="number" name="total_amount" value={formState.total_amount} onChange={handleChange} placeholder="총 채권액" className="bg-slate-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
+                <input type="number" name="daily_deduction" value={formState.daily_deduction} onChange={handleChange} placeholder="일차감" className="bg-slate-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
                  <button type="submit" className="flex items-center justify-center bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-3 rounded-lg transition-colors">
                     <PlusIcon className="w-5 h-5 mr-1" />
                     추가
@@ -73,7 +73,7 @@ export const PartnerDetailModal: React.FC<PartnerDetailModalProps> = ({
     onAddPriceTiersFromMaster 
 }) => {
   const [editingTierId, setEditingTierId] = useState<string | null>(null);
-  const [editedTierData, setEditedTierData] = useState<Omit<PriceTier, 'id'>>({ model: '', storage: '', durationDays: 0, totalAmount: 0, dailyDeduction: 0 });
+  const [editedTierData, setEditedTierData] = useState<Omit<PriceTier, 'id'>>({ model: '', storage: '', duration_days: 0, total_amount: 0, daily_deduction: 0 });
   
   const [isTemplatePickerOpen, setIsTemplatePickerOpen] = useState(false);
   const [isPricePickerOpen, setIsPricePickerOpen] = useState(false);
@@ -86,9 +86,9 @@ export const PartnerDetailModal: React.FC<PartnerDetailModalProps> = ({
     setEditedTierData({
         model: tier.model,
         storage: tier.storage,
-        durationDays: tier.durationDays,
-        totalAmount: tier.totalAmount,
-        dailyDeduction: tier.dailyDeduction,
+        duration_days: tier.duration_days,
+        total_amount: tier.total_amount,
+        daily_deduction: tier.daily_deduction,
     });
   };
 
@@ -180,18 +180,18 @@ export const PartnerDetailModal: React.FC<PartnerDetailModalProps> = ({
                               </tr>
                           </thead>
                           <tbody>
-                          {(partner.priceList && partner.priceList.length > 0) ? partner.priceList.map(pt => (
+                          {(partner.price_list && partner.price_list.length > 0) ? partner.price_list.map(pt => (
                               <tr key={pt.id} className="border-b border-slate-700">
                                   {editingTierId === pt.id ? (
                                       <>
                                           <td className="p-3 font-medium text-white">{pt.model}</td>
                                           <td className="p-3">{pt.storage}</td>
-                                          <td className="p-3">{pt.durationDays}일</td>
+                                          <td className="p-3">{pt.duration_days}일</td>
                                           <td className="p-2 text-right">
-                                              <input type="number" name="totalAmount" value={editedTierData.totalAmount} onChange={handleTierChange} className="bg-slate-600 text-white w-28 rounded px-2 py-1 text-right focus:outline-none focus:ring-2 focus:ring-indigo-500"/>
+                                              <input type="number" name="total_amount" value={editedTierData.total_amount} onChange={handleTierChange} className="bg-slate-600 text-white w-28 rounded px-2 py-1 text-right focus:outline-none focus:ring-2 focus:ring-indigo-500"/>
                                           </td>
                                           <td className="p-2 text-right">
-                                              <input type="number" name="dailyDeduction" value={editedTierData.dailyDeduction} onChange={handleTierChange} className="bg-slate-600 text-white w-24 rounded px-2 py-1 text-right focus:outline-none focus:ring-2 focus:ring-indigo-500"/>
+                                              <input type="number" name="daily_deduction" value={editedTierData.daily_deduction} onChange={handleTierChange} className="bg-slate-600 text-white w-24 rounded px-2 py-1 text-right focus:outline-none focus:ring-2 focus:ring-indigo-500"/>
                                           </td>
                                           <td className="p-3 text-center">
                                               <div className="flex justify-center space-x-2">
@@ -204,9 +204,9 @@ export const PartnerDetailModal: React.FC<PartnerDetailModalProps> = ({
                                       <>
                                           <td className="p-3 font-medium text-white">{pt.model}</td>
                                           <td className="p-3">{pt.storage}</td>
-                                          <td className="p-3">{pt.durationDays}일</td>
-                                          <td className="p-3 text-right">{formatCurrency(pt.totalAmount)}</td>
-                                          <td className="p-3 text-right text-yellow-400">{formatCurrency(pt.dailyDeduction)}</td>
+                                          <td className="p-3">{pt.duration_days}일</td>
+                                          <td className="p-3 text-right">{formatCurrency(pt.total_amount)}</td>
+                                          <td className="p-3 text-right text-yellow-400">{formatCurrency(pt.daily_deduction)}</td>
                                           <td className="p-3 text-center">
                                               <div className="flex justify-center space-x-2">
                                                   <button onClick={() => handleStartEdit(pt)} className="p-1 text-yellow-500 hover:text-yellow-400" title="단가 수정">
@@ -254,8 +254,8 @@ export const PartnerDetailModal: React.FC<PartnerDetailModalProps> = ({
         <PriceListPickerModal
           isOpen={isPricePickerOpen}
           onClose={handleClosePricePicker}
-          priceList={selectedTemplate.priceList || []}
-          existingPriceList={partner.priceList || []}
+          priceList={selectedTemplate.price_list || []}
+          existingPriceList={partner.price_list || []}
           onAddTiers={(tiers) => {
               onAddPriceTiersFromMaster(partner.id, tiers);
               handleClosePricePicker();

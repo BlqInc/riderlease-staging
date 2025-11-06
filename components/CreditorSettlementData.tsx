@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { Contract } from '../types';
 import { formatCurrency } from '../lib/utils';
@@ -44,11 +45,11 @@ export const CreditorSettlementData: React.FC<CreditorSettlementDataProps> = ({ 
   const filteredContracts = useMemo(() => {
     return contracts.filter(c => {
       const searchMatch = 
-        (c.distributorName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (c.lesseeName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        c.deviceName.toLowerCase().includes(searchTerm.toLowerCase());
+        (c.distributor_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (c.lessee_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        c.device_name.toLowerCase().includes(searchTerm.toLowerCase());
       
-      const roundMatch = settlementRoundFilter === 'all' || String(c.settlementRound || '미지정') === settlementRoundFilter;
+      const roundMatch = settlementRoundFilter === 'all' || String(c.settlement_round || '미지정') === settlementRoundFilter;
 
       return searchMatch && roundMatch;
     });
@@ -57,8 +58,8 @@ export const CreditorSettlementData: React.FC<CreditorSettlementDataProps> = ({ 
   const settlementRounds = useMemo(() => {
     const rounds = new Set<string>();
     contracts.forEach(c => {
-        if (c.settlementRound) {
-            rounds.add(String(c.settlementRound));
+        if (c.settlement_round) {
+            rounds.add(String(c.settlement_round));
         } else {
             rounds.add('미지정');
         }
@@ -73,12 +74,12 @@ export const CreditorSettlementData: React.FC<CreditorSettlementDataProps> = ({ 
   const handleExport = () => {
     const header = ['정산차수', '총판', '계약자(라이더)', '기기명', '일차감액', '수량'];
     const rows = filteredContracts.map(c => [
-        c.settlementRound ? `${c.settlementRound}차` : '미지정',
-        c.distributorName || '',
-        c.lesseeName || '',
-        c.deviceName,
-        c.dailyDeduction,
-        c.unitsRequired || 1
+        c.settlement_round ? `${c.settlement_round}차` : '미지정',
+        c.distributor_name || '',
+        c.lessee_name || '',
+        c.device_name,
+        c.daily_deduction,
+        c.units_required || 1
     ]);
     exportToCsv(`채권사_정산데이터_${new Date().toISOString().split('T')[0]}.csv`, [header, ...rows]);
   };
@@ -133,12 +134,12 @@ export const CreditorSettlementData: React.FC<CreditorSettlementDataProps> = ({ 
                     <tbody>
                         {filteredContracts.map(contract => (
                             <tr key={contract.id} className="border-b border-slate-700 hover:bg-slate-700/50 transition-colors">
-                                <td className="p-4">{contract.settlementRound ? `${contract.settlementRound}차` : '미지정'}</td>
-                                <td className="p-4">{contract.distributorName || 'N/A'}</td>
-                                <td className="p-4 font-medium text-white">{contract.lesseeName || 'N/A'}</td>
-                                <td className="p-4">{contract.deviceName}</td>
-                                <td className="p-4 text-right text-yellow-400">{formatCurrency(contract.dailyDeduction)}</td>
-                                <td className="p-4 text-center">{contract.unitsRequired || 1}</td>
+                                <td className="p-4">{contract.settlement_round ? `${contract.settlement_round}차` : '미지정'}</td>
+                                <td className="p-4">{contract.distributor_name || 'N/A'}</td>
+                                <td className="p-4 font-medium text-white">{contract.lessee_name || 'N/A'}</td>
+                                <td className="p-4">{contract.device_name}</td>
+                                <td className="p-4 text-right text-yellow-400">{formatCurrency(contract.daily_deduction)}</td>
+                                <td className="p-4 text-center">{contract.units_required || 1}</td>
                             </tr>
                         ))}
                     </tbody>

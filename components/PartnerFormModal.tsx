@@ -7,7 +7,7 @@ import { read, utils } from 'xlsx';
 interface PartnerFormModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (partner: Omit<Partner, 'id'> & { id?: string; priceList?: PriceTier[] }) => void;
+  onSave: (partner: Omit<Partner, 'id'> & { id?: string; price_list?: PriceTier[] }) => void;
   partnerToEdit: Partner | null;
   isTemplate?: boolean;
 }
@@ -16,8 +16,8 @@ export const PartnerFormModal: React.FC<PartnerFormModalProps> = ({ isOpen, onCl
   const [name, setName] = useState('');
   const [business_number, setBusiness_number] = useState('');
   const [address, setAddress] = useState('');
-  const [isTemplate, setIsTemplate] = useState(false);
-  const [priceList, setPriceList] = useState<PriceTier[]>([]);
+  const [is_template, setIsTemplate] = useState(false);
+  const [price_list, setPriceList] = useState<PriceTier[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [importMessage, setImportMessage] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -29,7 +29,7 @@ export const PartnerFormModal: React.FC<PartnerFormModalProps> = ({ isOpen, onCl
             setBusiness_number(partnerToEdit.business_number || '');
             setAddress(partnerToEdit.address || '');
             setIsTemplate(!!partnerToEdit.is_template);
-            setPriceList(partnerToEdit.priceList || []);
+            setPriceList(partnerToEdit.price_list || []);
         } else {
             setName('');
             setBusiness_number('');
@@ -55,9 +55,8 @@ export const PartnerFormModal: React.FC<PartnerFormModalProps> = ({ isOpen, onCl
         const workbook = read(data);
         const worksheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[worksheetName];
-        // 첫 번째 행은 헤더로 간주하고 건너뜁니다 (range: 1).
         const json: any[] = utils.sheet_to_json(worksheet, {
-            header: ["model", "storage", "durationDays", "totalAmount", "dailyDeduction"],
+            header: ["model", "storage", "duration_days", "total_amount", "daily_deduction"],
             range: 1 
         });
 
@@ -65,10 +64,10 @@ export const PartnerFormModal: React.FC<PartnerFormModalProps> = ({ isOpen, onCl
             id: `pt-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             model: String(row.model || '').trim(),
             storage: String(row.storage || '').trim(),
-            durationDays: Number(row.durationDays || 0),
-            totalAmount: Number(row.totalAmount || 0),
-            dailyDeduction: Number(row.dailyDeduction || 0),
-        })).filter(tier => tier.model && tier.totalAmount > 0); // 기본 유효성 검사
+            duration_days: Number(row.duration_days || 0),
+            total_amount: Number(row.total_amount || 0),
+            daily_deduction: Number(row.daily_deduction || 0),
+        })).filter(tier => tier.model && tier.total_amount > 0);
 
         setPriceList(newPriceTiers);
         setImportMessage(`✅ ${newPriceTiers.length}개의 단가 항목을 성공적으로 불러왔습니다.`);
@@ -90,12 +89,12 @@ export const PartnerFormModal: React.FC<PartnerFormModalProps> = ({ isOpen, onCl
         alert('파트너사/템플릿 이름을 입력해주세요.');
         return;
     }
-    const saveData: Omit<Partner, 'id'> & { id?: string; priceList?: PriceTier[] } = {
+    const saveData: Omit<Partner, 'id'> & { id?: string } = {
       name,
       business_number,
       address,
-      is_template: isTemplate,
-      priceList: priceList,
+      is_template,
+      price_list,
     };
     if (partnerToEdit?.id) {
         saveData.id = partnerToEdit.id;
@@ -125,7 +124,7 @@ export const PartnerFormModal: React.FC<PartnerFormModalProps> = ({ isOpen, onCl
                         type="text" 
                         value={name} 
                         onChange={(e) => setName(e.target.value)} 
-                        placeholder={isTemplate ? "예: 아이폰 전문 단가표" : "예: BLQ 솔루션"} 
+                        placeholder={is_template ? "예: 아이폰 전문 단가표" : "예: BLQ 솔루션"} 
                         className="w-full bg-slate-700 text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" 
                         required 
                         autoFocus
@@ -162,7 +161,7 @@ export const PartnerFormModal: React.FC<PartnerFormModalProps> = ({ isOpen, onCl
                     </div>
                 )}
 
-                 {!isTemplate && (
+                 {!is_template && (
                      <>
                         <div>
                             <label htmlFor="business_number" className="block text-sm font-medium text-slate-400 mb-2">사업자 번호</label>
@@ -192,13 +191,13 @@ export const PartnerFormModal: React.FC<PartnerFormModalProps> = ({ isOpen, onCl
                  <div className="flex items-center pt-2">
                     <input
                         type="checkbox"
-                        id="isTemplate"
-                        name="isTemplate"
-                        checked={isTemplate}
+                        id="is_template"
+                        name="is_template"
+                        checked={is_template}
                         onChange={(e) => setIsTemplate(e.target.checked)}
                         className="h-4 w-4 rounded border-slate-500 bg-slate-700 text-indigo-600 focus:ring-indigo-500"
                     />
-                    <label htmlFor="isTemplate" className="ml-2 block text-sm text-slate-300">
+                    <label htmlFor="is_template" className="ml-2 block text-sm text-slate-300">
                         단가표 템플릿으로 저장
                     </label>
                 </div>

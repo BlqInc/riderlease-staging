@@ -10,7 +10,7 @@ interface SettlementManagementProps {
   onSelectContract: (contract: Contract) => void;
   onRequestSettlement: (contractId: string) => void;
   onCompleteSettlement: (contractId: string) => void;
-  onUpdatePrerequisites: (contractId: string, updates: { shippingStatus?: ShippingStatus; isLesseeContractSigned: boolean; settlementDocumentUrl?: string; }) => void;
+  onUpdatePrerequisites: (contractId: string, updates: { shipping_status?: ShippingStatus; is_lessee_contract_signed: boolean; settlement_document_url?: string; }) => void;
   onBulkRequestSettlement: (contractIds: string[]) => void;
   onBulkCompleteSettlement: (contractIds: string[]) => void;
 }
@@ -41,10 +41,9 @@ export const SettlementManagement: React.FC<SettlementManagementProps> = ({
   const partnerMap = useMemo(() => new Map(partners.map(p => [p.id, p.name])), [partners]);
 
   const filteredContracts = useMemo(() => {
-    return contracts.filter(c => c.settlementStatus === activeTab);
+    return contracts.filter(c => c.settlement_status === activeTab);
   }, [contracts, activeTab]);
   
-  // Clear selection when tab changes
   useEffect(() => {
     setSelectedIds(new Set());
   }, [activeTab]);
@@ -109,7 +108,7 @@ export const SettlementManagement: React.FC<SettlementManagementProps> = ({
                                     : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-500'
                             } whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors focus:outline-none`}
                         >
-                            {tab.label} ({contracts.filter(c => c.settlementStatus === tab.key).length})
+                            {tab.label} ({contracts.filter(c => c.settlement_status === tab.key).length})
                         </button>
                     ))}
                 </nav>
@@ -179,22 +178,22 @@ export const SettlementManagement: React.FC<SettlementManagementProps> = ({
                                         #{contract.contract_number}
                                     </span>
                                     </td>
-                                    <td className="p-4">{contract.lesseeName}</td>
-                                    <td className="p-4 font-medium text-white">{contract.deviceName}</td>
+                                    <td className="p-4">{contract.lessee_name}</td>
+                                    <td className="p-4 font-medium text-white">{contract.device_name}</td>
                                     
                                     {activeTab === SettlementStatus.NOT_READY && (
                                         <td className="p-4">
                                             <div className="flex items-center justify-center space-x-4">
                                                 <div className="flex items-center space-x-2" title="배송완료 여부">
-                                                    <CheckIcon checked={contract.shippingStatus === ShippingStatus.DELIVERED} />
+                                                    <CheckIcon checked={contract.shipping_status === ShippingStatus.DELIVERED} />
                                                     <span className="text-xs">배송</span>
                                                 </div>
                                                 <div className="flex items-center space-x-2" title="고객 계약 완료 여부">
-                                                    <CheckIcon checked={contract.isLesseeContractSigned} />
+                                                    <CheckIcon checked={contract.is_lessee_contract_signed} />
                                                     <span className="text-xs">계약</span>
                                                 </div>
                                                  <div className="flex items-center space-x-2" title="정산서 작성 여부">
-                                                    <CheckIcon checked={!!contract.settlementDocumentUrl} />
+                                                    <CheckIcon checked={!!contract.settlement_document_url} />
                                                      <span className="text-xs">정산서</span>
                                                 </div>
                                             </div>
@@ -210,10 +209,10 @@ export const SettlementManagement: React.FC<SettlementManagementProps> = ({
                                             </div>
                                         </td>
                                     )}
-                                    {activeTab === SettlementStatus.REQUESTED && <td className="p-4">{contract.settlementRequestDate ? formatDate(contract.settlementRequestDate) : 'N/A'}</td>}
-                                    {activeTab === SettlementStatus.COMPLETED && <td className="p-4">{contract.settlementDate ? formatDate(contract.settlementDate) : 'N/A'}</td>}
+                                    {activeTab === SettlementStatus.REQUESTED && <td className="p-4">{contract.settlement_request_date ? formatDate(contract.settlement_request_date) : 'N/A'}</td>}
+                                    {activeTab === SettlementStatus.COMPLETED && <td className="p-4">{contract.settlement_date ? formatDate(contract.settlement_date) : 'N/A'}</td>}
                                     
-                                    <td className="p-4 text-right">{formatCurrency(contract.totalAmount)}</td>
+                                    <td className="p-4 text-right">{formatCurrency(contract.total_amount)}</td>
                                     
                                     <td className="p-4 text-center">
                                         {activeTab === SettlementStatus.NOT_READY && (

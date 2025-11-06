@@ -35,16 +35,16 @@ export interface DailyDeductionLog {
   date: string; // YYYY-MM-DD
   amount: number;
   status: DeductionStatus;
-  paidAmount: number;
+  paid_amount: number;
 }
 
 export interface PriceTier {
   id: string;
   model: string;
   storage: string;
-  durationDays: number;
-  totalAmount: number;
-  dailyDeduction: number;
+  duration_days: number;
+  total_amount: number;
+  daily_deduction: number;
 }
 
 export interface Partner {
@@ -52,59 +52,55 @@ export interface Partner {
   name: string;
   business_number?: string;
   address?: string;
-  priceList?: PriceTier[];
+  price_list?: PriceTier[];
   is_template?: boolean;
 }
 
 export interface Contract {
   id: string;
-  contract_number: number; // 계약 고유 번호
-  partnerId: string;
-  deviceName: string;
+  contract_number: number;
+  partner_id: string;
+  device_name: string;
   color: string;
-  contractDate: string;
-  expiryDate: string;
-  durationDays: number;
-  totalAmount: number;
-  dailyDeduction: number;
-  dailyDeductions: DailyDeductionLog[];
-  unpaidBalance: number;
+  contract_date: string;
+  expiry_date: string;
+  duration_days: number;
+  total_amount: number;
+  daily_deduction: number;
+  daily_deductions: DailyDeductionLog[];
+  unpaid_balance: number; // Client-side calculated
   status: ContractStatus;
-  contractFileUrl?: string;
+  contract_file_url?: string;
   
-  // Detailed fields from Excel
-  settlementRound?: number;
-  executionDate?: string;
-  shippingDate?: string;
-  shippingCompany?: string;
-  trackingNumber?: string;
-  shippingStatus?: ShippingStatus;
-  settlementDate?: string;
-  managerName?: string; // 우리 담당자
-  lesseeName?: string; // 계약자(라이더)
-  lesseeContact?: string;
-  lesseeBusinessNumber?: string;
-  lesseeBusinessAddress?: string;
+  settlement_round?: number;
+  execution_date?: string;
+  shipping_date?: string;
+  shipping_company?: string;
+  tracking_number?: string;
+  shipping_status?: ShippingStatus;
+  settlement_date?: string;
+  manager_name?: string;
+  lessee_name?: string;
+  lessee_contact?: string;
+  lessee_business_number?: string;
+  lessee_business_address?: string;
 
-  // Distributor fields
-  distributorName?: string; // 총판 이름
-  distributorContact?: string; // 총판 연락처
-  distributorBusinessNumber?: string; // 총판 사업자번호
-  distributorAddress?: string; // 총판 주소
+  distributor_name?: string;
+  distributor_contact?: string;
+  distributor_business_number?: string;
+  distributor_address?: string;
 
-  // Procurement and delivery to lessee fields
-  procurementStatus?: ProcurementStatus;
-  procurementSource?: string; // 조달처
-  procurementCost?: number;   // 조달 비용
-  unitsRequired?: number;     // 필요 수량
-  unitsSecured?: number;      // 확보 수량
-  deliveryMethodToLessee?: string; // 고객 배송 방법 (퀵, 택배 등)
+  procurement_status?: ProcurementStatus;
+  procurement_source?: string;
+  procurement_cost?: number;
+  units_required?: number;
+  units_secured?: number;
+  delivery_method_to_lessee?: string;
 
-  // Settlement workflow fields
-  settlementStatus: SettlementStatus;
-  isLesseeContractSigned: boolean;
-  settlementRequestDate?: string;
-  settlementDocumentUrl?: string;
+  settlement_status: SettlementStatus;
+  is_lessee_contract_signed: boolean;
+  settlement_request_date?: string;
+  settlement_document_url?: string;
 }
 
 export interface CalendarEvent {

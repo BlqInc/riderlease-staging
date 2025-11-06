@@ -30,9 +30,11 @@ export const ContractsList: React.FC<ContractsListProps> = ({ contracts, partner
 
   const filteredContracts = useMemo(() => {
     return contracts.filter(c => {
-      const partnerName = partnerMap.get(c.partnerId) || '';
+      // FIX: Property 'partnerId' does not exist on type 'Contract'. Did you mean 'partner_id'?
+      const partnerName = partnerMap.get(c.partner_id) || '';
       const searchMatch = 
-        c.deviceName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        // FIX: Property 'deviceName' does not exist on type 'Contract'. Did you mean 'device_name'?
+        c.device_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         partnerName.toLowerCase().includes(searchTerm.toLowerCase());
       const statusMatch = statusFilter === 'all' || c.status === statusFilter;
       const defaultStatusMatch = !defaultStatusFilter || c.status === defaultStatusFilter;
@@ -93,16 +95,22 @@ export const ContractsList: React.FC<ContractsListProps> = ({ contracts, partner
             </thead>
             <tbody>
               {filteredContracts.map(contract => {
-                const totalPaid = (contract.dailyDeductions || [])
+                // FIX: Property 'dailyDeductions' does not exist on type 'Contract'. Did you mean 'daily_deductions'?
+                const totalPaid = (contract.daily_deductions || [])
                     .filter(d => d.status === DeductionStatus.PAID)
                     .reduce((sum, p) => sum + p.amount, 0);
-                const remaining = contract.totalAmount - totalPaid;
+                // FIX: Property 'totalAmount' does not exist on type 'Contract'. Did you mean 'total_amount'?
+                const remaining = contract.total_amount - totalPaid;
                 return (
                   <tr key={contract.id} onClick={() => onSelectContract(contract)} className="border-b border-slate-700 hover:bg-slate-700/50 cursor-pointer transition-colors">
-                    <td className="p-4">{partnerMap.get(contract.partnerId)}</td>
-                    <td className="p-4 font-medium text-white">{contract.deviceName}</td>
-                    <td className="p-4">{formatDate(contract.expiryDate)}</td>
-                    <td className="p-4">{formatCurrency(contract.totalAmount)}</td>
+                    {/* FIX: Property 'partnerId' does not exist on type 'Contract'. Did you mean 'partner_id'? */}
+                    <td className="p-4">{partnerMap.get(contract.partner_id)}</td>
+                    {/* FIX: Property 'deviceName' does not exist on type 'Contract'. Did you mean 'device_name'? */}
+                    <td className="p-4 font-medium text-white">{contract.device_name}</td>
+                    {/* FIX: Property 'expiryDate' does not exist on type 'Contract'. Did you mean 'expiry_date'? */}
+                    <td className="p-4">{formatDate(contract.expiry_date)}</td>
+                    {/* FIX: Property 'totalAmount' does not exist on type 'Contract'. Did you mean 'total_amount'? */}
+                    <td className="p-4">{formatCurrency(contract.total_amount)}</td>
                     <td className="p-4 text-yellow-400 font-semibold">{formatCurrency(remaining)}</td>
                     <td className="p-4 text-center"><StatusBadge status={contract.status} /></td>
                   </tr>

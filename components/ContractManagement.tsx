@@ -1,5 +1,4 @@
 
-
 import React, { useState, useMemo, Fragment, useRef } from 'react';
 import { Contract, ContractStatus, Partner, DeductionStatus } from '../types';
 import { formatDate, formatCurrency } from '../lib/utils';
@@ -11,13 +10,14 @@ interface ContractManagementProps {
   partners: Partner[];
   onSelectContract: (contract: Contract) => void;
   onAddContract: (template?: Partial<Contract>) => void;
-  onImportContracts: (contracts: Partial<Contract>[]) => Promise<void>;
+  // FIX: onImportContracts should expect an array of contracts
+  onImportContracts: (contracts: Partial<Omit<Contract, 'id' | 'contract_number' | 'unpaid_balance' | 'daily_deductions'>>[]) => Promise<void>;
 }
 
 interface ContractGroup {
   key: string;
-  distributorName: string;
-  lesseeName: string;
+  distributor_name: string;
+  lessee_name: string;
   contractCount: number;
   totalUnits: number;
   totalAmount: number;
@@ -54,7 +54,6 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
         const data = await file.arrayBuffer();
         const workbook = read(data);
         const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-        // FIX: (Line 56) Removed `cellDates` option from `sheet_to_json` as it is not recognized by the current type definitions.
         const jsonData: Record<string, any>[] = utils.sheet_to_json(worksheet);
 
         if (!Array.isArray(jsonData)) {
@@ -63,24 +62,15 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
         
         const partnerNameToIdMap = new Map(partners.map(p => [p.name.trim().toLowerCase(), p.id]));
         const headerToFieldMap: { [key: string]: keyof Partial<Contract> } = {
-            '파트너사명': 'partnerId',
-            '기기명': 'deviceName',
-            '색상': 'color',
-            '계약일': 'contractDate',
-            '실행일': 'executionDate',
-            '만료일': 'expiryDate',
-            '계약 기간': 'durationDays',
-            '총 채권액': 'totalAmount',
-            '일차감액': 'dailyDeduction',
-            '계약자(라이더)': 'lesseeName',
-            '계약자 연락처': 'lesseeContact',
-            '계약자 사업자번호': 'lesseeBusinessNumber',
-            '계약자 사업자주소': 'lesseeBusinessAddress',
-            '총판명': 'distributorName',
-            '필요 수량': 'unitsRequired',
+            '파트너사명': 'partner_id', '기기명': 'device_name', '색상': 'color',
+            '계약일': 'contract_date', '실행일': 'execution_date', '만료일': 'expiry_date',
+            '계약 기간': 'duration_days', '총 채권액': 'total_amount', '일차감액': 'daily_deduction',
+            '계약자(라이더)': 'lessee_name', '계약자 연락처': 'lessee_contact',
+            '계약자 사업자번호': 'lessee_business_number', '계약자 사업자주소': 'lessee_business_address',
+            '총판명': 'distributor_name', '필요 수량': 'units_required',
         };
 
-        const newContracts: Partial<Contract>[] = [];
+        const newContracts: Partial<Omit<Contract, 'id' | 'contract_number' | 'unpaid_balance' | 'daily_deductions'>>[] = [];
         const errors: string[] = [];
 
         jsonData.forEach((row, index) => {
@@ -94,16 +84,16 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
                     const value = row[rawHeader];
                     if (value === null || value === undefined) continue;
 
-                    if (field === 'partnerId') {
+                    if (field === 'partner_id') {
                         const partnerName = String(value).trim().toLowerCase();
                         const partnerId = partnerNameToIdMap.get(partnerName);
                         if (partnerId) {
-                            newContract.partnerId = partnerId;
+                            newContract.partner_id = partnerId;
                         } else {
                             errors.push(`Row ${index + 2}: 파트너사 '${String(value)}'을(를) 찾을 수 없습니다.`);
                             hasError = true;
                         }
-                    } else if (['contractDate', 'executionDate', 'expiryDate'].includes(field)) {
+                    } else if (['contract_date', 'execution_date', 'expiry_date'].includes(field)) {
                         let formattedDate: string | null = null;
                         if (value instanceof Date && !isNaN(value.getTime())) {
                             value.setMinutes(value.getMinutes() - value.getTimezoneOffset());
@@ -127,7 +117,7 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
                             errors.push(`Row ${index + 2}: '${header}'의 날짜 형식이 올바르지 않습니다. (YYYY-MM-DD 필요)`);
                             hasError = true;
                         }
-                    } else if (['durationDays', 'totalAmount', 'dailyDeduction', 'unitsRequired'].includes(field)) {
+                    } else if (['duration_days', 'total_amount', 'daily_deduction', 'units_required'].includes(field)) {
                         const numValue = Number(value);
                         if (!isNaN(numValue)) {
                             (newContract as any)[field] = numValue;
@@ -142,11 +132,11 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
                 }
             }
             
-            if (!newContract.partnerId) {
+            if (!newContract.partner_id) {
                 if (!hasError) errors.push(`Row ${index + 2}: '파트너사명'이 비어있거나 유효하지 않습니다.`);
                 hasError = true;
             }
-            if (!newContract.deviceName) {
+            if (!newContract.device_name) {
                 errors.push(`Row ${index + 2}: '기기명'이 비어있습니다.`);
                 hasError = true;
             }
@@ -174,17 +164,16 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
     }
   };
 
-
   const groupedAndFilteredContracts = useMemo(() => {
-    const groups: { [key: string]: Omit<ContractGroup, 'contractCount' | 'totalUnits' | 'totalAmount' | 'totalRemaining'> & { contracts: Contract[] } } = {};
+    const groups: { [key: string]: { key: string; distributor_name: string; lessee_name: string; contracts: Contract[] } } = {};
 
     contracts.forEach(c => {
-      const key = `${c.distributorName || '총판 없음'}-${c.lesseeName || '계약자 없음'}`;
+      const key = `${c.distributor_name || '총판 없음'}-${c.lessee_name || '계약자 없음'}`;
       if (!groups[key]) {
         groups[key] = {
           key,
-          distributorName: c.distributorName || '총판 없음',
-          lesseeName: c.lesseeName || '계약자 없음',
+          distributor_name: c.distributor_name || '총판 없음',
+          lessee_name: c.lessee_name || '계약자 없음',
           contracts: [],
         };
       }
@@ -194,39 +183,34 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
     const statusFilteredGroups = Object.values(groups)
       .map(group => {
         const filteredContracts = group.contracts.filter(c => statusFilter === 'all' || c.status === statusFilter);
-        if (filteredContracts.length === 0) {
-          return null;
-        }
-        return {
-          ...group,
-          contracts: filteredContracts,
-        };
+        if (filteredContracts.length === 0) return null;
+        return { ...group, contracts: filteredContracts };
       })
       .filter((g): g is NonNullable<typeof g> => g !== null);
 
     const searchFilteredGroups = statusFilteredGroups.filter(group => {
       const lowerSearchTerm = searchTerm.toLowerCase();
       const groupMatch =
-        group.distributorName.toLowerCase().includes(lowerSearchTerm) ||
-        group.lesseeName.toLowerCase().includes(lowerSearchTerm);
+        group.distributor_name.toLowerCase().includes(lowerSearchTerm) ||
+        group.lessee_name.toLowerCase().includes(lowerSearchTerm);
 
       if (groupMatch) return true;
 
       return group.contracts.some(c =>
-        c.deviceName.toLowerCase().includes(lowerSearchTerm) ||
+        c.device_name.toLowerCase().includes(lowerSearchTerm) ||
         String(c.contract_number).includes(searchTerm) ||
-        (partnerMap.get(c.partnerId) || '').toLowerCase().includes(lowerSearchTerm)
+        (partnerMap.get(c.partner_id) || '').toLowerCase().includes(lowerSearchTerm)
       );
     });
     
     return searchFilteredGroups.map(group => {
-        const totalUnits = group.contracts.reduce((sum, c) => sum + (c.unitsRequired || 1), 0);
-        const totalAmount = group.contracts.reduce((sum, c) => sum + c.totalAmount, 0);
+        const totalUnits = group.contracts.reduce((sum, c) => sum + (c.units_required || 1), 0);
+        const totalAmount = group.contracts.reduce((sum, c) => sum + c.total_amount, 0);
         const totalRemaining = group.contracts.reduce((sum, c) => {
-          const totalPaid = (c.dailyDeductions || [])
+          const totalPaid = (c.daily_deductions || [])
             .filter(d => d.status === DeductionStatus.PAID)
             .reduce((s, d) => s + d.amount, 0);
-          return sum + (c.totalAmount - totalPaid);
+          return sum + (c.total_amount - totalPaid);
         }, 0);
   
         return {
@@ -243,11 +227,8 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
   const handleToggleExpand = (key: string) => {
     setExpandedKeys(prev => {
       const newSet = new Set(prev);
-      if (newSet.has(key)) {
-        newSet.delete(key);
-      } else {
-        newSet.add(key);
-      }
+      if (newSet.has(key)) newSet.delete(key);
+      else newSet.add(key);
       return newSet;
     });
   };
@@ -257,13 +238,7 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-3xl font-bold text-white">계약 관리</h2>
         <div className="flex space-x-2">
-            <input
-                type="file"
-                ref={fileInputRef}
-                className="hidden"
-                accept=".xlsx, .xls"
-                onChange={handleFileImport}
-            />
+            <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx, .xls" onChange={handleFileImport} />
             <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={importStatus.loading}
@@ -355,9 +330,7 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
             </thead>
             <tbody>
               {groupedAndFilteredContracts.length === 0 && (
-                <tr>
-                  <td colSpan={8} className="p-8 text-center text-slate-400">일치하는 계약이 없습니다.</td>
-                </tr>
+                <tr><td colSpan={8} className="p-8 text-center text-slate-400">일치하는 계약이 없습니다.</td></tr>
               )}
               {groupedAndFilteredContracts.map(group => {
                 const isExpanded = expandedKeys.has(group.key);
@@ -366,11 +339,9 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
                 return (
                   <Fragment key={group.key}>
                     <tr onClick={() => handleToggleExpand(group.key)} className="border-b border-slate-700 hover:bg-slate-700/50 cursor-pointer transition-colors">
-                      <td className="p-4 text-center">
-                        <ChevronDownIcon className={`w-5 h-5 text-slate-400 transition-transform transform ${isExpanded ? 'rotate-180' : ''}`} />
-                      </td>
-                      <td className="p-4 font-medium text-white">{group.distributorName}</td>
-                      <td className="p-4 font-medium text-white">{group.lesseeName}</td>
+                      <td className="p-4 text-center"><ChevronDownIcon className={`w-5 h-5 text-slate-400 transition-transform transform ${isExpanded ? 'rotate-180' : ''}`} /></td>
+                      <td className="p-4 font-medium text-white">{group.distributor_name}</td>
+                      <td className="p-4 font-medium text-white">{group.lessee_name}</td>
                       <td className="p-4 text-center">{group.contractCount}건</td>
                       <td className="p-4 text-center">{group.totalUnits}대</td>
                       <td className="p-4">{formatCurrency(group.totalAmount)}</td>
@@ -381,37 +352,37 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
                             onClick={(e) => {
                               e.stopPropagation();
                               const template: Partial<Contract> = {
-                                distributorName: firstContract.distributorName,
-                                distributorContact: firstContract.distributorContact,
-                                distributorBusinessNumber: firstContract.distributorBusinessNumber,
-                                distributorAddress: firstContract.distributorAddress,
-                                lesseeName: firstContract.lesseeName,
-                                lesseeContact: firstContract.lesseeContact,
-                                lesseeBusinessNumber: firstContract.lesseeBusinessNumber,
-                                lesseeBusinessAddress: firstContract.lesseeBusinessAddress,
-                                partnerId: firstContract.partnerId,
+                                distributor_name: firstContract.distributor_name,
+                                distributor_contact: firstContract.distributor_contact,
+                                distributor_business_number: firstContract.distributor_business_number,
+                                distributor_address: firstContract.distributor_address,
+                                lessee_name: firstContract.lessee_name,
+                                lessee_contact: firstContract.lessee_contact,
+                                lessee_business_number: firstContract.lessee_business_number,
+                                lessee_business_address: firstContract.lessee_business_address,
+                                partner_id: firstContract.partner_id,
                               };
                               onAddContract(template);
                             }}
-                            title={`${group.lesseeName}님 계약 추가`}
+                            title={`${group.lessee_name}님 계약 추가`}
                             className="p-2 rounded-full text-slate-400 hover:bg-slate-700 hover:text-white transition-colors"
                           >
                               <DuplicateIcon className="w-5 h-5" />
                           </button>
                           <button
                             onClick={(e) => {
-                              e.stopPropagation();
+                               e.stopPropagation();
                                const template: Partial<Contract> = {};
-                               if (firstContract.distributorName !== '총판 없음') {
-                                   template.distributorName = firstContract.distributorName;
-                                   template.distributorContact = firstContract.distributorContact;
-                                   template.distributorBusinessNumber = firstContract.distributorBusinessNumber;
-                                   template.distributorAddress = firstContract.distributorAddress;
+                               if (firstContract.distributor_name !== '총판 없음') {
+                                   template.distributor_name = firstContract.distributor_name;
+                                   template.distributor_contact = firstContract.distributor_contact;
+                                   template.distributor_business_number = firstContract.distributor_business_number;
+                                   template.distributor_address = firstContract.distributor_address;
                                }
-                               template.partnerId = firstContract.partnerId;
+                               template.partner_id = firstContract.partner_id;
                                onAddContract(template);
                             }}
-                            title={`${group.distributorName}에 신규 계약자 추가`}
+                            title={`${group.distributor_name}에 신규 계약자 추가`}
                             className="p-2 rounded-full text-slate-400 hover:bg-slate-700 hover:text-white transition-colors"
                           >
                               <UserPlusIcon className="w-5 h-5" />
@@ -437,17 +408,17 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
                               </thead>
                               <tbody>
                                 {group.contracts.map(contract => {
-                                  const totalPaid = (contract.dailyDeductions || [])
+                                  const totalPaid = (contract.daily_deductions || [])
                                     .filter(d => d.status === DeductionStatus.PAID)
                                     .reduce((sum, d) => sum + d.amount, 0);
-                                  const remaining = contract.totalAmount - totalPaid;
+                                  const remaining = contract.total_amount - totalPaid;
                                   return (
                                     <tr key={contract.id} onClick={(e) => { e.stopPropagation(); onSelectContract(contract); }} className="border-b border-slate-700 last:border-b-0 hover:bg-slate-700/70 cursor-pointer transition-colors">
                                       <td className="p-3 text-center font-mono text-indigo-400">#{contract.contract_number}</td>
-                                      <td className="p-3 font-medium text-white">{contract.deviceName}</td>
-                                      <td className="p-3">{partnerMap.get(contract.partnerId)}</td>
-                                      <td className="p-3">{formatDate(contract.expiryDate)}</td>
-                                      <td className="p-3">{formatCurrency(contract.totalAmount)}</td>
+                                      <td className="p-3 font-medium text-white">{contract.device_name}</td>
+                                      <td className="p-3">{partnerMap.get(contract.partner_id)}</td>
+                                      <td className="p-3">{formatDate(contract.expiry_date)}</td>
+                                      <td className="p-3">{formatCurrency(contract.total_amount)}</td>
                                       <td className="p-3 text-yellow-400">{formatCurrency(remaining)}</td>
                                       <td className="p-3 text-center"><StatusBadge status={contract.status} /></td>
                                     </tr>

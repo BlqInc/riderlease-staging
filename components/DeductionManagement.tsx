@@ -37,7 +37,7 @@ const PaymentModal: React.FC<{
         <header className="flex justify-between items-center p-6 border-b border-slate-700">
           <div>
             <h2 className="text-2xl font-bold text-white">입금 처리</h2>
-            <p className="text-slate-400">{contract.lesseeName} / {contract.deviceName}</p>
+            <p className="text-slate-400">{contract.lessee_name} / {contract.device_name}</p>
           </div>
           <button onClick={onClose} className="p-2 rounded-full hover:bg-slate-700 transition-colors">
             <CloseIcon className="w-6 h-6 text-slate-400" />
@@ -59,7 +59,7 @@ const PaymentModal: React.FC<{
               />
             </div>
             <div className="text-sm text-slate-400 bg-slate-900/50 p-3 rounded-md">
-                <p>현재 미납액: <span className="font-bold text-red-400">{formatCurrency(contract.unpaidBalance)}</span></p>
+                <p>현재 미납액: <span className="font-bold text-red-400">{formatCurrency(contract.unpaid_balance)}</span></p>
                 <p className="mt-1">입력된 금액은 가장 오래된 미납일부터 순서대로 자동 처리됩니다.</p>
             </div>
           </div>
@@ -99,8 +99,8 @@ const ContractDeductionCard: React.FC<{
     onCancelDeduction: (contractId: string, deductionId: string) => void;
 }> = ({ contract, partnerName, isOpen, onToggle, onOpenPaymentModal, onSettleDeduction, onCancelDeduction }) => {
 
-    const totalPaid = (contract.dailyDeductions || []).reduce((sum, d) => sum + d.paidAmount, 0);
-    const balance = contract.totalAmount - totalPaid;
+    const totalPaid = (contract.daily_deductions || []).reduce((sum, d) => sum + d.paid_amount, 0);
+    const balance = contract.total_amount - totalPaid;
     
     return (
         <div className="bg-slate-800 rounded-lg shadow-lg overflow-hidden transition-all duration-300">
@@ -109,13 +109,13 @@ const ContractDeductionCard: React.FC<{
                 onClick={onToggle}
             >
                 <div className="flex-1">
-                    <p className="font-bold text-white text-lg">[#<span className="text-indigo-400">{contract.contract_number}</span>] - {contract.lesseeName}</p>
-                    <p className="text-sm text-slate-400">{contract.deviceName} / {partnerName}</p>
+                    <p className="font-bold text-white text-lg">[#<span className="text-indigo-400">{contract.contract_number}</span>] - {contract.lessee_name}</p>
+                    <p className="text-sm text-slate-400">{contract.device_name} / {partnerName}</p>
                 </div>
                 <div className="flex-1 text-right px-4">
                     <p className="text-sm text-slate-400">미납액</p>
-                    <p className={`font-bold text-xl ${contract.unpaidBalance > 0 ? 'text-red-400' : 'text-green-400'}`}>
-                        {formatCurrency(contract.unpaidBalance)}
+                    <p className={`font-bold text-xl ${contract.unpaid_balance > 0 ? 'text-red-400' : 'text-green-400'}`}>
+                        {formatCurrency(contract.unpaid_balance)}
                     </p>
                 </div>
                 <div className="flex-1 text-right px-4">
@@ -139,14 +139,14 @@ const ContractDeductionCard: React.FC<{
                 <div className="p-4 border-t border-slate-700 bg-slate-800/50 animate-fade-in">
                     <h4 className="font-bold text-white mb-3 px-2">일일 차감 내역</h4>
                     <div className="max-h-80 overflow-y-auto space-y-2 pr-2">
-                        {(contract.dailyDeductions || []).length > 0 ? (
-                            [...(contract.dailyDeductions || [])].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(deduction => (
+                        {(contract.daily_deductions || []).length > 0 ? (
+                            [...(contract.daily_deductions || [])].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(deduction => (
                                 <div key={deduction.id} className="flex justify-between items-center bg-slate-700/80 p-3 rounded-md">
                                     <div>
                                         <p className="font-semibold text-white">{formatDate(deduction.date)}</p>
                                         <p className="text-sm font-semibold">
-                                          {deduction.paidAmount > 0 ? (
-                                              <><span className="text-yellow-400">{formatCurrency(deduction.paidAmount)}</span> / {formatCurrency(deduction.amount)}</>
+                                          {deduction.paid_amount > 0 ? (
+                                              <><span className="text-yellow-400">{formatCurrency(deduction.paid_amount)}</span> / {formatCurrency(deduction.amount)}</>
                                           ) : (
                                               formatCurrency(deduction.amount)
                                           )}
@@ -162,7 +162,7 @@ const ContractDeductionCard: React.FC<{
                                                 전액 처리
                                             </button>
                                         )}
-                                        {deduction.paidAmount > 0 && (
+                                        {deduction.paid_amount > 0 && (
                                             <button 
                                                 onClick={() => onCancelDeduction(contract.id, deduction.id)}
                                                 className="bg-yellow-600 hover:bg-yellow-700 text-white text-xs font-bold py-1 px-3 rounded-md transition-colors"
@@ -193,16 +193,16 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({ contra
 
     const activeContracts = useMemo(() => {
         const filtered = contracts.filter(c => {
-             const partnerName = partnerMap.get(c.partnerId) || '';
-             const lesseeName = c.lesseeName || '';
+             const partnerName = partnerMap.get(c.partner_id) || '';
+             const lesseeName = c.lessee_name || '';
              const searchMatch =
-                c.deviceName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                c.device_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 partnerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 lesseeName.toLowerCase().includes(searchTerm.toLowerCase());
 
             return c.status === ContractStatus.ACTIVE && searchMatch;
         });
-        return filtered.sort((a,b) => (b.unpaidBalance || 0) - (a.unpaidBalance || 0));
+        return filtered.sort((a,b) => (b.unpaid_balance || 0) - (a.unpaid_balance || 0));
     }, [contracts, partnerMap, searchTerm]);
 
     const handleToggleCard = (contractId: string) => {
@@ -243,7 +243,7 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({ contra
                     <ContractDeductionCard
                         key={contract.id}
                         contract={contract}
-                        partnerName={partnerMap.get(contract.partnerId) || '알 수 없음'}
+                        partnerName={partnerMap.get(contract.partner_id) || '알 수 없음'}
                         isOpen={openContractId === contract.id}
                         onToggle={() => handleToggleCard(contract.id)}
                         onOpenPaymentModal={handleOpenPaymentModal}

@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Contract, Partner, ContractStatus, DeductionStatus, DailyDeductionLog, ProcurementStatus } from '../types';
+import { Contract, Partner, DeductionStatus } from '../types';
 import { formatDate, formatCurrency, getDaysDifference } from '../lib/utils';
 import { CloseIcon, EditIcon, TrashIcon, DuplicateIcon } from './icons/IconComponents';
 
@@ -35,6 +35,7 @@ const DeductionStatusBadge: React.FC<{ status: DeductionStatus }> = ({ status })
     [DeductionStatus.PAID]: "bg-green-500/20 text-green-300",
     [DeductionStatus.UNPAID]: "bg-red-500/20 text-red-300",
     [DeductionStatus.PENDING]: "bg-slate-500/20 text-slate-300",
+    [DeductionStatus.PARTIAL]: "bg-yellow-500/20 text-yellow-300",
   };
   return <span className={`${baseClasses} ${statusClasses[status]}`}>{status}</span>;
 };
@@ -42,17 +43,17 @@ const DeductionStatusBadge: React.FC<{ status: DeductionStatus }> = ({ status })
 export const ContractDetailModal: React.FC<ContractDetailModalProps> = ({ contract, partner, onClose, onEdit, onDelete, onDuplicate }) => {
   if (!contract || !partner) return null;
 
-  const totalPaid = (contract.dailyDeductions || [])
+  const totalPaid = (contract.daily_deductions || [])
     .filter(d => d.status === DeductionStatus.PAID)
     .reduce((sum, d) => sum + d.amount, 0);
 
-  const remainingAmount = contract.totalAmount - totalPaid;
-  const isOverdue = new Date(contract.expiryDate) < new Date() && contract.status !== ContractStatus.SETTLED;
-  const overdueDays = isOverdue ? getDaysDifference(contract.expiryDate, new Date().toISOString()) : 0;
-  const overdueCharge = overdueDays * contract.dailyDeduction;
+  const remainingAmount = contract.total_amount - totalPaid;
+  const isOverdue = new Date(contract.expiry_date) < new Date() && contract.status !== '정산완료';
+  const overdueDays = isOverdue ? getDaysDifference(contract.expiry_date, new Date().toISOString()) : 0;
+  const overdueCharge = overdueDays * contract.daily_deduction;
 
   const handleDelete = () => {
-    if (window.confirm(`[#${contract.contract_number}] '${contract.deviceName}' 계약을 정말 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`)) {
+    if (window.confirm(`[#${contract.contract_number}] '${contract.device_name}' 계약을 정말 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`)) {
       onDelete(contract.id);
     }
   };
@@ -62,7 +63,7 @@ export const ContractDetailModal: React.FC<ContractDetailModalProps> = ({ contra
       <div className="bg-slate-800 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col">
         <header className="flex justify-between items-center p-6 border-b border-slate-700">
           <div>
-            <h2 className="text-2xl font-bold text-white">[#<span className="text-indigo-400">{contract.contract_number}</span>] {contract.deviceName}</h2>
+            <h2 className="text-2xl font-bold text-white">[#<span className="text-indigo-400">{contract.contract_number}</span>] {contract.device_name}</h2>
             <p className="text-slate-400">{partner.name} / {contract.color}</p>
           </div>
           <button onClick={onClose} className="p-2 rounded-full hover:bg-slate-700 transition-colors">
@@ -72,9 +73,9 @@ export const ContractDetailModal: React.FC<ContractDetailModalProps> = ({ contra
         
         <main className="p-8 overflow-y-auto space-y-8">
             <div className="bg-slate-900/50 p-6 rounded-lg grid grid-cols-2 md:grid-cols-5 gap-6">
-                <DetailItem label="총 채권액" value={formatCurrency(contract.totalAmount)} />
+                <DetailItem label="총 채권액" value={formatCurrency(contract.total_amount)} />
                 <DetailItem label="총 납부액" value={<span className="text-green-400">{formatCurrency(totalPaid)}</span>} />
-                <DetailItem label="미납액" value={<span className="text-red-400">{formatCurrency(contract.unpaidBalance)}</span>} />
+                <DetailItem label="미납액" value={<span className="text-red-400">{formatCurrency(contract.unpaid_balance)}</span>} />
                 <DetailItem label="잔액" value={<span className="text-yellow-400">{formatCurrency(remainingAmount)}</span>} />
                 <DetailItem label="상태" value={contract.status} />
             </div>
@@ -90,56 +91,56 @@ export const ContractDetailModal: React.FC<ContractDetailModalProps> = ({ contra
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <div className="space-y-8">
                     <DetailSection title="계약 정보">
-                        <DetailItem label="계약일" value={formatDate(contract.contractDate)} />
-                        <DetailItem label="실행일" value={contract.executionDate ? formatDate(contract.executionDate) : 'N/A'} />
-                        <DetailItem label="만료일" value={formatDate(contract.expiryDate)} />
-                        <DetailItem label="계약 기간" value={`${contract.durationDays}일`} />
-                        <DetailItem label="일차감" value={formatCurrency(contract.dailyDeduction)} />
-                        <DetailItem label="첨부된 계약서" value={contract.contractFileUrl ? <a href={contract.contractFileUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline">파일 보기</a> : '없음'} />
+                        <DetailItem label="계약일" value={formatDate(contract.contract_date)} />
+                        <DetailItem label="실행일" value={contract.execution_date ? formatDate(contract.execution_date) : 'N/A'} />
+                        <DetailItem label="만료일" value={formatDate(contract.expiry_date)} />
+                        <DetailItem label="계약 기간" value={`${contract.duration_days}일`} />
+                        <DetailItem label="일차감" value={formatCurrency(contract.daily_deduction)} />
+                        <DetailItem label="첨부된 계약서" value={contract.contract_file_url ? <a href={contract.contract_file_url} target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline">파일 보기</a> : '없음'} />
                     </DetailSection>
 
                     <DetailSection title="조달 정보">
-                        <DetailItem label="조달 상태" value={contract.procurementStatus} />
-                        <DetailItem label="확보/필요 수량" value={`${contract.unitsSecured || 0} / ${contract.unitsRequired || 0}`} />
-                        <DetailItem label="조달처" value={contract.procurementSource} />
-                        <DetailItem label="조달 비용" value={contract.procurementCost ? formatCurrency(contract.procurementCost) : 'N/A'} />
+                        <DetailItem label="조달 상태" value={contract.procurement_status} />
+                        <DetailItem label="확보/필요 수량" value={`${contract.units_secured || 0} / ${contract.units_required || 0}`} />
+                        <DetailItem label="조달처" value={contract.procurement_source} />
+                        <DetailItem label="조달 비용" value={contract.procurement_cost ? formatCurrency(contract.procurement_cost) : 'N/A'} />
                     </DetailSection>
 
                     <DetailSection title="배송 정보">
-                        <DetailItem label="고객 배송 방법" value={contract.deliveryMethodToLessee} />
-                        <DetailItem label="배송 상태" value={contract.shippingStatus} />
-                        <DetailItem label="배송일" value={contract.shippingDate ? formatDate(contract.shippingDate) : 'N/A'} />
-                        <DetailItem label="배송 업체" value={contract.shippingCompany} className="col-span-2"/>
-                        <DetailItem label="운송장 번호" value={contract.trackingNumber} className="col-span-2"/>
+                        <DetailItem label="고객 배송 방법" value={contract.delivery_method_to_lessee} />
+                        <DetailItem label="배송 상태" value={contract.shipping_status} />
+                        <DetailItem label="배송일" value={contract.shipping_date ? formatDate(contract.shipping_date) : 'N/A'} />
+                        <DetailItem label="배송 업체" value={contract.shipping_company} className="col-span-2"/>
+                        <DetailItem label="운송장 번호" value={contract.tracking_number} className="col-span-2"/>
                     </DetailSection>
                     
                      <DetailSection title="정산 정보">
-                        <DetailItem label="정산 상태" value={contract.settlementStatus} />
-                        <DetailItem label="고객 계약 완료" value={contract.isLesseeContractSigned ? '완료' : '미완료'} />
-                        <DetailItem label="정산 요청일" value={contract.settlementRequestDate ? formatDate(contract.settlementRequestDate) : 'N/A'} />
-                        <DetailItem label="정산 완료일" value={contract.settlementDate ? formatDate(contract.settlementDate) : 'N/A'} />
-                        <DetailItem label="정산차수" value={contract.settlementRound ? `${contract.settlementRound}차` : 'N/A'} />
-                        <DetailItem label="담당자" value={contract.managerName} />
+                        <DetailItem label="정산 상태" value={contract.settlement_status} />
+                        <DetailItem label="고객 계약 완료" value={contract.is_lessee_contract_signed ? '완료' : '미완료'} />
+                        <DetailItem label="정산 요청일" value={contract.settlement_request_date ? formatDate(contract.settlement_request_date) : 'N/A'} />
+                        <DetailItem label="정산 완료일" value={contract.settlement_date ? formatDate(contract.settlement_date) : 'N/A'} />
+                        <DetailItem label="정산차수" value={contract.settlement_round ? `${contract.settlement_round}차` : 'N/A'} />
+                        <DetailItem label="담당자" value={contract.manager_name} />
                     </DetailSection>
 
                     <DetailSection title="총판 정보">
-                        <DetailItem label="총판명" value={contract.distributorName} />
-                        <DetailItem label="연락처" value={contract.distributorContact} />
-                        <DetailItem label="사업자번호" value={contract.distributorBusinessNumber} />
-                        <DetailItem label="사업자주소" value={contract.distributorAddress} className="col-span-2"/>
+                        <DetailItem label="총판명" value={contract.distributor_name} />
+                        <DetailItem label="연락처" value={contract.distributor_contact} />
+                        <DetailItem label="사업자번호" value={contract.distributor_business_number} />
+                        <DetailItem label="사업자주소" value={contract.distributor_address} className="col-span-2"/>
                     </DetailSection>
 
                     <DetailSection title="계약자 정보">
-                        <DetailItem label="계약자(라이더)" value={contract.lesseeName} />
-                        <DetailItem label="연락처" value={contract.lesseeContact} />
-                        <DetailItem label="사업자번호" value={contract.lesseeBusinessNumber} />
-                        <DetailItem label="사업자주소" value={contract.lesseeBusinessAddress} className="col-span-2"/>
+                        <DetailItem label="계약자(라이더)" value={contract.lessee_name} />
+                        <DetailItem label="연락처" value={contract.lessee_contact} />
+                        <DetailItem label="사업자번호" value={contract.lessee_business_number} />
+                        <DetailItem label="사업자주소" value={contract.lessee_business_address} className="col-span-2"/>
                     </DetailSection>
                 </div>
                  <div>
                     <h3 className="text-xl font-bold text-white mb-4">일일 차감 내역</h3>
                     <div className="space-y-2 max-h-96 overflow-y-auto pr-2">
-                        {(contract.dailyDeductions || []).length > 0 ? [...(contract.dailyDeductions || [])].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(d => (
+                        {(contract.daily_deductions || []).length > 0 ? [...(contract.daily_deductions || [])].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(d => (
                             <div key={d.id} className="bg-slate-700 p-3 rounded-lg flex justify-between items-center">
                                 <div>
                                     <p className="font-semibold text-white">{formatDate(d.date)}</p>
@@ -151,7 +152,6 @@ export const ContractDetailModal: React.FC<ContractDetailModalProps> = ({ contra
                     </div>
                 </div>
             </div>
-
         </main>
         
         <footer className="p-6 mt-auto border-t border-slate-700 bg-slate-800/50 flex justify-between items-center">

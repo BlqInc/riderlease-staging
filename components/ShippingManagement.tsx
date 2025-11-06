@@ -1,5 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
+// FIX: Cannot find name 'Partner'.
 import { Contract, Partner, ShippingStatus, ProcurementStatus } from '../types';
 import { formatDate, formatCurrency } from '../lib/utils';
 
@@ -37,17 +38,17 @@ export const ShippingManagement: React.FC<ShippingManagementProps> = ({ contract
   const filteredContracts = useMemo(() => {
     return contracts
       .filter(c => {
-        const partnerName = partnerMap.get(c.partnerId) || '';
-        const lesseeName = c.lesseeName || '';
+        const partnerName = partnerMap.get(c.partner_id) || '';
+        const lesseeName = c.lessee_name || '';
         const contractNumberString = String(c.contract_number);
         return (
-          c.deviceName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          c.device_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
           partnerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
           lesseeName.toLowerCase().includes(searchTerm.toLowerCase()) ||
           contractNumberString.includes(searchTerm)
         );
       })
-      .sort((a, b) => new Date(b.contractDate).getTime() - new Date(a.contractDate).getTime());
+      .sort((a, b) => new Date(b.contract_date).getTime() - new Date(a.contract_date).getTime());
   }, [contracts, searchTerm, partnerMap]);
 
   return (
@@ -85,16 +86,16 @@ export const ShippingManagement: React.FC<ShippingManagementProps> = ({ contract
               {filteredContracts.map(contract => (
                 <tr key={contract.id} onClick={() => onSelectContract(contract)} className="border-b border-slate-700 hover:bg-slate-700/50 cursor-pointer transition-colors">
                   <td className="p-4 text-center font-mono text-indigo-400">#{contract.contract_number}</td>
-                  <td className="p-4">{contract.lesseeName}</td>
-                  <td className="p-4 font-medium text-white">{contract.deviceName}</td>
-                  <td className="p-4 text-center"><ProcurementStatusBadge status={contract.procurementStatus} /></td>
-                  <td className="p-4 text-center">{contract.unitsSecured || 0} / {contract.unitsRequired || 0}</td>
+                  <td className="p-4">{contract.lessee_name}</td>
+                  <td className="p-4 font-medium text-white">{contract.device_name}</td>
+                  <td className="p-4 text-center"><ProcurementStatusBadge status={contract.procurement_status} /></td>
+                  <td className="p-4 text-center">{contract.units_secured || 0} / {contract.units_required || 0}</td>
                   <td className="p-4">
-                    <div>{contract.procurementSource || 'N/A'}</div>
-                    <div className="text-xs text-slate-400">{contract.procurementCost ? formatCurrency(contract.procurementCost) : ''}</div>
+                    <div>{contract.procurement_source || 'N/A'}</div>
+                    <div className="text-xs text-slate-400">{contract.procurement_cost ? formatCurrency(contract.procurement_cost) : ''}</div>
                   </td>
-                  <td className="p-4">{contract.deliveryMethodToLessee || 'N/A'}</td>
-                  <td className="p-4 text-center"><ShippingStatusBadge status={contract.shippingStatus} /></td>
+                  <td className="p-4">{contract.delivery_method_to_lessee || 'N/A'}</td>
+                  <td className="p-4 text-center"><ShippingStatusBadge status={contract.shipping_status} /></td>
                 </tr>
               ))}
             </tbody>
