@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Contract } from '../types';
-import { formatCurrency } from '../lib/utils';
+import { formatCurrency, formatDate } from '../lib/utils';
 import { DownloadIcon } from './icons/IconComponents';
 
 const exportToCsv = (filename: string, rows: (string|number)[][]) => {
@@ -72,12 +72,15 @@ export const CreditorSettlementData: React.FC<CreditorSettlementDataProps> = ({ 
   }, [contracts]);
 
   const handleExport = () => {
-    const header = ['정산차수', '총판', '계약자(라이더)', '기기명', '일차감액', '수량'];
+    const header = ['정산차수', '총판', '계약자(라이더)', '기기명', '계약일', '실행일', '총채권액', '일차감액', '수량'];
     const rows = filteredContracts.map(c => [
         c.settlement_round ? `${c.settlement_round}차` : '미지정',
         c.distributor_name || '',
         c.lessee_name || '',
         c.device_name,
+        c.contract_date,
+        c.execution_date || '',
+        c.total_amount,
         c.daily_deduction,
         c.units_required || 1
     ]);
@@ -127,6 +130,9 @@ export const CreditorSettlementData: React.FC<CreditorSettlementDataProps> = ({ 
                             <th className="p-4 font-semibold text-slate-400">총판</th>
                             <th className="p-4 font-semibold text-slate-400">계약자(라이더)</th>
                             <th className="p-4 font-semibold text-slate-400">기기명</th>
+                            <th className="p-4 font-semibold text-slate-400">계약일</th>
+                            <th className="p-4 font-semibold text-slate-400">실행일</th>
+                            <th className="p-4 font-semibold text-slate-400 text-right">총채권액</th>
                             <th className="p-4 font-semibold text-slate-400 text-right">일차감액</th>
                             <th className="p-4 font-semibold text-slate-400 text-center">수량</th>
                         </tr>
@@ -138,6 +144,9 @@ export const CreditorSettlementData: React.FC<CreditorSettlementDataProps> = ({ 
                                 <td className="p-4">{contract.distributor_name || 'N/A'}</td>
                                 <td className="p-4 font-medium text-white">{contract.lessee_name || 'N/A'}</td>
                                 <td className="p-4">{contract.device_name}</td>
+                                <td className="p-4">{formatDate(contract.contract_date)}</td>
+                                <td className="p-4">{contract.execution_date ? formatDate(contract.execution_date) : 'N/A'}</td>
+                                <td className="p-4 text-right">{formatCurrency(contract.total_amount)}</td>
                                 <td className="p-4 text-right text-yellow-400">{formatCurrency(contract.daily_deduction)}</td>
                                 <td className="p-4 text-center">{contract.units_required || 1}</td>
                             </tr>
