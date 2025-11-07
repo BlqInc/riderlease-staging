@@ -1,29 +1,29 @@
 
 
 import { createClient } from '@supabase/supabase-js'
-import { Contract, Partner, CalendarEvent, DailyDeductionLog } from '../types';
+import { Contract, Partner, CalendarEvent, DailyDeductionLog, PriceTier } from '../types';
 
 const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL;
 const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY;
 
-// Directly use the application types which now correctly use | null for optional fields.
-// This ensures perfect alignment between the app's data model and the database schema.
-// FIX: The original ContractRow incorrectly assumed daily_deductions is always present.
-// The application logic (e.g., `|| []`) suggests it can be null from the database.
-// This change correctly types the database row, which fixes cascading type errors.
+// These types represent the actual shape of the data in the database tables.
+// All optional fields are explicitly typed as `| null` to match the database schema.
 type ContractRow = Omit<Contract, 'unpaid_balance' | 'daily_deductions'> & {
   daily_deductions: DailyDeductionLog[] | null;
 };
 type PartnerRow = Partner;
 type CalendarEventRow = CalendarEvent;
 
+// Define the database schema for the Supabase client, using the correct Row types.
+// This ensures that all select, insert, and update operations are type-safe and
+// align with the actual database structure, preventing 'never' type errors.
 type Database = {
   public: {
     Tables: {
       contracts: {
         Row: ContractRow
-        // FIX: daily_deductions is optional on insert, as it's client-calculated later.
-        Insert: Omit<ContractRow, 'id' | 'daily_deductions'> & { daily_deductions?: DailyDeductionLog[] }
+        // FIX: The optional daily_deductions property should also allow null.
+        Insert: Omit<ContractRow, 'id' | 'daily_deductions'> & { daily_deductions?: DailyDeductionLog[] | null }
         Update: Partial<Omit<ContractRow, 'id' | 'contract_number'>>
       }
       partners: {
