@@ -1,4 +1,5 @@
 
+
 import React, { useState, useMemo } from 'react';
 import { Contract } from '../types';
 import { formatCurrency, formatDate } from '../lib/utils';
@@ -72,7 +73,7 @@ export const CreditorSettlementData: React.FC<CreditorSettlementDataProps> = ({ 
   }, [contracts]);
 
   const handleExport = () => {
-    const header = ['정산차수', '총판', '계약자(라이더)', '기기명', '계약일', '실행일', '총채권액', '일차감액', '수량'];
+    const header = ['정산차수', '총판', '계약자(라이더)', '기기명', '계약일', '실행일', '총채권액', '일차감액', '계약서 일차감액', '수량'];
     const rows = filteredContracts.map(c => [
         c.settlement_round ? `${c.settlement_round}차` : '미지정',
         c.distributor_name || '',
@@ -82,6 +83,7 @@ export const CreditorSettlementData: React.FC<CreditorSettlementDataProps> = ({ 
         c.execution_date || '',
         c.total_amount,
         c.daily_deduction,
+        c.contract_initial_deduction || 0,
         c.units_required || 1
     ]);
     exportToCsv(`채권사_정산데이터_${new Date().toISOString().split('T')[0]}.csv`, [header, ...rows]);
@@ -134,6 +136,7 @@ export const CreditorSettlementData: React.FC<CreditorSettlementDataProps> = ({ 
                             <th className="p-4 font-semibold text-slate-400">실행일</th>
                             <th className="p-4 font-semibold text-slate-400 text-right">총채권액</th>
                             <th className="p-4 font-semibold text-slate-400 text-right">일차감액</th>
+                            <th className="p-4 font-semibold text-slate-400 text-right">계약서 일차감액</th>
                             <th className="p-4 font-semibold text-slate-400 text-center">수량</th>
                         </tr>
                     </thead>
@@ -148,6 +151,7 @@ export const CreditorSettlementData: React.FC<CreditorSettlementDataProps> = ({ 
                                 <td className="p-4">{contract.execution_date ? formatDate(contract.execution_date) : 'N/A'}</td>
                                 <td className="p-4 text-right">{formatCurrency(contract.total_amount)}</td>
                                 <td className="p-4 text-right text-yellow-400">{formatCurrency(contract.daily_deduction)}</td>
+                                <td className="p-4 text-right text-sky-400">{contract.contract_initial_deduction ? formatCurrency(contract.contract_initial_deduction) : 'N/A'}</td>
                                 <td className="p-4 text-center">{contract.units_required || 1}</td>
                             </tr>
                         ))}
