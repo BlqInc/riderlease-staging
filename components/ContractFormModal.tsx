@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Contract, Partner, ContractStatus, ShippingStatus, PriceTier, ProcurementStatus, SettlementStatus } from '../types';
 import { CloseIcon } from './icons/IconComponents';
@@ -6,7 +7,8 @@ import { CloseIcon } from './icons/IconComponents';
 interface ContractFormModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (contract: Omit<Contract, 'daily_deductions' | 'unpaid_balance' | 'id' | 'contract_number'> & { id?: string }) => void;
+  // FIX: The type is relaxed to allow `contract_number` to be optional for new contracts.
+  onSave: (contract: Omit<Contract, 'daily_deductions' | 'unpaid_balance' | 'id' | 'contract_number'> & { id?: string; contract_number?: number; }) => void;
   partners: Partner[];
   contractToEdit: Contract | null;
   template?: Partial<Contract> | null;
@@ -14,6 +16,7 @@ interface ContractFormModalProps {
 
 type FormState = Omit<Contract, 'daily_deductions' | 'unpaid_balance' | 'device_name' | 'id' | 'contract_number'> & {
   id?: string;
+  contract_number?: number;
   model: string;
   storage: string;
 };
@@ -28,6 +31,7 @@ const initialFormState: FormState = {
   duration_days: 0,
   total_amount: 0,
   daily_deduction: 0,
+  contract_initial_deduction: null,
   status: ContractStatus.ACTIVE,
   is_lessee_contract_signed: false,
   shipping_status: ShippingStatus.PREPARING,
@@ -67,8 +71,8 @@ const FormSection: React.FC<{ title: string; children: React.ReactNode }> = ({ t
     </div>
 );
 
-const FormField: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
-    <div>
+const FormField: React.FC<{ label: string; children: React.ReactNode; className?: string }> = ({ label, children, className }) => (
+    <div className={className}>
         <label className="block text-sm font-medium text-slate-400 mb-1">{label}</label>
         {children}
     </div>
@@ -168,11 +172,11 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
     const isCheckbox = type === 'checkbox';
     const checked = isCheckbox ? (e.target as HTMLInputElement).checked : undefined;
     
-    const numericFields = ['duration_days', 'total_amount', 'daily_deduction', 'settlement_round', 'procurement_cost', 'units_required', 'units_secured'];
+    const numericFields = ['duration_days', 'total_amount', 'daily_deduction', 'settlement_round', 'procurement_cost', 'units_required', 'units_secured', 'contract_initial_deduction'];
     const isNumeric = numericFields.includes(name);
 
     setFormState(prev => {
-        const parsedValue = isCheckbox ? checked : (isNumeric ? (value === '' ? 0 : Number(value)) : value);
+        const parsedValue = isCheckbox ? checked : (isNumeric ? (value === '' ? null : Number(value)) : value);
         let newState = { ...prev, [name]: parsedValue };
 
         if (name === 'partner_id') {
@@ -207,18 +211,19 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
     const tempObject = { ...formState, execution_date };
     const { model, storage, ...contractData } = tempObject;
     
+    const finalContractData = { ...contractData, device_name };
+
     // Convert empty strings to null for fields that can be null
-    Object.keys(contractData).forEach(keyStr => {
-        const key = keyStr as keyof typeof contractData;
-        if (contractData[key] === '') {
-            (contractData as any)[key] = null;
+    Object.keys(finalContractData).forEach(keyStr => {
+        const key = keyStr as keyof typeof finalContractData;
+        if ((finalContractData as any)[key] === '') {
+            (finalContractData as any)[key] = null;
         }
     });
 
-    const finalContractData: Omit<Contract, 'daily_deductions' | 'unpaid_balance' | 'id' | 'contract_number'> & { id?: string } = { ...contractData, device_name };
-    
     if (!contractToEdit?.id) {
-        delete finalContractData.id;
+        delete (finalContractData as any).id;
+        delete (finalContractData as any).contract_number;
     }
 
     onSave(finalContractData);
@@ -281,11 +286,14 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
                 <FormField label="만료일 (자동 계산)">
                     <input type="date" name="expiry_date" value={formState.expiry_date} readOnly className={readonlyInputClass} />
                 </FormField>
-                 <FormField label="총 채권액 (원)">
+                 <FormField label="총 채권액 (원)" className="md:col-span-2">
                       <input type="number" name="total_amount" value={formState.total_amount} onChange={handleChange} required readOnly={isPricingLocked} className={isPricingLocked ? readonlyInputClass : inputClass} />
                  </FormField>
                  <FormField label="일차감 (원)">
                       <input type="number" name="daily_deduction" value={formState.daily_deduction} onChange={handleChange} required readOnly={isPricingLocked} className={isPricingLocked ? readonlyInputClass : inputClass} />
+                 </FormField>
+                 <FormField label="계약서 일차감액 (원, 선택사항)">
+                    <input type="number" name="contract_initial_deduction" value={formState.contract_initial_deduction || ''} onChange={handleChange} className={inputClass} />
                  </FormField>
             </FormSection>
             
