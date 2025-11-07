@@ -26,16 +26,12 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({ isOpen, onClose,
   const [title, setTitle] = useState('');
   const [user, setUser] = useState('');
   const [color, setColor] = useState(colorPalette[0]);
-  const [endDate, setEndDate] = useState<string | null>(null);
-  const [time, setTime] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
       setTitle(eventToEdit?.title || '');
       setUser(eventToEdit?.user || '');
       setColor(eventToEdit?.color || colorPalette[0]);
-      setEndDate(eventToEdit?.end_date || null);
-      setTime(eventToEdit?.time || null);
     }
   }, [eventToEdit, isOpen]);
 
@@ -52,8 +48,6 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({ isOpen, onClose,
       user,
       date: eventToEdit?.date || selectedDate,
       color: color,
-      end_date: endDate || null,
-      time: time || null,
     };
     if (eventToEdit?.id) {
         saveData.id = eventToEdit.id;
@@ -69,9 +63,6 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({ isOpen, onClose,
   
   const titleText = eventToEdit && eventToEdit.id ? '일정 수정' : '새 일정 추가';
   const startDateText = new Date(eventToEdit?.date || selectedDate).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
-  const endDateText = endDate ? new Date(endDate).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' }) : '';
-  const dateText = endDate && endDate !== (eventToEdit?.date || selectedDate) ? `${startDateText} ~ ${endDateText}` : startDateText;
-
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 animate-fade-in">
@@ -79,7 +70,7 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({ isOpen, onClose,
         <header className="flex justify-between items-center p-6 border-b border-slate-700">
           <div>
             <h2 className="text-2xl font-bold text-white">{titleText}</h2>
-            <p className="text-indigo-300">{dateText}</p>
+            <p className="text-slate-400">{startDateText}</p>
           </div>
           <button onClick={onClose} className="p-2 rounded-full hover:bg-slate-700 transition-colors">
             <CloseIcon className="w-6 h-6 text-slate-400" />
@@ -87,77 +78,55 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({ isOpen, onClose,
         </header>
         
         <form onSubmit={handleSubmit}>
-            <div className="p-6 space-y-4">
+            <div className="p-6 space-y-6">
                 <div>
-                    <label htmlFor="eventTitle" className="block text-sm font-medium text-slate-400 mb-2">일정 내용</label>
+                    <label htmlFor="event_title" className="block text-sm font-medium text-slate-400 mb-2">일정</label>
                     <input 
-                        id="eventTitle"
+                        id="event_title"
                         type="text" 
                         value={title} 
                         onChange={(e) => setTitle(e.target.value)} 
-                        placeholder="예: 월간 리포트 제출" 
+                        placeholder="일정 내용을 입력하세요"
                         className="w-full bg-slate-700 text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" 
-                        required 
+                        required
                         autoFocus
                     />
                 </div>
-                 <div>
-                    <label htmlFor="eventUser" className="block text-sm font-medium text-slate-400 mb-2">담당자</label>
+                <div>
+                    <label htmlFor="event_user" className="block text-sm font-medium text-slate-400 mb-2">담당자</label>
                     <input 
-                        id="eventUser"
+                        id="event_user"
                         type="text" 
                         value={user} 
                         onChange={(e) => setUser(e.target.value)} 
-                        placeholder="예: 김철수" 
+                        placeholder="담당자 이름을 입력하세요"
                         className="w-full bg-slate-700 text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" 
                         required
                     />
                 </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                     <div>
-                        <label htmlFor="endDate" className="block text-sm font-medium text-slate-400 mb-2">종료일 (선택)</label>
-                        <input
-                            id="endDate"
-                            type="date"
-                            value={endDate || ''}
-                            onChange={(e) => setEndDate(e.target.value || null)}
-                            min={eventToEdit?.date || selectedDate}
-                            className="w-full bg-slate-700 text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        />
-                    </div>
-                     <div>
-                        <label htmlFor="time" className="block text-sm font-medium text-slate-400 mb-2">시간 (선택)</label>
-                        <input
-                            id="time"
-                            type="time"
-                            value={time || ''}
-                            onChange={(e) => setTime(e.target.value || null)}
-                            className="w-full bg-slate-700 text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        />
-                    </div>
-                </div>
-
                 <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-2">표시 색상</label>
-                  <div className="flex space-x-2">
-                    {colorPalette.map(c => (
-                      <button
-                        key={c}
-                        type="button"
-                        onClick={() => setColor(c)}
-                        className={`w-8 h-8 rounded-full transition-transform transform hover:scale-110 ${c} ${color === c ? 'ring-2 ring-offset-2 ring-offset-slate-800 ring-white' : ''}`}
-                        aria-label={`Select ${c} color`}
-                      />
-                    ))}
-                  </div>
+                    <label className="block text-sm font-medium text-slate-400 mb-2">색상</label>
+                    <div className="flex space-x-2">
+                        {colorPalette.map(c => (
+                            <button
+                                key={c}
+                                type="button"
+                                onClick={() => setColor(c)}
+                                className={`w-8 h-8 rounded-full ${c} transition-transform transform hover:scale-110 ${color === c ? 'ring-2 ring-offset-2 ring-offset-slate-800 ring-white' : ''}`}
+                            />
+                        ))}
+                    </div>
                 </div>
             </div>
             
             <footer className="p-6 bg-slate-800/50 flex justify-between items-center">
                 <div>
-                    {eventToEdit && eventToEdit.id && (
-                        <button type="button" onClick={handleDelete} className="flex items-center bg-red-600/80 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition-colors">
+                    {eventToEdit?.id && (
+                        <button
+                            type="button"
+                            onClick={handleDelete}
+                            className="flex items-center bg-transparent text-red-500/80 hover:text-red-500 font-bold py-2 px-4 rounded-lg transition-colors"
+                        >
                             <TrashIcon className="w-5 h-5 mr-2" />
                             삭제
                         </button>
