@@ -1,5 +1,3 @@
-
-
 import React, { useState, useMemo, Fragment, useRef } from 'react';
 import { Contract, ContractStatus, Partner, DeductionStatus, SettlementStatus, ShippingStatus, ProcurementStatus } from '../types';
 import { formatDate, formatCurrency } from '../lib/utils';
@@ -152,14 +150,38 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
             delete newContract.model;
             delete newContract.storage;
 
+            // 실행일이 없으면 계약일로 대체
+            if (!newContract.execution_date && newContract.contract_date) {
+                newContract.execution_date = newContract.contract_date;
+            }
+
+            // 만료일이 없으면 실행일과 계약 기간으로 계산
+            if (!newContract.expiry_date && newContract.duration_days && newContract.execution_date) {
+                try {
+                    const parts = newContract.execution_date.split('-').map(Number);
+                    const startDate = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+                    if (isNaN(startDate.getTime())) throw new Error('Invalid date');
+                    startDate.setUTCDate(startDate.getUTCDate() + (Number(newContract.duration_days) - 1));
+                    newContract.expiry_date = startDate.toISOString().split('T')[0];
+                } catch (e) {
+                    // Date calculation failed, will be caught by the validation below
+                }
+            }
+
+
             if (!newContract.partner_id) {
                 if (!hasError) errors.push(`Row ${index + 2}: '파트너사명'이 비어있거나 유효하지 않습니다.`);
                 hasError = true;
             }
             if (!newContract.device_name) {
-                errors.push(`Row ${index + 2}: '기기명'이 비어있습니다.`);
+                if (!hasError) errors.push(`Row ${index + 2}: '기기명'이 비어있습니다.`);
                 hasError = true;
             }
+            if (!newContract.expiry_date) {
+                if (!hasError) errors.push(`Row ${index + 2}: '만료일'이 없습니다. '만료일'을 직접 입력하거나, '실행일'(또는 '계약일')과 '계약 기간'으로 계산할 수 있도록 값을 입력해주세요.`);
+                hasError = true;
+            }
+
 
             if (!hasError) {
                 newContracts.push(newContract);
