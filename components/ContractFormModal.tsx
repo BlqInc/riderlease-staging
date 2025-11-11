@@ -121,7 +121,7 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
 
             if (partner && partner.price_list) {
                 // FIX: Explicitly set the return type of the map function callback to 'string'. This resolves a type inference
-                // issue where the array was being incorrectly typed as 'unknown[]' instead of 'string[]'.
+                // issue where the array was being incorrectly typed as 'unknown[]'.
                 const uniqueModels: string[] = [...new Set(partner.price_list.map((p): string => p.model))];
                 uniqueModels.sort((a, b) => b.length - a.length);
 
