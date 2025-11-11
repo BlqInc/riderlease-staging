@@ -1,8 +1,9 @@
 
+
 import React, { useMemo, useState } from 'react';
 import { Contract, Partner, DeductionStatus, ContractStatus } from '../types';
-import { formatDate, formatCurrency } from '../lib/utils';
-import { CloseIcon } from './icons/IconComponents';
+import { formatDate, formatCurrency, exportToCsv } from '../lib/utils';
+import { CloseIcon, DownloadIcon } from './icons/IconComponents';
 
 interface DeductionManagementProps {
   contracts: Contract[];
@@ -109,7 +110,7 @@ const ContractDeductionCard: React.FC<{
                 onClick={onToggle}
             >
                 <div className="flex-1">
-                    <p className="font-bold text-white text-lg">[#<span className="text-indigo-400">{contract.contract_number}</span>] - {contract.lessee_name}</p>
+                    <p className="font-bold text-white text-lg">[#<span className="text-indigo-400">{contract.contract_number}</span>] - {contract.distributor_name || '총판 없음'} / {contract.lessee_name}</p>
                     <p className="text-sm text-slate-400">{contract.device_name} / {partnerName}</p>
                 </div>
                 <div className="flex-1 text-right px-4">
@@ -195,15 +196,31 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({ contra
         const filtered = contracts.filter(c => {
              const partnerName = partnerMap.get(c.partner_id) || '';
              const lesseeName = c.lessee_name || '';
+             const distributorName = c.distributor_name || '';
              const searchMatch =
                 c.device_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 partnerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                lesseeName.toLowerCase().includes(searchTerm.toLowerCase());
+                lesseeName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                distributorName.toLowerCase().includes(searchTerm.toLowerCase());
 
             return c.status === ContractStatus.ACTIVE && searchMatch;
         });
         return filtered.sort((a,b) => (b.unpaid_balance || 0) - (a.unpaid_balance || 0));
     }, [contracts, partnerMap, searchTerm]);
+    
+    const summary = useMemo(() => {
+        return activeContracts.reduce(
+            (acc, contract) => {
+                const totalPaid = (contract.daily_deductions || []).reduce((sum, d) => sum + d.paid_amount, 0);
+                const balance = contract.total_amount - totalPaid;
+
+                acc.totalUnpaid += contract.unpaid_balance;
+                acc.totalBalance += balance;
+                return acc;
+            },
+            { totalUnpaid: 0, totalBalance: 0 }
+        );
+    }, [activeContracts]);
 
     const handleToggleCard = (contractId: string) => {
         setOpenContractId(prevId => (prevId === contractId ? null : contractId));
@@ -223,19 +240,59 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({ contra
         }
         handleClosePaymentModal();
     };
+    
+    const handleExport = () => {
+        const header = ['계약번호', '파트너사', '계약자', '기기명', '차감일', '차감액', '납부액', '미납액', '상태'];
+        const allActiveContracts = contracts.filter(c => c.status === ContractStatus.ACTIVE);
+
+        const rows = allActiveContracts.flatMap(c => 
+            (c.daily_deductions || []).map(d => [
+                c.contract_number,
+                partnerMap.get(c.partner_id) || 'N/A',
+                c.lessee_name || 'N/A',
+                c.device_name,
+                d.date,
+                d.amount,
+                d.paid_amount,
+                d.amount - d.paid_amount,
+                d.status
+            ])
+        );
+        exportToCsv(`일차감_전체내역_${new Date().toISOString().split('T')[0]}.csv`, [header, ...rows]);
+    };
 
     return (
         <div className="p-8">
-            <h2 className="text-3xl font-bold text-white mb-6">일차감 관리</h2>
+            <div className="flex justify-between items-center mb-6">
+                <h2 className="text-3xl font-bold text-white">일차감 관리</h2>
+                <button
+                    onClick={handleExport}
+                    className="flex items-center bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition-colors shadow-md hover:shadow-lg"
+                >
+                    <DownloadIcon className="w-5 h-5 mr-2" />
+                    CSV로 내보내기
+                </button>
+            </div>
             
             <div className="flex items-center space-x-4 bg-slate-800 p-4 rounded-lg mb-6">
                 <input
                   type="text"
-                  placeholder="계약자명, 기기명, 파트너사 검색..."
-                  className="bg-slate-700 text-white placeholder-slate-400 rounded-lg px-4 py-2 w-full md:w-1/3 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  placeholder="총판명, 계약자명, 기기명, 파트너사 검색..."
+                  className="bg-slate-700 text-white placeholder-slate-400 rounded-lg px-4 py-2 w-full md:w-2/5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
+            </div>
+
+            <div className="bg-slate-900/50 p-4 rounded-lg mb-6 grid grid-cols-2 gap-4 text-center">
+                <div>
+                    <p className="text-sm text-slate-400">검색 결과 총 미납액</p>
+                    <p className="text-2xl font-bold text-red-400">{formatCurrency(summary.totalUnpaid)}</p>
+                </div>
+                <div>
+                    <p className="text-sm text-slate-400">검색 결과 총 잔액</p>
+                    <p className="text-2xl font-bold text-yellow-400">{formatCurrency(summary.totalBalance)}</p>
+                </div>
             </div>
             
             <div className="space-y-4">
