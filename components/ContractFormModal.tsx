@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { Contract, Partner, ContractStatus, ShippingStatus, PriceTier, ProcurementStatus, SettlementStatus } from '../types';
 import { CloseIcon } from './icons/IconComponents';
@@ -8,13 +7,13 @@ interface ContractFormModalProps {
   isOpen: boolean;
   onClose: () => void;
   // FIX: The type is relaxed to allow `contract_number` to be optional for new contracts.
-  onSave: (contract: Omit<Contract, 'daily_deductions' | 'unpaid_balance' | 'id' | 'contract_number'> & { id?: string; contract_number?: number; }) => void;
+  onSave: (contract: Omit<Contract, 'unpaid_balance' | 'id' | 'contract_number'> & { id?: string; contract_number?: number; }) => void;
   partners: Partner[];
   contractToEdit: Contract | null;
   template?: Partial<Contract> | null;
 }
 
-type FormState = Omit<Contract, 'daily_deductions' | 'unpaid_balance' | 'device_name' | 'id' | 'contract_number'> & {
+type FormState = Omit<Contract, 'unpaid_balance' | 'device_name' | 'id' | 'contract_number'> & {
   id?: string;
   contract_number?: number;
   model: string;
@@ -31,6 +30,7 @@ const initialFormState: FormState = {
   duration_days: 0,
   total_amount: 0,
   daily_deduction: 0,
+  daily_deductions: null,
   contract_initial_deduction: null,
   status: ContractStatus.ACTIVE,
   is_lessee_contract_signed: false,
@@ -107,9 +107,17 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
   useEffect(() => {
     if (isOpen) {
         if (contractToEdit) {
-            const parts = contractToEdit.device_name.split(' ');
-            const storage = parts.pop() || '';
-            const model = parts.join(' ');
+            const deviceName = contractToEdit.device_name || '';
+            const parts = deviceName.split(' ');
+            let model = deviceName;
+            let storage = '';
+
+            // Improved logic: If there's more than one word, assume the last is storage.
+            // This handles model names with spaces and cases with no storage.
+            if (parts.length > 1) {
+                storage = parts.pop() || '';
+                model = parts.join(' ');
+            }
 
             setFormState({
                 ...initialFormState,
