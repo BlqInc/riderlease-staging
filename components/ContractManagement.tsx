@@ -4,6 +4,8 @@
 
 
 
+
+
 import React, { useState, useMemo, Fragment, useRef } from 'react';
 import { Contract, ContractStatus, Partner, DeductionStatus, SettlementStatus, ShippingStatus, ProcurementStatus } from '../types';
 import { formatDate, formatCurrency } from '../lib/utils';
@@ -68,9 +70,14 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
         const headerToFieldMap: { [key: string]: keyof Partial<Contract> | 'model' | 'storage' } = {
             '파트너사명': 'partner_id', '기기명': 'model', '용량': 'storage', '색상': 'color',
             '계약일': 'contract_date', '실행일': 'execution_date', '만료일': 'expiry_date',
-            '계약 기간': 'duration_days', '총 채권액': 'total_amount', '일차감액': 'daily_deduction',
-            '계약자(라이더)': 'lessee_name', '계약자 연락처': 'lessee_contact',
-            '계약자 사업자번호': 'lessee_business_number', '계약자 사업자주소': 'lessee_business_address',
+            '계약 기간': 'duration_days', '총 채권액': 'total_amount', 
+            '일차감액': 'daily_deduction',
+            '일 차감액': 'daily_deduction',
+            '계약자(라이더)': 'lessee_name',
+            '계약자': 'lessee_name',
+            '계약자 연락처': 'lessee_contact',
+            '계약자 사업자번호': 'lessee_business_number',
+            '계약자 사업자주소': 'lessee_business_address',
             '총판명': 'distributor_name', '필요 수량': 'units_required',
         };
 
@@ -89,7 +96,7 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
             let hasError = false;
 
             for (const rawHeader of Object.keys(row)) {
-                const header = String(rawHeader).replace(/\(.*?\)/g, '').trim();
+                const header = String(rawHeader).trim();
                 const field = headerToFieldMap[header];
                 if (field) {
                     const value = row[rawHeader];
@@ -101,7 +108,6 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
                         if (partnerId) {
                             newContract.partner_id = partnerId;
                         } else {
-                            // FIX: Cast `value` to `any` to allow its use in the template literal, resolving the "unknown is not assignable to string" error.
                             errors.push(`Row ${index + 2}: 파트너사 '${String(value)}'을(를) 찾을 수 없습니다.`);
                             hasError = true;
                         }
@@ -144,8 +150,8 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
                 }
             }
             
-            if (newContract.model && newContract.storage) {
-                newContract.device_name = `${newContract.model} ${newContract.storage}`;
+            if (newContract.model) {
+                newContract.device_name = [newContract.model, newContract.storage].filter(Boolean).join(' ');
             }
             delete newContract.model;
             delete newContract.storage;
@@ -155,7 +161,7 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
                 hasError = true;
             }
             if (!newContract.device_name) {
-                errors.push(`Row ${index + 2}: '기기명'과 '용량'이 모두 비어있습니다.`);
+                errors.push(`Row ${index + 2}: '기기명'이 비어있습니다.`);
                 hasError = true;
             }
 
@@ -310,14 +316,14 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
             <ul className="list-disc list-inside mt-2 space-y-1 md:columns-2">
                 <li><span className="font-semibold text-yellow-400">'파트너사명' (필수)</span></li>
                 <li><span className="font-semibold text-yellow-400">'기기명' (필수, 예: 아이폰 16 Pro)</span></li>
-                <li><span className="font-semibold text-yellow-400">'용량' (필수, 예: 256GB)</span></li>
+                <li><span className="font-semibold">'용량' (선택, 예: 256GB)</span></li>
                 <li>'색상'</li>
                 <li><span className="font-semibold text-yellow-400">'계약일' (필수, YYYY-MM-DD)</span></li>
                 <li>'실행일' (YYYY-MM-DD)</li>
                 <li>'만료일' (YYYY-MM-DD)</li>
                 <li>'계약 기간' (숫자)</li>
                 <li>'총 채권액' (숫자)</li>
-                <li>'일차감액' (숫자)</li>
+                <li>'일차감액' 또는 '일 차감액' (숫자)</li>
                 <li>'계약자(라이더)'</li>
                 <li>'계약자 연락처'</li>
                 <li>'계약자 사업자번호'</li>
