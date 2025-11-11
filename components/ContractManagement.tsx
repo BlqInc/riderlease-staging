@@ -1,4 +1,9 @@
 
+
+
+
+
+
 import React, { useState, useMemo, Fragment, useRef } from 'react';
 import { Contract, ContractStatus, Partner, DeductionStatus, SettlementStatus, ShippingStatus, ProcurementStatus } from '../types';
 import { formatDate, formatCurrency } from '../lib/utils';
@@ -10,7 +15,7 @@ interface ContractManagementProps {
   partners: Partner[];
   onSelectContract: (contract: Contract) => void;
   onAddContract: (template?: Partial<Contract>) => void;
-  onImportContracts: (contracts: Partial<Omit<Contract, 'id' | 'contract_number' | 'unpaid_balance' | 'daily_deductions'>>[]) => Promise<void>;
+  onImportContracts: (contracts: Partial<Omit<Contract, 'id' | 'contract_number' | 'unpaid_balance'>>[]) => Promise<void>;
 }
 
 interface ContractGroup {
@@ -60,8 +65,8 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
         }
         
         const partnerNameToIdMap = new Map(partners.map(p => [p.name.trim().toLowerCase(), p.id]));
-        const headerToFieldMap: { [key: string]: keyof Partial<Contract> } = {
-            '파트너사명': 'partner_id', '기기명': 'device_name', '색상': 'color',
+        const headerToFieldMap: { [key: string]: keyof Partial<Contract> | 'model' | 'storage' } = {
+            '파트너사명': 'partner_id', '기기명': 'model', '용량': 'storage', '색상': 'color',
             '계약일': 'contract_date', '실행일': 'execution_date', '만료일': 'expiry_date',
             '계약 기간': 'duration_days', '총 채권액': 'total_amount', '일차감액': 'daily_deduction',
             '계약자(라이더)': 'lessee_name', '계약자 연락처': 'lessee_contact',
@@ -69,16 +74,17 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
             '총판명': 'distributor_name', '필요 수량': 'units_required',
         };
 
-        const newContracts: Partial<Omit<Contract, 'id' | 'contract_number' | 'unpaid_balance' | 'daily_deductions'>>[] = [];
+        const newContracts: Partial<Omit<Contract, 'id' | 'contract_number' | 'unpaid_balance'>>[] = [];
         const errors: string[] = [];
 
         jsonData.forEach((row, index) => {
-            const newContract: Partial<Contract> = {
+            const newContract: Partial<Contract> & { model?: string, storage?: string } = {
                 status: ContractStatus.ACTIVE,
                 settlement_status: SettlementStatus.NOT_READY,
                 is_lessee_contract_signed: false,
                 shipping_status: ShippingStatus.PREPARING,
                 procurement_status: ProcurementStatus.UNSECURED,
+                daily_deductions: null,
             };
             let hasError = false;
 
@@ -95,6 +101,7 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
                         if (partnerId) {
                             newContract.partner_id = partnerId;
                         } else {
+                            // FIX: Cast `value` to `any` to allow its use in the template literal, resolving the "unknown is not assignable to string" error.
                             errors.push(`Row ${index + 2}: 파트너사 '${String(value)}'을(를) 찾을 수 없습니다.`);
                             hasError = true;
                         }
@@ -137,12 +144,18 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
                 }
             }
             
+            if (newContract.model && newContract.storage) {
+                newContract.device_name = `${newContract.model} ${newContract.storage}`;
+            }
+            delete newContract.model;
+            delete newContract.storage;
+
             if (!newContract.partner_id) {
                 if (!hasError) errors.push(`Row ${index + 2}: '파트너사명'이 비어있거나 유효하지 않습니다.`);
                 hasError = true;
             }
             if (!newContract.device_name) {
-                errors.push(`Row ${index + 2}: '기기명'이 비어있습니다.`);
+                errors.push(`Row ${index + 2}: '기기명'과 '용량'이 모두 비어있습니다.`);
                 hasError = true;
             }
 
@@ -296,7 +309,8 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
             <p>엑셀 파일의 첫 번째 행은 아래의 헤더(제목)와 정확히 일치해야 합니다. 순서는 상관 없으나, <span className="text-yellow-400">필수 항목</span>은 반드시 포함되어야 합니다.</p>
             <ul className="list-disc list-inside mt-2 space-y-1 md:columns-2">
                 <li><span className="font-semibold text-yellow-400">'파트너사명' (필수)</span></li>
-                <li><span className="font-semibold text-yellow-400">'기기명' (필수)</span></li>
+                <li><span className="font-semibold text-yellow-400">'기기명' (필수, 예: 아이폰 16 Pro)</span></li>
+                <li><span className="font-semibold text-yellow-400">'용량' (필수, 예: 256GB)</span></li>
                 <li>'색상'</li>
                 <li><span className="font-semibold text-yellow-400">'계약일' (필수, YYYY-MM-DD)</span></li>
                 <li>'실행일' (YYYY-MM-DD)</li>
