@@ -46,98 +46,105 @@ const App: React.FC = () => {
   const selectedPartner = selectedPartnerId ? partners.find(p => p.id === selectedPartnerId) ?? null : null;
   const priceTemplates = useMemo(() => partners.filter(p => p.is_template), [partners]);
 
-  const processContracts = (rawContracts: any[]): Contract[] => {
+  const processSingleContract = (rawContract: any): Contract => {
       // Use UTC for today's date to ensure consistent comparisons across timezones
       const localToday = new Date();
       const today = new Date(Date.UTC(localToday.getUTCFullYear(), localToday.getUTCMonth(), localToday.getUTCDate()));
 
-      return rawContracts.map(rawContract => {
-          // 원본 데이터는 변경하지 않습니다.
-          const units = Number(rawContract.units_required) || 1;
+      // 원본 데이터는 변경하지 않습니다.
+      const units = Number(rawContract.units_required) || 1;
+      
+      // 총액을 먼저 계산합니다.
+      const totalAmount = (Number(rawContract.total_amount) || 0) * units;
+      const totalDailyDeduction = (Number(rawContract.daily_deduction) || 0) * units;
+
+      let finalDeductions: DailyDeductionLog[] = [];
+      
+      if (rawContract.execution_date && rawContract.expiry_date) {
+          const existingDeductionsMap = new Map<string, DailyDeductionLog>((rawContract.daily_deductions || []).map(d => [d.date, d]));
           
-          // 총액을 먼저 계산합니다.
-          const totalAmount = (Number(rawContract.total_amount) || 0) * units;
-          const totalDailyDeduction = (Number(rawContract.daily_deduction) || 0) * units;
+          const startParts = rawContract.execution_date.split('-').map(Number);
+          const startDate = new Date(Date.UTC(startParts[0], startParts[1] - 1, startParts[2]));
 
-          let finalDeductions: DailyDeductionLog[] = [];
+          const expiryParts = rawContract.expiry_date.split('-').map(Number);
+          const expiryDate = new Date(Date.UTC(expiryParts[0], expiryParts[1] - 1, expiryParts[2]));
           
-          if (rawContract.execution_date && rawContract.expiry_date) {
-              const existingDeductionsMap = new Map<string, DailyDeductionLog>((rawContract.daily_deductions || []).map(d => [d.date, d]));
-              
-              const startParts = rawContract.execution_date.split('-').map(Number);
-              const startDate = new Date(Date.UTC(startParts[0], startParts[1] - 1, startParts[2]));
+          let currentDate = new Date(startDate.getTime());
 
-              const expiryParts = rawContract.expiry_date.split('-').map(Number);
-              const expiryDate = new Date(Date.UTC(expiryParts[0], expiryParts[1] - 1, expiryParts[2]));
-              
-              let currentDate = new Date(startDate.getTime());
+          // 만료일과 오늘 날짜 중 더 미래의 날짜까지 루프를 돕니다.
+          const loopEndDate = today.getTime() > expiryDate.getTime() ? today : expiryDate;
+          
+          while (currentDate <= loopEndDate) {
+              const dateString = currentDate.toISOString().split('T')[0];
+              const existingDeduction = existingDeductionsMap.get(dateString);
 
-              // 만료일과 오늘 날짜 중 더 미래의 날짜까지 루프를 돕니다.
-              const loopEndDate = today.getTime() > expiryDate.getTime() ? today : expiryDate;
-              
-              while (currentDate <= loopEndDate) {
-                  const dateString = currentDate.toISOString().split('T')[0];
-                  const existingDeduction = existingDeductionsMap.get(dateString);
-
-                  if (existingDeduction) {
-                      // 기존 차감 내역이 있으면 그대로 사용합니다.
-                      finalDeductions.push(existingDeduction);
-                  } else {
-                      // 없으면 새로 생성합니다. amount는 총 일차감액을 사용합니다.
-                      finalDeductions.push({
-                          id: `${rawContract.id}-${dateString}`,
-                          date: dateString,
-                          amount: totalDailyDeduction,
-                          status: currentDate < today ? DeductionStatus.UNPAID : DeductionStatus.PENDING,
-                          paid_amount: 0,
-                      });
-                  }
-                  currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+              if (existingDeduction) {
+                  // 기존 차감 내역이 있으면 그대로 사용합니다.
+                  finalDeductions.push(existingDeduction);
+              } else {
+                  // 없으면 새로 생성합니다. amount는 총 일차감액을 사용합니다.
+                  finalDeductions.push({
+                      id: `${rawContract.id}-${dateString}`,
+                      date: dateString,
+                      amount: totalDailyDeduction,
+                      status: currentDate < today ? DeductionStatus.UNPAID : DeductionStatus.PENDING,
+                      paid_amount: 0,
+                  });
               }
-          } else {
-              // 실행일 또는 만료일이 없는 경우, 기존 DB 데이터만 사용합니다.
-              finalDeductions = rawContract.daily_deductions || [];
+              currentDate.setUTCDate(currentDate.getUTCDate() + 1);
           }
-          
-          // 미납액을 계산합니다.
-          const unpaid_balance = finalDeductions
-              .filter(d => d.status !== DeductionStatus.PAID)
-              .reduce((sum, d) => sum + (d.amount - d.paid_amount), 0);
+      } else {
+          // 실행일 또는 만료일이 없는 경우, 기존 DB 데이터만 사용합니다.
+          finalDeductions = rawContract.daily_deductions || [];
+      }
+      
+      // 미납액을 계산합니다: 오늘까지 발생한 차감 내역 중 '납부완료'가 아닌 것들의 합계
+      const unpaid_balance = finalDeductions
+          .filter(d => {
+              const deductionDateParts = d.date.split('-').map(Number);
+              const deductionDate = new Date(Date.UTC(deductionDateParts[0], deductionDateParts[1] - 1, deductionDateParts[2]));
+              return deductionDate <= today && d.status !== DeductionStatus.PAID;
+          })
+          .reduce((sum, d) => sum + (d.amount - d.paid_amount), 0);
 
-          // 계약 상태를 업데이트합니다.
-          let finalStatus = rawContract.status;
-          if (rawContract.status === ContractStatus.ACTIVE && rawContract.expiry_date) {
-            const expiryParts = rawContract.expiry_date.split('-').map(Number);
-            const expiryDate = new Date(Date.UTC(expiryParts[0], expiryParts[1] - 1, expiryParts[2]));
-            if (expiryDate < today) {
-                finalStatus = ContractStatus.EXPIRED;
-            }
-          }
-          
-          // 정산 상태를 업데이트합니다.
-          const isSettlementReady = 
-              rawContract.shipping_status === ShippingStatus.DELIVERED &&
-              rawContract.is_lessee_contract_signed &&
-              !!rawContract.settlement_document_url;
-          
-          let settlement_status = rawContract.settlement_status;
-          if (settlement_status === SettlementStatus.NOT_READY && isSettlementReady) {
-              settlement_status = SettlementStatus.READY;
-          } else if (settlement_status === SettlementStatus.READY && !isSettlementReady) {
-              settlement_status = SettlementStatus.NOT_READY;
-          }
-          
-          // 모든 계산이 끝난 후, 최종적으로 새로운 객체를 만들어 반환합니다.
-          return {
-              ...rawContract,
-              total_amount: totalAmount,
-              daily_deduction: totalDailyDeduction,
-              daily_deductions: finalDeductions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
-              unpaid_balance,
-              status: finalStatus,
-              settlement_status
-          };
-      });
+
+      // 계약 상태를 업데이트합니다.
+      let finalStatus = rawContract.status;
+      if (rawContract.status === ContractStatus.ACTIVE && rawContract.expiry_date) {
+        const expiryParts = rawContract.expiry_date.split('-').map(Number);
+        const expiryDate = new Date(Date.UTC(expiryParts[0], expiryParts[1] - 1, expiryParts[2]));
+        if (expiryDate < today) {
+            finalStatus = ContractStatus.EXPIRED;
+        }
+      }
+      
+      // 정산 상태를 업데이트합니다.
+      const isSettlementReady = 
+          rawContract.shipping_status === ShippingStatus.DELIVERED &&
+          rawContract.is_lessee_contract_signed &&
+          !!rawContract.settlement_document_url;
+      
+      let settlement_status = rawContract.settlement_status;
+      if (settlement_status === SettlementStatus.NOT_READY && isSettlementReady) {
+          settlement_status = SettlementStatus.READY;
+      } else if (settlement_status === SettlementStatus.READY && !isSettlementReady) {
+          settlement_status = SettlementStatus.NOT_READY;
+      }
+      
+      // 모든 계산이 끝난 후, 최종적으로 새로운 객체를 만들어 반환합니다.
+      return {
+          ...rawContract,
+          total_amount: totalAmount,
+          daily_deduction: totalDailyDeduction,
+          daily_deductions: finalDeductions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
+          unpaid_balance,
+          status: finalStatus,
+          settlement_status
+      };
+  };
+
+  const processContracts = (rawContracts: any[]): Contract[] => {
+    return rawContracts.map(processSingleContract);
   };
 
 
@@ -295,18 +302,37 @@ const App: React.FC = () => {
     }
   };
   
-  const handleUpdateContractField = async (contractId: string, updates: Partial<Omit<Contract, 'id' | 'contract_number' | 'unpaid_balance'>>) => {
+  const handleUpdateContractField = async (
+    contractId: string, 
+    updates: Partial<Omit<Contract, 'id' | 'contract_number' | 'unpaid_balance'>>,
+    options: { refetch?: boolean } = {}
+  ) => {
+    const { refetch = true } = options;
     if (!supabase) return;
     try {
       const { error } = await supabase.from('contracts').update(updates).match({ id: contractId });
       if (error) throw error;
-      await fetchData();
+      if (refetch) {
+        await fetchData();
+      }
       return true;
     } catch (err: any) {
       setError(`계약 업데이트 실패: ${err.message}`);
       return false;
     }
   };
+  
+  const updateLocalContractState = (contractId: string, updatedDeductions: DailyDeductionLog[]) => {
+      setContracts(prevContracts => 
+          prevContracts.map(c => {
+              if (c.id === contractId) {
+                  return processSingleContract({ ...c, daily_deductions: updatedDeductions });
+              }
+              return c;
+          })
+      );
+  };
+
 
   const handleAddPayment = async (contractId: string, amount: number) => {
       const contract = contracts.find(c => c.id === contractId);
@@ -329,7 +355,10 @@ const App: React.FC = () => {
           return { ...d, paid_amount: newPaidAmount, status: newStatus };
       });
       
-      await handleUpdateContractField(contractId, { daily_deductions: updatedDeductions });
+      const success = await handleUpdateContractField(contractId, { daily_deductions: updatedDeductions }, { refetch: false });
+      if (success) {
+        updateLocalContractState(contractId, updatedDeductions);
+      }
   };
   
   const handleSettleDeduction = async (contractId: string, deductionId: string) => {
@@ -342,7 +371,11 @@ const App: React.FC = () => {
         }
         return d;
     });
-    await handleUpdateContractField(contractId, { daily_deductions: updatedDeductions });
+    
+    const success = await handleUpdateContractField(contractId, { daily_deductions: updatedDeductions }, { refetch: false });
+    if (success) {
+      updateLocalContractState(contractId, updatedDeductions);
+    }
   };
   
   const handleCancelDeduction = async (contractId: string, deductionId: string) => {
@@ -361,7 +394,10 @@ const App: React.FC = () => {
         }
         return d;
     });
-     await handleUpdateContractField(contractId, { daily_deductions: updatedDeductions });
+     const success = await handleUpdateContractField(contractId, { daily_deductions: updatedDeductions }, { refetch: false });
+     if (success) {
+       updateLocalContractState(contractId, updatedDeductions);
+     }
   };
   
   const handleBulkUpdate = async (updates: ({ id: string; } & Partial<Omit<Contract, 'id' | 'contract_number' | 'unpaid_balance'>>) []) => {
