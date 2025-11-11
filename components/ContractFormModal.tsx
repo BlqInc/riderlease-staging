@@ -107,16 +107,31 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
   useEffect(() => {
     if (isOpen) {
         if (contractToEdit) {
+            const partner = partners.find(p => p.id === contractToEdit.partner_id);
             const deviceName = contractToEdit.device_name || '';
-            const parts = deviceName.split(' ');
             let model = deviceName;
             let storage = '';
 
-            // Improved logic: If there's more than one word, assume the last is storage.
-            // This handles model names with spaces and cases with no storage.
-            if (parts.length > 1) {
-                storage = parts.pop() || '';
-                model = parts.join(' ');
+            // Robust parsing logic: Use partner's price list to accurately separate model and storage.
+            if (partner && partner.price_list) {
+                const allStorages = [...new Set(partner.price_list.map(p => p.storage))].sort((a, b) => b.length - a.length);
+                for (const s of allStorages) {
+                    if (deviceName.endsWith(` ${s}`)) {
+                        storage = s;
+                        model = deviceName.substring(0, deviceName.length - s.length - 1);
+                        break;
+                    }
+                }
+            }
+
+            // Fallback for partners without price lists or if no match was found.
+            if (!storage && deviceName) {
+                const parts = deviceName.split(' ');
+                const lastPart = parts[parts.length - 1];
+                if (parts.length > 1 && lastPart && (lastPart.toUpperCase().includes('GB') || lastPart.toUpperCase().includes('TB'))) {
+                    storage = parts.pop() || '';
+                    model = parts.join(' ');
+                }
             }
 
             setFormState({
@@ -138,7 +153,7 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
             setFormState(newFormState);
         }
     }
-  }, [contractToEdit, isOpen, template]);
+  }, [contractToEdit, isOpen, template, partners]);
 
   useEffect(() => {
     if (contractToEdit) return;
@@ -212,7 +227,7 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
       alert('파트너사, 기종, 용량, 계약 기간은 필수 항목입니다.');
       return;
     }
-    const device_name = `${formState.model} ${formState.storage}`;
+    const device_name = `${formState.model} ${formState.storage}`.trim();
     
     const execution_date = formState.execution_date || formState.contract_date;
 
@@ -274,7 +289,7 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
                     </select>
                 </FormField>
                 <FormField label="색상">
-                    <input type="text" name="color" value={formState.color} onChange={handleChange} required placeholder="예: 네츄럴 티타늄" className={inputClass} />
+                    <input type="text" name="color" value={formState.color || ''} onChange={handleChange} required placeholder="예: 네츄럴 티타늄" className={inputClass} />
                 </FormField>
             </FormSection>
 
