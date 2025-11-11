@@ -2,11 +2,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Contract, Partner, ContractStatus, ShippingStatus, PriceTier, ProcurementStatus, SettlementStatus } from '../types';
 import { CloseIcon } from './icons/IconComponents';
+import { formatCurrency } from '../lib/utils';
 
 interface ContractFormModalProps {
   isOpen: boolean;
   onClose: () => void;
-  // FIX: The type is relaxed to allow `contract_number` to be optional for new contracts.
   onSave: (contract: Omit<Contract, 'unpaid_balance' | 'id' | 'contract_number'> & { id?: string; contract_number?: number; }) => void;
   partners: Partner[];
   contractToEdit: Contract | null;
@@ -111,9 +111,13 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
             const deviceName = contractToEdit.device_name || '';
             let model = '';
             let storage = '';
+            
+            // NOTE: The contract object from props contains total amounts.
+            // We need to divide by units to show the per-unit price in the form.
+            const units = contractToEdit.units_required || 1;
+            const perUnitTotalAmount = (contractToEdit.total_amount || 0) / units;
+            const perUnitDailyDeduction = (contractToEdit.daily_deduction || 0) / units;
 
-            // More robust parsing: Use partner's price list to accurately separate model and storage.
-            // Sort models by length descending to match longer names first (e.g., "iPhone 15 Pro" before "iPhone 15").
             if (partner && partner.price_list) {
                 const uniqueModels = [...new Set(partner.price_list.map(p => p.model))];
                 uniqueModels.sort((a, b) => b.length - a.length);
@@ -122,12 +126,11 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
                     if (deviceName.startsWith(modelName + ' ') || deviceName === modelName) {
                         model = modelName;
                         storage = deviceName.substring(modelName.length).trim();
-                        break; // Found the best match
+                        break; 
                     }
                 }
             }
             
-            // Fallback for partners without price lists or if no match was found.
             if (!model && deviceName) {
                 const parts = deviceName.split(' ');
                 const lastPart = parts[parts.length - 1];
@@ -145,6 +148,8 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
                 ...contractToEdit,
                 model: model,
                 storage: storage,
+                total_amount: perUnitTotalAmount,
+                daily_deduction: perUnitDailyDeduction,
                 contract_date: contractToEdit.contract_date.split('T')[0],
                 expiry_date: contractToEdit.expiry_date.split('T')[0],
                 execution_date: contractToEdit.execution_date?.split('T')[0] || null,
@@ -240,9 +245,11 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
     const tempObject = { ...formState, execution_date };
     const { model, storage, ...contractData } = tempObject;
     
+    // NOTE: The form state holds per-unit prices. We don't need to multiply here
+    // because we are saving per-unit prices to the DB. The multiplication happens
+    // at runtime in App.tsx's `processContracts`.
     const finalContractData = { ...contractData, device_name };
 
-    // Convert empty strings to null for fields that can be null
     Object.keys(finalContractData).forEach(keyStr => {
         const key = keyStr as keyof typeof finalContractData;
         if ((finalContractData as any)[key] === '') {
@@ -306,6 +313,9 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
                         {availableDurations.map(days => <option key={days} value={days}>{days}일</option>)}
                     </select>
                 </FormField>
+                 <FormField label="필요 수량">
+                    <input type="number" name="units_required" value={formState.units_required || 1} onChange={handleChange} className={inputClass} min="1"/>
+                </FormField>
                 <FormField label="계약일">
                     <input type="date" name="contract_date" value={formState.contract_date} onChange={handleChange} required className={inputClass} />
                 </FormField>
@@ -315,14 +325,20 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
                 <FormField label="만료일 (자동 계산)">
                     <input type="date" name="expiry_date" value={formState.expiry_date} readOnly className={readonlyInputClass} />
                 </FormField>
-                 <FormField label="총 채권액 (원)" className="md:col-span-2">
-                      <input type="number" name="total_amount" value={formState.total_amount} onChange={handleChange} required readOnly={isPricingLocked} className={isPricingLocked ? readonlyInputClass : inputClass} />
-                 </FormField>
-                 <FormField label="일차감 (원)">
-                      <input type="number" name="daily_deduction" value={formState.daily_deduction} onChange={handleChange} required readOnly={isPricingLocked} className={isPricingLocked ? readonlyInputClass : inputClass} />
-                 </FormField>
-                 <FormField label="계약서 일차감액 (원, 선택사항)">
+                <FormField label="계약서 일차감액 (원, 선택사항)">
                     <input type="number" name="contract_initial_deduction" value={formState.contract_initial_deduction || ''} onChange={handleChange} className={inputClass} />
+                </FormField>
+                 <FormField label="단가별 총 채권액 (원)">
+                      <input type="number" name="total_amount" value={formState.total_amount || ''} onChange={handleChange} required readOnly={isPricingLocked} className={isPricingLocked ? readonlyInputClass : inputClass} />
+                      {(formState.units_required || 1) > 1 && 
+                          <p className="text-xs text-slate-400 mt-1">총 채권액 (수량x단가): <span className="font-semibold text-green-400">{formatCurrency((formState.total_amount || 0) * (formState.units_required || 1))}</span></p>
+                      }
+                 </FormField>
+                 <FormField label="단가별 일차감 (원)">
+                      <input type="number" name="daily_deduction" value={formState.daily_deduction || ''} onChange={handleChange} required readOnly={isPricingLocked} className={isPricingLocked ? readonlyInputClass : inputClass} />
+                       {(formState.units_required || 1) > 1 && 
+                          <p className="text-xs text-slate-400 mt-1">총 일차감 (수량x단가): <span className="font-semibold text-yellow-400">{formatCurrency((formState.daily_deduction || 0) * (formState.units_required || 1))}</span></p>
+                      }
                  </FormField>
             </FormSection>
             
@@ -338,14 +354,10 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
                 <FormField label="조달 비용 (원)">
                     <input type="number" name="procurement_cost" value={formState.procurement_cost || ''} onChange={handleChange} className={inputClass} />
                 </FormField>
-                 <FormField label="확보/필요 수량">
-                    <div className="flex items-center space-x-2">
-                        <input type="number" name="units_secured" value={formState.units_secured || 0} onChange={handleChange} className={inputClass} />
-                         <span className="text-slate-400">/</span>
-                        <input type="number" name="units_required" value={formState.units_required || 1} onChange={handleChange} className={inputClass} />
-                    </div>
+                 <FormField label="확보 수량">
+                     <input type="number" name="units_secured" value={formState.units_secured || 0} onChange={handleChange} className={inputClass} />
                 </FormField>
-                <FormField label="고객 배송 방법">
+                <FormField label="고객 배송 방법" className="md:col-span-2">
                     <input type="text" name="delivery_method_to_lessee" value={formState.delivery_method_to_lessee || ''} onChange={handleChange} placeholder="예: 택배, 퀵서비스" className={inputClass} />
                 </FormField>
             </FormSection>
