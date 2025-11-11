@@ -47,8 +47,9 @@ const App: React.FC = () => {
   const priceTemplates = useMemo(() => partners.filter(p => p.is_template), [partners]);
 
   const processContracts = (rawContracts: any[]): Contract[] => {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      // Use UTC for today's date to ensure consistent comparisons across timezones
+      const localToday = new Date();
+      const today = new Date(Date.UTC(localToday.getUTCFullYear(), localToday.getUTCMonth(), localToday.getUTCDate()));
 
       return rawContracts.map(rawContract => {
           // 원본 데이터는 변경하지 않습니다.
@@ -62,14 +63,17 @@ const App: React.FC = () => {
           
           if (rawContract.execution_date && rawContract.expiry_date) {
               const existingDeductionsMap = new Map<string, DailyDeductionLog>((rawContract.daily_deductions || []).map(d => [d.date, d]));
-              const startDate = new Date(rawContract.execution_date);
-              const expiryDate = new Date(rawContract.expiry_date);
               
-              let currentDate = new Date(startDate);
-              currentDate.setDate(currentDate.getDate() + 1);
+              const startParts = rawContract.execution_date.split('-').map(Number);
+              const startDate = new Date(Date.UTC(startParts[0], startParts[1] - 1, startParts[2]));
+
+              const expiryParts = rawContract.expiry_date.split('-').map(Number);
+              const expiryDate = new Date(Date.UTC(expiryParts[0], expiryParts[1] - 1, expiryParts[2]));
+              
+              let currentDate = new Date(startDate.getTime());
 
               // 만료일과 오늘 날짜 중 더 미래의 날짜까지 루프를 돕니다.
-              const loopEndDate = today > expiryDate ? today : expiryDate;
+              const loopEndDate = today.getTime() > expiryDate.getTime() ? today : expiryDate;
               
               while (currentDate <= loopEndDate) {
                   const dateString = currentDate.toISOString().split('T')[0];
@@ -88,7 +92,7 @@ const App: React.FC = () => {
                           paid_amount: 0,
                       });
                   }
-                  currentDate.setDate(currentDate.getDate() + 1);
+                  currentDate.setUTCDate(currentDate.getUTCDate() + 1);
               }
           } else {
               // 실행일 또는 만료일이 없는 경우, 기존 DB 데이터만 사용합니다.
@@ -102,8 +106,12 @@ const App: React.FC = () => {
 
           // 계약 상태를 업데이트합니다.
           let finalStatus = rawContract.status;
-          if (rawContract.status === ContractStatus.ACTIVE && new Date(rawContract.expiry_date) < today) {
-              finalStatus = ContractStatus.EXPIRED;
+          if (rawContract.status === ContractStatus.ACTIVE && rawContract.expiry_date) {
+            const expiryParts = rawContract.expiry_date.split('-').map(Number);
+            const expiryDate = new Date(Date.UTC(expiryParts[0], expiryParts[1] - 1, expiryParts[2]));
+            if (expiryDate < today) {
+                finalStatus = ContractStatus.EXPIRED;
+            }
           }
           
           // 정산 상태를 업데이트합니다.
@@ -341,12 +349,13 @@ const App: React.FC = () => {
     const contract = contracts.find(c => c.id === contractId);
     if (!contract || !contract.daily_deductions) return;
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const localToday = new Date();
+    const today = new Date(Date.UTC(localToday.getUTCFullYear(), localToday.getUTCMonth(), localToday.getUTCDate()));
 
     const updatedDeductions = contract.daily_deductions.map(d => {
         if (d.id === deductionId) {
-            const deductionDate = new Date(d.date);
+            const deductionDateParts = d.date.split('-').map(Number);
+            const deductionDate = new Date(Date.UTC(deductionDateParts[0], deductionDateParts[1] - 1, deductionDateParts[2]));
             const newStatus = deductionDate < today ? DeductionStatus.UNPAID : DeductionStatus.PENDING;
             return { ...d, status: newStatus, paid_amount: 0 };
         }

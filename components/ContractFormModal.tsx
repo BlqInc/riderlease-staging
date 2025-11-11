@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Contract, Partner, ContractStatus, ShippingStatus, PriceTier, ProcurementStatus, SettlementStatus } from '../types';
 import { CloseIcon } from './icons/IconComponents';
@@ -119,7 +120,9 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
             const perUnitDailyDeduction = (contractToEdit.daily_deduction || 0) / units;
 
             if (partner && partner.price_list) {
-                const uniqueModels = [...new Set(partner.price_list.map(p => p.model))];
+                // FIX: Explicitly set the return type of the map function callback to 'string'. This resolves a type inference
+                // issue where the array was being incorrectly typed as 'unknown[]' instead of 'string[]'.
+                const uniqueModels: string[] = [...new Set(partner.price_list.map((p): string => p.model))];
                 uniqueModels.sort((a, b) => b.length - a.length);
 
                 for (const modelName of uniqueModels) {
@@ -191,8 +194,14 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
   
   useEffect(() => {
     if (formState.execution_date && formState.duration_days > 0) {
-      const startDate = new Date(formState.execution_date);
-      startDate.setDate(startDate.getDate() + formState.duration_days);
+      const parts = formState.execution_date.split('-').map(Number);
+      // 타임존 문제를 피하기 위해 UTC 기준으로 날짜를 생성합니다.
+      const startDate = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+      
+      // UTC 기준으로 날짜를 더합니다.
+      startDate.setUTCDate(startDate.getUTCDate() + formState.duration_days - 1);
+      
+      // UTC 날짜에서 YYYY-MM-DD 형식으로 변환합니다.
       setFormState(prev => ({...prev, expiry_date: startDate.toISOString().split('T')[0]}));
     } else {
       setFormState(prev => ({...prev, expiry_date: ''}));
