@@ -97,7 +97,8 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
                     if (value === null || value === undefined) continue;
 
                     if (field === 'partner_id') {
-                        // FIX: Explicitly convert the value to a string, as it is read as 'unknown' from the Excel file.
+                        // FIX: Explicitly convert `value` to a string before using string methods,
+                        // as its type is 'unknown' when read from the Excel file.
                         const partnerName = String(value).trim().toLowerCase();
                         const partnerId = partnerNameToIdMap.get(partnerName);
                         if (partnerId) {
