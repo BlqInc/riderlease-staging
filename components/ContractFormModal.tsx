@@ -109,28 +109,34 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
         if (contractToEdit) {
             const partner = partners.find(p => p.id === contractToEdit.partner_id);
             const deviceName = contractToEdit.device_name || '';
-            let model = deviceName;
+            let model = '';
             let storage = '';
 
-            // Robust parsing logic: Use partner's price list to accurately separate model and storage.
+            // More robust parsing: Use partner's price list to accurately separate model and storage.
+            // Sort models by length descending to match longer names first (e.g., "iPhone 15 Pro" before "iPhone 15").
             if (partner && partner.price_list) {
-                const allStorages = [...new Set(partner.price_list.map(p => p.storage))].sort((a, b) => b.length - a.length);
-                for (const s of allStorages) {
-                    if (deviceName.endsWith(` ${s}`)) {
-                        storage = s;
-                        model = deviceName.substring(0, deviceName.length - s.length - 1);
-                        break;
+                const uniqueModels = [...new Set(partner.price_list.map(p => p.model))];
+                uniqueModels.sort((a, b) => b.length - a.length);
+
+                for (const modelName of uniqueModels) {
+                    if (deviceName.startsWith(modelName + ' ') || deviceName === modelName) {
+                        model = modelName;
+                        storage = deviceName.substring(modelName.length).trim();
+                        break; // Found the best match
                     }
                 }
             }
-
+            
             // Fallback for partners without price lists or if no match was found.
-            if (!storage && deviceName) {
+            if (!model && deviceName) {
                 const parts = deviceName.split(' ');
                 const lastPart = parts[parts.length - 1];
                 if (parts.length > 1 && lastPart && (lastPart.toUpperCase().includes('GB') || lastPart.toUpperCase().includes('TB'))) {
                     storage = parts.pop() || '';
                     model = parts.join(' ');
+                } else {
+                    model = deviceName;
+                    storage = '';
                 }
             }
 
