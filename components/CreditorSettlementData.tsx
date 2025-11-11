@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Contract } from '../types';
-import { formatCurrency, formatDate, exportDataToCsv } from '../lib/utils';
+import { formatCurrency, formatDate } from '../lib/utils';
+import { exportToCsv } from '../lib/csvUtils';
 import { DownloadIcon } from './icons/IconComponents';
 
 interface CreditorSettlementDataProps {
@@ -54,7 +55,7 @@ export const CreditorSettlementData: React.FC<CreditorSettlementDataProps> = ({ 
         c.contract_initial_deduction || 0,
         c.units_required || 1
     ]);
-    exportDataToCsv(`채권사_정산데이터_${new Date().toISOString().split('T')[0]}.csv`, [header, ...rows]);
+    exportToCsv(`채권사_정산데이터_${new Date().toISOString().split('T')[0]}.csv`, [header, ...rows]);
   };
 
   return (
