@@ -1,11 +1,5 @@
 
 
-
-
-
-
-
-
 import React, { useState, useMemo, Fragment, useRef } from 'react';
 import { Contract, ContractStatus, Partner, DeductionStatus, SettlementStatus, ShippingStatus, ProcurementStatus } from '../types';
 import { formatDate, formatCurrency } from '../lib/utils';
@@ -103,6 +97,7 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
                     if (value === null || value === undefined) continue;
 
                     if (field === 'partner_id') {
+                        // FIX: Explicitly convert the value to a string, as it is read as 'unknown' from the Excel file.
                         const partnerName = String(value).trim().toLowerCase();
                         const partnerId = partnerNameToIdMap.get(partnerName);
                         if (partnerId) {

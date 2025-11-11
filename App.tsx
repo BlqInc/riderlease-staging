@@ -1,4 +1,5 @@
 
+
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Sidebar, View } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
@@ -45,77 +46,92 @@ const App: React.FC = () => {
   const selectedPartner = selectedPartnerId ? partners.find(p => p.id === selectedPartnerId) ?? null : null;
   const priceTemplates = useMemo(() => partners.filter(p => p.is_template), [partners]);
 
-  const processContracts = (rawContracts: Omit<Contract, 'unpaid_balance'>[]): Contract[] => {
+  const processContracts = (rawContracts: any[]): Contract[] => {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
-      return rawContracts.map(contract => {
-          if (!contract.execution_date || !contract.expiry_date) {
-              const unpaid = (contract.daily_deductions || [])
-                  .filter(d => d.status !== DeductionStatus.PAID)
-                  .reduce((sum, d) => sum + (d.amount - d.paid_amount), 0);
-              return { ...contract, unpaid_balance: unpaid };
-          }
-  
-          const startDate = new Date(contract.execution_date);
-          const expiryDate = new Date(contract.expiry_date);
+      return rawContracts.map(rawContract => {
+          // 원본 데이터는 변경하지 않습니다.
+          const units = Number(rawContract.units_required) || 1;
           
+          // 총액을 먼저 계산합니다.
+          const totalAmount = (Number(rawContract.total_amount) || 0) * units;
+          const totalDailyDeduction = (Number(rawContract.daily_deduction) || 0) * units;
+
           let finalDeductions: DailyDeductionLog[] = [];
-          const existingDeductionsMap = new Map((contract.daily_deductions || []).map(d => [d.date, d]));
           
-          let currentDate = new Date(startDate);
-          currentDate.setDate(currentDate.getDate() + 1);
-
-          const loopEndDate = today > expiryDate ? today : expiryDate;
-
-          while (currentDate <= loopEndDate) {
-              const dateString = currentDate.toISOString().split('T')[0];
-              const existingDeduction = existingDeductionsMap.get(dateString);
-
-              if (existingDeduction) {
-                  finalDeductions.push(existingDeduction);
-              } else {
-                  finalDeductions.push({
-                      id: `${contract.id}-${dateString}`,
-                      date: dateString,
-                      amount: contract.daily_deduction,
-                      status: currentDate < today ? DeductionStatus.UNPAID : DeductionStatus.PENDING,
-                      paid_amount: 0,
-                  });
-              }
+          if (rawContract.execution_date && rawContract.expiry_date) {
+              const existingDeductionsMap = new Map<string, DailyDeductionLog>((rawContract.daily_deductions || []).map(d => [d.date, d]));
+              const startDate = new Date(rawContract.execution_date);
+              const expiryDate = new Date(rawContract.expiry_date);
+              
+              let currentDate = new Date(startDate);
               currentDate.setDate(currentDate.getDate() + 1);
+
+              // 만료일과 오늘 날짜 중 더 미래의 날짜까지 루프를 돕니다.
+              const loopEndDate = today > expiryDate ? today : expiryDate;
+              
+              while (currentDate <= loopEndDate) {
+                  const dateString = currentDate.toISOString().split('T')[0];
+                  const existingDeduction = existingDeductionsMap.get(dateString);
+
+                  if (existingDeduction) {
+                      // 기존 차감 내역이 있으면 그대로 사용합니다.
+                      finalDeductions.push(existingDeduction);
+                  } else {
+                      // 없으면 새로 생성합니다. amount는 총 일차감액을 사용합니다.
+                      finalDeductions.push({
+                          id: `${rawContract.id}-${dateString}`,
+                          date: dateString,
+                          amount: totalDailyDeduction,
+                          status: currentDate < today ? DeductionStatus.UNPAID : DeductionStatus.PENDING,
+                          paid_amount: 0,
+                      });
+                  }
+                  currentDate.setDate(currentDate.getDate() + 1);
+              }
+          } else {
+              // 실행일 또는 만료일이 없는 경우, 기존 DB 데이터만 사용합니다.
+              finalDeductions = rawContract.daily_deductions || [];
           }
           
+          // 미납액을 계산합니다.
           const unpaid_balance = finalDeductions
-            .filter(d => d.status !== DeductionStatus.PAID)
-            .reduce((sum, d) => sum + (d.amount - d.paid_amount), 0);
+              .filter(d => d.status !== DeductionStatus.PAID)
+              .reduce((sum, d) => sum + (d.amount - d.paid_amount), 0);
 
-          let finalStatus = contract.status;
-          if (contract.status === ContractStatus.ACTIVE && new Date(contract.expiry_date) < today) {
+          // 계약 상태를 업데이트합니다.
+          let finalStatus = rawContract.status;
+          if (rawContract.status === ContractStatus.ACTIVE && new Date(rawContract.expiry_date) < today) {
               finalStatus = ContractStatus.EXPIRED;
           }
-
+          
+          // 정산 상태를 업데이트합니다.
           const isSettlementReady = 
-            contract.shipping_status === ShippingStatus.DELIVERED &&
-            contract.is_lessee_contract_signed &&
-            !!contract.settlement_document_url;
-
-          let settlement_status = contract.settlement_status;
+              rawContract.shipping_status === ShippingStatus.DELIVERED &&
+              rawContract.is_lessee_contract_signed &&
+              !!rawContract.settlement_document_url;
+          
+          let settlement_status = rawContract.settlement_status;
           if (settlement_status === SettlementStatus.NOT_READY && isSettlementReady) {
               settlement_status = SettlementStatus.READY;
           } else if (settlement_status === SettlementStatus.READY && !isSettlementReady) {
               settlement_status = SettlementStatus.NOT_READY;
           }
-
+          
+          // 모든 계산이 끝난 후, 최종적으로 새로운 객체를 만들어 반환합니다.
           return {
-            ...contract,
-            daily_deductions: finalDeductions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
-            unpaid_balance,
-            status: finalStatus,
-            settlement_status
+              ...rawContract,
+              total_amount: totalAmount,
+              daily_deduction: totalDailyDeduction,
+              daily_deductions: finalDeductions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
+              unpaid_balance,
+              status: finalStatus,
+              settlement_status
           };
       });
   };
+
 
   const fetchData = useCallback(async () => {
     if (!supabase) return;
@@ -153,29 +169,30 @@ const App: React.FC = () => {
 
   // --- CRUD Handlers ---
 
-  const handleSaveContract = async (data: Omit<Contract, 'daily_deductions' | 'unpaid_balance' | 'id' | 'contract_number'> & { id?: string }) => {
+  const handleSaveContract = async (data: Omit<Contract, 'unpaid_balance' | 'id' | 'contract_number'> & { id?: string; contract_number?: number; }) => {
     if (!supabase) return;
     try {
-      let contract_number = data.id ? undefined : 0;
-      if (!data.id) {
-          const { data: latestContract, error: latestError } = await supabase
-              .from('contracts')
-              .select('contract_number')
-              .order('contract_number', { ascending: false })
-              .limit(1)
-              .single();
+      if (data.id) {
+        // Update: `contract_number` is not updatable, so we exclude it.
+        const { id, contract_number, ...updateData } = data;
+        const { error } = await supabase.from('contracts').update(updateData).match({ id });
+        if (error) throw error;
+      } else {
+        // Insert: Generate a new contract number.
+        const { data: latestContract, error: latestError } = await supabase
+            .from('contracts')
+            .select('contract_number')
+            .order('contract_number', { ascending: false })
+            .limit(1)
+            .single();
 
-          if (latestError && latestError.code !== 'PGRST116') throw latestError;
-          const lastContractNumber = latestContract ? latestContract.contract_number : 0;
-          contract_number = lastContractNumber + 1;
+        if (latestError && latestError.code !== 'PGRST116') throw latestError;
+        const lastContractNumber = latestContract ? latestContract.contract_number : 0;
+        const insertData = { ...data, contract_number: lastContractNumber + 1 };
+        
+        const { error } = await supabase.from('contracts').insert(insertData);
+        if (error) throw error;
       }
-      
-      const payload = data.id 
-          ? { ...data } 
-          : { ...data, contract_number };
-
-      const { error } = await supabase.from('contracts').upsert(payload);
-      if (error) throw error;
       
       setEditingContract(null);
       await fetchData();
@@ -199,8 +216,14 @@ const App: React.FC = () => {
   const handleSavePartner = async (data: Omit<Partner, 'id'> & { id?: string }) => {
     if (!supabase) return;
     try {
-      const { error } = await supabase.from('partners').upsert(data);
-      if (error) throw error;
+      if (data.id) {
+        const { id, ...updateData } = data;
+        const { error } = await supabase.from('partners').update(updateData).match({ id });
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('partners').insert(data);
+        if (error) throw error;
+      }
       setEditingPartner(null);
       await fetchData();
     } catch (err: any) {
@@ -236,11 +259,18 @@ const App: React.FC = () => {
   const handleSaveEvent = async (data: Omit<CalendarEvent, 'id'> & { id?: string }) => {
     if (!supabase) return;
     try {
-      const { error } = await supabase.from('events').upsert(data);
-      if (error) throw error;
+      if (data.id) {
+        const { id, ...updateData } = data;
+        const { error } = await supabase.from('events').update(updateData).match({ id });
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('events').insert(data);
+        if (error) throw error;
+      }
       setEditingEvent(null);
       await fetchData();
-    } catch (err: any) {
+    } catch (err: any)
+{
       setError(`이벤트 저장 실패: ${err.message}`);
     }
   };
@@ -328,8 +358,14 @@ const App: React.FC = () => {
   const handleBulkUpdate = async (updates: ({ id: string; } & Partial<Omit<Contract, 'id' | 'contract_number' | 'unpaid_balance'>>) []) => {
       if (!supabase) return;
       try {
-          const { error } = await supabase.from('contracts').upsert(updates);
-          if (error) throw error;
+          const updatePromises = updates.map(u => {
+              const { id, ...updateData } = u;
+              return supabase.from('contracts').update(updateData).match({ id });
+          });
+          const results = await Promise.all(updatePromises);
+          for (const result of results) {
+              if (result.error) throw result.error;
+          }
           await fetchData();
       } catch (err: any) {
           setError(`일괄 업데이트 실패: ${err.message}`);
@@ -434,6 +470,16 @@ const App: React.FC = () => {
           onDelete={handleDeleteContract}
           onDuplicate={(c) => {
               const { id, contract_number, daily_deductions, ...template } = c;
+              // When duplicating, we must revert to per-unit pricing for the form template.
+              // 'c' is a processed contract, so its amounts are total values.
+              const units = c.units_required || 1;
+              
+              // FIX: Correctly calculate per-unit price from the total price. This ensures
+              // that when the new contract form is populated, it starts with the correct
+              // per-unit price, which will not change when the quantity is adjusted.
+              template.total_amount = (c.total_amount || 0) / units;
+              template.daily_deduction = (c.daily_deduction || 0) / units;
+
               setNewContractTemplate(template);
               setSelectedContract(null);
               setEditingContract('new');
