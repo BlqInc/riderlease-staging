@@ -1,11 +1,13 @@
+
 import React from 'react';
-import { DashboardIcon, ContractsIcon, PartnersIcon, SettlementIcon, DeductionIcon, ShippingIcon, CreditorDataIcon, CalendarIcon, DatabaseIcon } from './icons/IconComponents';
+import { DashboardIcon, ContractsIcon, PartnersIcon, SettlementIcon, DeductionIcon, ShippingIcon, CreditorDataIcon, CalendarIcon, DatabaseIcon, LogoutIcon } from './icons/IconComponents';
 
 export type View = 'dashboard' | 'contractManagement' | 'deductionManagement' | 'shippingManagement' | 'settlementManagement' | 'creditorSettlementData' | 'partners' | 'database' | 'calendar' | 'greenwichSettlement';
 
 interface SidebarProps {
   currentView: View;
   onNavigate: (view: View) => void;
+  onLogout: () => void;
 }
 
 const NavItem: React.FC<{
@@ -27,7 +29,7 @@ const NavItem: React.FC<{
     </li>
 );
 
-export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, onLogout }) => {
   const navItems = [
     { view: 'dashboard', label: '대시보드', Icon: DashboardIcon },
     { view: 'contractManagement', label: '계약 관리', Icon: ContractsIcon },
@@ -62,10 +64,21 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate }) => 
             ))}
         </ul>
       </nav>
-      <div className="mt-auto p-2">
-        <div className="bg-slate-700 rounded-lg p-4 text-center">
-            <p className="text-sm text-slate-400">BLQ inc.</p>
-            <p className="text-xs text-slate-500 mt-1">&copy; 2019. All rights reserved.</p>
+      <div className="mt-auto">
+        <ul>
+            <li
+                onClick={onLogout}
+                className="flex items-center p-3 my-1 rounded-lg cursor-pointer transition-colors duration-200 text-slate-400 hover:bg-red-900/50 hover:text-white"
+            >
+                <LogoutIcon className="w-6 h-6 text-red-400" />
+                <span className="ml-4 font-medium">로그아웃</span>
+            </li>
+        </ul>
+        <div className="p-2 mt-2">
+            <div className="bg-slate-700 rounded-lg p-4 text-center">
+                <p className="text-sm text-slate-400">BLQ inc.</p>
+                <p className="text-xs text-slate-500 mt-1">&copy; 2019. All rights reserved.</p>
+            </div>
         </div>
       </div>
     </aside>
