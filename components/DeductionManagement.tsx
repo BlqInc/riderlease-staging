@@ -2,7 +2,8 @@
 
 import React, { useMemo, useState } from 'react';
 import { Contract, Partner, DeductionStatus, ContractStatus } from '../types';
-import { formatDate, formatCurrency, exportToCsv } from '../lib/utils';
+import { formatDate, formatCurrency } from '../lib/utils';
+import { exportToCsv } from '../lib/csvUtils';
 import { CloseIcon, DownloadIcon } from './icons/IconComponents';
 
 interface DeductionManagementProps {
@@ -242,13 +243,14 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({ contra
     };
     
     const handleExport = () => {
-        const header = ['계약번호', '파트너사', '계약자', '기기명', '차감일', '차감액', '납부액', '미납액', '상태'];
+        const header = ['계약번호', '파트너사', '총판명', '계약자', '기기명', '차감일', '차감액', '납부액', '미납액', '상태'];
         const allActiveContracts = contracts.filter(c => c.status === ContractStatus.ACTIVE);
 
         const rows = allActiveContracts.flatMap(c => 
             (c.daily_deductions || []).map(d => [
                 c.contract_number,
                 partnerMap.get(c.partner_id) || 'N/A',
+                c.distributor_name || 'N/A',
                 c.lessee_name || 'N/A',
                 c.device_name,
                 d.date,
