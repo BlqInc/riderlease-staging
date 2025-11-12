@@ -189,8 +189,6 @@ const App: React.FC = () => {
       if (data.id) {
         // Update: `contract_number` is not updatable, so we exclude it.
         const { id, contract_number, ...updateData } = data;
-        // FIX: Supabase update call expects a partial object. The `updateData` is a full object, which is valid.
-        // The 'never' error was caused by incorrect Supabase client typing, now fixed in `lib/supabaseClient.ts`.
         const { error } = await supabase.from('contracts').update(updateData).match({ id });
         if (error) throw error;
       } else {
@@ -203,11 +201,9 @@ const App: React.FC = () => {
             .single();
 
         if (latestError && latestError.code !== 'PGRST116') throw latestError;
-        // FIX: Correctly access contract_number from latestContract. The 'never' type error is resolved in supabaseClient.ts.
         const lastContractNumber = latestContract ? latestContract.contract_number : 0;
         const insertData = { ...data, contract_number: lastContractNumber + 1 };
         
-        // FIX: Supabase insert call expects a valid insert object. The 'never' error was caused by incorrect Supabase client typing.
         const { error } = await supabase.from('contracts').insert(insertData);
         if (error) throw error;
       }
@@ -236,11 +232,9 @@ const App: React.FC = () => {
     try {
       if (data.id) {
         const { id, ...updateData } = data;
-        // FIX: Supabase update call expects a partial object. `updateData` is valid. The 'never' error is resolved in supabaseClient.ts.
         const { error } = await supabase.from('partners').update(updateData).match({ id });
         if (error) throw error;
       } else {
-        // FIX: Supabase insert call expects a valid insert object. The 'never' error is resolved in supabaseClient.ts.
         const { error } = await supabase.from('partners').insert(data);
         if (error) throw error;
       }
@@ -268,7 +262,6 @@ const App: React.FC = () => {
   const handlePriceTierUpdate = async (partnerId: string, price_list: PriceTier[] | null) => {
       if (!supabase) return;
       try {
-          // FIX: Supabase update call expects a partial object. This is valid. The 'never' error is resolved in supabaseClient.ts.
           const { error } = await supabase.from('partners').update({ price_list }).match({ id: partnerId });
           if (error) throw error;
           await fetchData();
@@ -282,11 +275,9 @@ const App: React.FC = () => {
     try {
       if (data.id) {
         const { id, ...updateData } = data;
-        // FIX: Supabase update call expects a partial object. `updateData` is valid. The 'never' error is resolved in supabaseClient.ts.
         const { error } = await supabase.from('events').update(updateData).match({ id });
         if (error) throw error;
       } else {
-        // FIX: Supabase insert call expects a valid insert object. The 'never' error is resolved in supabaseClient.ts.
         const { error } = await supabase.from('events').insert(data);
         if (error) throw error;
       }
@@ -343,7 +334,6 @@ const App: React.FC = () => {
   const handleUpdateContractField = async (contractId: string, updates: Partial<Omit<Contract, 'id' | 'contract_number' | 'unpaid_balance'>>) => {
     if (!supabase) return;
     try {
-      // FIX: Supabase update call is valid. The 'never' error is resolved in supabaseClient.ts.
       const { error } = await supabase.from('contracts').update(updates).match({ id: contractId });
       if (error) throw error;
       await fetchData();
@@ -455,13 +445,11 @@ const App: React.FC = () => {
                   const { data: latestContract, error: latestError } = await supabase.from('contracts').select('contract_number').order('contract_number', { ascending: false }).limit(1).single();
                   if (latestError && latestError.code !== 'PGRST116') throw new Error(`Import failed: ${latestError.message}`);
                   
-                  // FIX: Correctly access contract_number. The 'never' type error is resolved in supabaseClient.ts.
                   const lastContractNumber = latestContract ? latestContract.contract_number : 0;
                   let nextContractNumber = lastContractNumber + 1;
                   
                   const contractsToInsert = newContracts.map(c => ({...c, contract_number: nextContractNumber++}));
                   
-                  // FIX: Supabase insert call expects an array of valid insert objects. The 'never' type error is resolved in supabaseClient.ts.
                   const { error } = await supabase.from('contracts').insert(contractsToInsert as any);
                   if (error) throw new Error(`Import failed: ${error.message}`);
                   await fetchData();
@@ -539,9 +527,6 @@ const App: React.FC = () => {
               // 'c' is a processed contract, so its amounts are total values.
               const units = c.units_required || 1;
               
-              // FIX: Correctly calculate per-unit price from the total price. This ensures
-              // that when the new contract form is populated, it starts with the correct
-              // per-unit price, which will not change when the quantity is adjusted.
               template.total_amount = (c.total_amount || 0) / units;
               template.daily_deduction = (c.daily_deduction || 0) / units;
 
@@ -583,14 +568,14 @@ const App: React.FC = () => {
             }}
             onDeletePriceTier={(partnerId, tierId) => {
                  const p = partners.find(p => p.id === partnerId);
-                if (!p || !p.price_list) return;
-                const updatedPriceList = p.price_list.filter(t => t.id !== tierId);
-                handlePriceTierUpdate(partnerId, updatedPriceList);
+                 if (!p || !p.price_list) return;
+                 const updatedPriceList = p.price_list.filter(t => t.id !== tierId);
+                 handlePriceTierUpdate(partnerId, updatedPriceList);
             }}
             onAddPriceTiersFromMaster={(partnerId, tiers) => {
                 const p = partners.find(p => p.id === partnerId);
                 if (!p) return;
-                const newTiers = tiers.map(t => ({...t, id: `pt-${Date.now()}-${Math.random()}`}));
+                const newTiers = tiers.map(t => ({ ...t, id: `pt-${Date.now()}-${Math.random()}`}));
                 const updatedPriceList = [...(p.price_list || []), ...newTiers];
                 handlePriceTierUpdate(partnerId, updatedPriceList);
             }}
@@ -607,15 +592,14 @@ const App: React.FC = () => {
       )}
       {editingEvent && (
         <EventFormModal
-            isOpen={!!editingEvent}
-            onClose={() => setEditingEvent(null)}
-            onSave={handleSaveEvent}
-            onDelete={handleDeleteEvent}
-            eventToEdit={editingEvent}
-            selectedDate={selectedCalendarDate}
+          isOpen={!!editingEvent}
+          onClose={() => setEditingEvent(null)}
+          onSave={handleSaveEvent}
+          onDelete={handleDeleteEvent}
+          eventToEdit={editingEvent}
+          selectedDate={selectedCalendarDate}
         />
       )}
-
     </div>
   );
 };
