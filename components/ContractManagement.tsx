@@ -71,6 +71,7 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
             '계약자 사업자번호': 'lessee_business_number',
             '계약자 사업자주소': 'lessee_business_address',
             '총판명': 'distributor_name', '필요 수량': 'units_required',
+            '정산 차수': 'settlement_round',
         };
 
         const newContracts: Partial<Omit<Contract, 'id' | 'contract_number' | 'unpaid_balance'>>[] = [];
@@ -129,7 +130,7 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
                             errors.push(`Row ${index + 2}: '${header}'의 날짜 형식이 올바르지 않습니다. (YYYY-MM-DD 필요)`);
                             hasError = true;
                         }
-                    } else if (['duration_days', 'total_amount', 'daily_deduction', 'units_required'].includes(field)) {
+                    } else if (['duration_days', 'total_amount', 'daily_deduction', 'units_required', 'settlement_round'].includes(field)) {
                         const numValue = Number(value);
                         if (!isNaN(numValue)) {
                             (newContract as any)[field] = numValue;
@@ -348,6 +349,7 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
                 <li>'계약자 사업자주소'</li>
                 <li>'총판명'</li>
                 <li>'필요 수량' (숫자)</li>
+                <li>'정산 차수' (숫자)</li>
             </ul>
             <p className="mt-3 text-xs text-slate-400">
                 ※ '파트너사명'은 시스템에 등록된 이름과 정확히 일치해야 합니다.<br/>
