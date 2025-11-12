@@ -68,7 +68,6 @@ export interface Contract {
   duration_days: number;
   total_amount: number;
   daily_deduction: number;
-  // FIX: Allow daily_deductions to be null to match its usage in forms and initial state.
   daily_deductions: DailyDeductionLog[] | null;
   unpaid_balance: number; // Client-side calculated
   status: ContractStatus;
@@ -103,7 +102,6 @@ export interface Contract {
   is_lessee_contract_signed: boolean;
   settlement_request_date: string | null;
   settlement_document_url: string | null;
-  // FIX: Add missing `contract_initial_deduction` property to the Contract type.
   contract_initial_deduction: number | null;
 }
 
