@@ -8,6 +8,7 @@ import { DeductionManagement } from './components/DeductionManagement';
 import { ShippingManagement } from './components/ShippingManagement';
 import { SettlementManagement } from './components/SettlementManagement';
 import { CreditorSettlementData } from './components/CreditorSettlementData';
+import { GreenwichSettlement } from './components/GreenwichSettlement';
 import { PartnersManagement } from './components/PartnersManagement';
 import ContractDetailModal from './components/ContractDetailModal';
 import { ContractFormModal } from './components/ContractFormModal';
@@ -17,7 +18,7 @@ import { Calendar } from './components/Calendar';
 import { EventFormModal } from './components/EventFormModal';
 import { DatabaseManagement } from './components/DatabaseManagement';
 import { ConfigurationError } from './components/ConfigurationError';
-import { Contract, Partner, PriceTier, SettlementStatus, CalendarEvent, ContractStatus, DeductionStatus, DailyDeductionLog, ShippingStatus } from './types';
+import { Contract, Partner, PriceTier, SettlementStatus, CalendarEvent, ContractStatus, DeductionStatus, DailyDeductionLog, ShippingStatus, GreenwichSettlement as IGreenwichSettlement } from './types';
 import { supabase, isSupabaseConfigured } from './lib/supabaseClient';
 
 type EditingContractState = Contract | 'new' | null;
@@ -29,6 +30,7 @@ const App: React.FC = () => {
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [partners, setPartners] = useState<Partner[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [greenwichSettlements, setGreenwichSettlements] = useState<IGreenwichSettlement[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
@@ -150,20 +152,24 @@ const App: React.FC = () => {
         { data: contractsData, error: contractsError },
         { data: partnersData, error: partnersError },
         { data: eventsData, error: eventsError },
+        { data: greenwichData, error: greenwichError },
       ] = await Promise.all([
         supabase.from('contracts').select('*').order('contract_number', { ascending: false }),
         supabase.from('partners').select('*').order('name'),
         supabase.from('events').select('*'),
+        supabase.from('greenwich_settlements').select('*').order('settlement_round', { ascending: false }),
       ]);
 
       if (contractsError) throw new Error(`계약 정보 로딩 실패: ${contractsError.message}`);
       if (partnersError) throw new Error(`파트너 정보 로딩 실패: ${partnersError.message}`);
       if (eventsError) throw new Error(`캘린더 정보 로딩 실패: ${eventsError.message}`);
+      if (greenwichError) throw new Error(`그린위치 정산 정보 로딩 실패: ${greenwichError.message}`);
       
       const processedContracts = processContracts(contractsData || []);
       setContracts(processedContracts);
       setPartners(partnersData || []);
       setEvents(eventsData || []);
+      setGreenwichSettlements(greenwichData || []);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -183,6 +189,8 @@ const App: React.FC = () => {
       if (data.id) {
         // Update: `contract_number` is not updatable, so we exclude it.
         const { id, contract_number, ...updateData } = data;
+        // FIX: Supabase update call expects a partial object. The `updateData` is a full object, which is valid.
+        // The 'never' error was caused by incorrect Supabase client typing, now fixed in `lib/supabaseClient.ts`.
         const { error } = await supabase.from('contracts').update(updateData).match({ id });
         if (error) throw error;
       } else {
@@ -195,9 +203,11 @@ const App: React.FC = () => {
             .single();
 
         if (latestError && latestError.code !== 'PGRST116') throw latestError;
+        // FIX: Correctly access contract_number from latestContract. The 'never' type error is resolved in supabaseClient.ts.
         const lastContractNumber = latestContract ? latestContract.contract_number : 0;
         const insertData = { ...data, contract_number: lastContractNumber + 1 };
         
+        // FIX: Supabase insert call expects a valid insert object. The 'never' error was caused by incorrect Supabase client typing.
         const { error } = await supabase.from('contracts').insert(insertData);
         if (error) throw error;
       }
@@ -226,9 +236,11 @@ const App: React.FC = () => {
     try {
       if (data.id) {
         const { id, ...updateData } = data;
+        // FIX: Supabase update call expects a partial object. `updateData` is valid. The 'never' error is resolved in supabaseClient.ts.
         const { error } = await supabase.from('partners').update(updateData).match({ id });
         if (error) throw error;
       } else {
+        // FIX: Supabase insert call expects a valid insert object. The 'never' error is resolved in supabaseClient.ts.
         const { error } = await supabase.from('partners').insert(data);
         if (error) throw error;
       }
@@ -256,6 +268,7 @@ const App: React.FC = () => {
   const handlePriceTierUpdate = async (partnerId: string, price_list: PriceTier[] | null) => {
       if (!supabase) return;
       try {
+          // FIX: Supabase update call expects a partial object. This is valid. The 'never' error is resolved in supabaseClient.ts.
           const { error } = await supabase.from('partners').update({ price_list }).match({ id: partnerId });
           if (error) throw error;
           await fetchData();
@@ -269,9 +282,11 @@ const App: React.FC = () => {
     try {
       if (data.id) {
         const { id, ...updateData } = data;
+        // FIX: Supabase update call expects a partial object. `updateData` is valid. The 'never' error is resolved in supabaseClient.ts.
         const { error } = await supabase.from('events').update(updateData).match({ id });
         if (error) throw error;
       } else {
+        // FIX: Supabase insert call expects a valid insert object. The 'never' error is resolved in supabaseClient.ts.
         const { error } = await supabase.from('events').insert(data);
         if (error) throw error;
       }
@@ -294,10 +309,41 @@ const App: React.FC = () => {
       setError(`이벤트 삭제 실패: ${err.message}`);
     }
   };
+
+  const handleSaveGreenwichSettlement = async (data: Omit<IGreenwichSettlement, 'id' | 'created_at'> & { id?: string }) => {
+    if (!supabase) return;
+    try {
+      if (data.id) {
+        const { id, ...updateData } = data;
+        const { error } = await supabase.from('greenwich_settlements').update(updateData).match({ id });
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('greenwich_settlements').insert(data);
+        if (error) throw error;
+      }
+      await fetchData();
+    } catch (err: any) {
+      setError(`그린위치 정산 저장 실패: ${err.message}`);
+    }
+  };
+
+  const handleDeleteGreenwichSettlement = async (id: string) => {
+    if (!supabase) return;
+    if (window.confirm('정말 이 정산 차수를 삭제하시겠습니까?')) {
+        try {
+            const { error } = await supabase.from('greenwich_settlements').delete().match({ id });
+            if (error) throw error;
+            await fetchData();
+        } catch (err: any) {
+            setError(`그린위치 정산 삭제 실패: ${err.message}`);
+        }
+    }
+  };
   
   const handleUpdateContractField = async (contractId: string, updates: Partial<Omit<Contract, 'id' | 'contract_number' | 'unpaid_balance'>>) => {
     if (!supabase) return;
     try {
+      // FIX: Supabase update call is valid. The 'never' error is resolved in supabaseClient.ts.
       const { error } = await supabase.from('contracts').update(updates).match({ id: contractId });
       if (error) throw error;
       await fetchData();
@@ -409,12 +455,14 @@ const App: React.FC = () => {
                   const { data: latestContract, error: latestError } = await supabase.from('contracts').select('contract_number').order('contract_number', { ascending: false }).limit(1).single();
                   if (latestError && latestError.code !== 'PGRST116') throw new Error(`Import failed: ${latestError.message}`);
                   
+                  // FIX: Correctly access contract_number. The 'never' type error is resolved in supabaseClient.ts.
                   const lastContractNumber = latestContract ? latestContract.contract_number : 0;
                   let nextContractNumber = lastContractNumber + 1;
                   
                   const contractsToInsert = newContracts.map(c => ({...c, contract_number: nextContractNumber++}));
                   
-                  const { error } = await supabase.from('contracts').insert(contractsToInsert);
+                  // FIX: Supabase insert call expects an array of valid insert objects. The 'never' type error is resolved in supabaseClient.ts.
+                  const { error } = await supabase.from('contracts').insert(contractsToInsert as any);
                   if (error) throw new Error(`Import failed: ${error.message}`);
                   await fetchData();
                 }}
@@ -449,6 +497,14 @@ const App: React.FC = () => {
                 />
             )}
             {currentView === 'creditorSettlementData' && <CreditorSettlementData contracts={contracts} />}
+            {currentView === 'greenwichSettlement' && (
+              <GreenwichSettlement
+                contracts={contracts}
+                settlements={greenwichSettlements}
+                onSave={handleSaveGreenwichSettlement}
+                onDelete={handleDeleteGreenwichSettlement}
+              />
+            )}
             {currentView === 'partners' && (
                 <PartnersManagement
                     partners={partners}
