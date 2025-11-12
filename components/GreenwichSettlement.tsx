@@ -52,23 +52,25 @@ export const GreenwichSettlement: React.FC<GreenwichSettlementProps> = ({ contra
         if (!selectedSettlement) return [];
         return contracts.filter(c => c.settlement_round === selectedSettlement.settlement_round);
     }, [selectedSettlement, contracts]);
-    
-     const dailySchedule = useMemo(() => {
-        if (!selectedSettlement) return [];
-        const schedule = [];
-        const start = new Date(selectedSettlement.start_date);
-        const end = new Date(selectedSettlement.end_date);
-        let current = new Date(start.getTime());
 
-        while (current <= end) {
-            schedule.push({
-                date: current.toISOString().split('T')[0],
-                amount: selectedSettlement.total_daily_deduction_amount,
-            });
-            current.setDate(current.getDate() + 1);
-        }
-        return schedule;
-    }, [selectedSettlement]);
+    const todaysTotalSettlementAmount = useMemo(() => {
+        const localToday = new Date();
+        const todayUTC = new Date(Date.UTC(localToday.getUTCFullYear(), localToday.getUTCMonth(), localToday.getUTCDate()));
+
+        return settlements.reduce((total, settlement) => {
+            const startParts = settlement.start_date.split('-').map(Number);
+            const startDateUTC = new Date(Date.UTC(startParts[0], startParts[1] - 1, startParts[2]));
+            
+            const endParts = settlement.end_date.split('-').map(Number);
+            const endDateUTC = new Date(Date.UTC(endParts[0], endParts[1] - 1, endParts[2]));
+            
+            if (todayUTC >= startDateUTC && todayUTC <= endDateUTC) {
+                return total + settlement.total_daily_deduction_amount;
+            }
+            return total;
+        }, 0);
+    }, [settlements]);
+    
 
     return (
         <>
@@ -86,31 +88,41 @@ export const GreenwichSettlement: React.FC<GreenwichSettlementProps> = ({ contra
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                     {/* Left: Settlement Round List */}
-                    <div className="lg:col-span-1 space-y-3">
-                        <h3 className="text-xl font-semibold text-white mb-2">정산 차수 목록</h3>
-                        {settlements.length === 0 && <p className="text-slate-400">등록된 정산 차수가 없습니다.</p>}
-                        {settlements.map(s => (
-                            <div 
-                                key={s.id}
-                                onClick={() => setSelectedSettlementId(s.id)}
-                                className={`p-4 rounded-lg cursor-pointer transition-all border ${selectedSettlementId === s.id ? 'bg-indigo-900/50 border-indigo-600' : 'bg-slate-800 hover:bg-slate-700/50 border-slate-700'}`}
-                            >
-                                <div className="flex justify-between items-start">
-                                    <div>
-                                        <h4 className="font-bold text-lg text-white">{s.settlement_round}차 정산</h4>
-                                        <p className="text-sm text-slate-400">{formatDate(s.start_date)} ~ {formatDate(s.end_date)}</p>
+                    <div className="lg:col-span-1 space-y-4">
+                        <div className="bg-slate-800 p-4 rounded-lg border border-green-700 shadow-lg">
+                           <p className="text-sm font-semibold text-green-300">오늘의 그린위치 정산 총액</p>
+                           <p className="text-3xl font-bold text-white mt-1">{formatCurrency(todaysTotalSettlementAmount)}</p>
+                           <p className="text-xs text-slate-500 mt-1">{formatDate(new Date().toISOString())} 기준</p>
+                        </div>
+                        
+                        <div>
+                            <h3 className="text-xl font-semibold text-white my-2">정산 차수 목록</h3>
+                            {settlements.length === 0 && <p className="text-slate-400">등록된 정산 차수가 없습니다.</p>}
+                            <div className="space-y-3">
+                                {settlements.map(s => (
+                                    <div 
+                                        key={s.id}
+                                        onClick={() => setSelectedSettlementId(s.id)}
+                                        className={`p-4 rounded-lg cursor-pointer transition-all border ${selectedSettlementId === s.id ? 'bg-indigo-900/50 border-indigo-600' : 'bg-slate-800 hover:bg-slate-700/50 border-slate-700'}`}
+                                    >
+                                        <div className="flex justify-between items-start">
+                                            <div>
+                                                <h4 className="font-bold text-lg text-white">{s.settlement_round}차 정산</h4>
+                                                <p className="text-sm text-slate-400">{formatDate(s.start_date)} ~ {formatDate(s.end_date)}</p>
+                                            </div>
+                                            <div className="flex space-x-2">
+                                                <button onClick={(e) => { e.stopPropagation(); handleOpenModal(s); }} className="p-1 text-yellow-400 hover:text-yellow-300"><EditIcon className="w-4 h-4" /></button>
+                                                <button onClick={(e) => { e.stopPropagation(); onDelete(s.id); }} className="p-1 text-red-400 hover:text-red-300"><TrashIcon className="w-4 h-4" /></button>
+                                            </div>
+                                        </div>
+                                        <div className="mt-3 pt-3 border-t border-slate-700">
+                                            <p className="text-sm text-slate-400">일일 총 차감액</p>
+                                            <p className="font-bold text-xl text-yellow-400">{formatCurrency(s.total_daily_deduction_amount)}</p>
+                                        </div>
                                     </div>
-                                    <div className="flex space-x-2">
-                                        <button onClick={(e) => { e.stopPropagation(); handleOpenModal(s); }} className="p-1 text-yellow-400 hover:text-yellow-300"><EditIcon className="w-4 h-4" /></button>
-                                        <button onClick={(e) => { e.stopPropagation(); onDelete(s.id); }} className="p-1 text-red-400 hover:text-red-300"><TrashIcon className="w-4 h-4" /></button>
-                                    </div>
-                                </div>
-                                <div className="mt-3 pt-3 border-t border-slate-700">
-                                    <p className="text-sm text-slate-400">일일 총 차감액</p>
-                                    <p className="font-bold text-xl text-yellow-400">{formatCurrency(s.total_daily_deduction_amount)}</p>
-                                </div>
+                                ))}
                             </div>
-                        ))}
+                        </div>
                     </div>
 
                     {/* Right: Details View */}
@@ -124,47 +136,55 @@ export const GreenwichSettlement: React.FC<GreenwichSettlementProps> = ({ contra
                                     <p><span className="font-semibold text-slate-400">포함된 계약 수:</span> <span className="text-white">{contractsForSelectedRound.length}건</span></p>
                                 </div>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <div>
-                                        <h4 className="font-semibold text-white mb-3 flex items-center"><CalendarIcon className="w-5 h-5 mr-2" /> 일별 정산 스케줄</h4>
-                                        <div className="space-y-2 max-h-64 overflow-y-auto pr-2">
-                                            {dailySchedule.map(day => (
-                                                <div key={day.date} className="bg-slate-700/70 p-2 rounded-md flex justify-between items-center text-sm">
-                                                    <span className="font-medium text-slate-300">{formatDate(day.date)}</span>
-                                                    <span className="font-semibold text-yellow-300">{formatCurrency(day.amount)}</span>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <h4 className="font-semibold text-white mb-3">포함된 계약 목록</h4>
-                                        <div className="space-y-2 max-h-64 overflow-y-auto pr-2">
-                                            {contractsForSelectedRound.map(c => {
-                                                const units = c.units_required || 1;
-                                                let deductionAmount, basis;
-                                                if (c.contract_initial_deduction && c.contract_initial_deduction > 0) {
-                                                    deductionAmount = c.contract_initial_deduction * units;
-                                                    basis = `계약서 기준액 (${formatCurrency(c.contract_initial_deduction)} x ${units})`;
-                                                } else {
-                                                    deductionAmount = c.daily_deduction;
-                                                    basis = `기본 일차감액 (${formatCurrency(c.daily_deduction / units)} x ${units})`;
-                                                }
-                                                return (
-                                                    <div key={c.id} className="bg-slate-700/70 p-2 rounded-md text-sm">
-                                                        <div className="flex justify-between items-center">
-                                                            <p className="font-medium text-slate-300 truncate">{c.distributor_name} / {c.lessee_name}</p>
-                                                            <p className="font-semibold text-green-300 whitespace-nowrap ml-2">{formatCurrency(deductionAmount)}</p>
-                                                        </div>
-                                                        <p className="text-xs text-slate-500">{basis}</p>
-                                                    </div>
-                                                )
-                                            })}
-                                        </div>
+                                <div>
+                                    <h4 className="font-semibold text-white mb-3">포함된 계약 목록</h4>
+                                    <div className="overflow-x-auto max-h-[60vh] border border-slate-700 rounded-lg">
+                                        <table className="w-full text-left">
+                                            <thead className="bg-slate-700/50 sticky top-0">
+                                                <tr>
+                                                    <th className="p-3 font-semibold text-slate-400 text-sm">총판명</th>
+                                                    <th className="p-3 font-semibold text-slate-400 text-sm">계약자</th>
+                                                    <th className="p-3 font-semibold text-slate-400 text-sm">기기명</th>
+                                                    <th className="p-3 font-semibold text-slate-400 text-sm text-center">수량</th>
+                                                    <th className="p-3 font-semibold text-slate-400 text-sm text-right">일차감액</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {contractsForSelectedRound.map(c => {
+                                                    const units = c.units_required || 1;
+                                                    let deductionAmount, basis;
+                                                    if (c.contract_initial_deduction && c.contract_initial_deduction > 0) {
+                                                        deductionAmount = c.contract_initial_deduction * units;
+                                                        basis = `계약서 기준액`;
+                                                    } else {
+                                                        deductionAmount = c.daily_deduction;
+                                                        basis = `기본 일차감액`;
+                                                    }
+                                                    return (
+                                                        <tr key={c.id} className="border-b border-slate-700 last:border-b-0">
+                                                            <td className="p-3 text-sm">{c.distributor_name || 'N/A'}</td>
+                                                            <td className="p-3 text-sm font-medium text-white">{c.lessee_name || 'N/A'}</td>
+                                                            <td className="p-3 text-sm">{c.device_name}</td>
+                                                            <td className="p-3 text-sm text-center">{units}</td>
+                                                            <td className="p-3 text-sm text-right">
+                                                                <div className="font-semibold text-green-300">{formatCurrency(deductionAmount)}</div>
+                                                                <div className="text-xs text-slate-500">{basis}</div>
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                                {contractsForSelectedRound.length === 0 && (
+                                                    <tr>
+                                                        <td colSpan={5} className="p-8 text-center text-slate-400">이 정산 차수에 포함된 계약이 없습니다.</td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                        </table>
                                     </div>
                                 </div>
                             </div>
                          ) : (
-                            <div className="bg-slate-800 rounded-lg p-12 text-center">
+                            <div className="bg-slate-800 rounded-lg p-12 text-center h-full flex items-center justify-center">
                                 <p className="text-slate-400">왼쪽 목록에서 정산 차수를 선택하여 상세 정보를 확인하세요.</p>
                             </div>
                          )}
