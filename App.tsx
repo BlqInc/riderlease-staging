@@ -119,9 +119,13 @@ const App: React.FC = () => {
               finalDeductions = rawContract.daily_deductions || [];
           }
           
-          // 미납액을 계산합니다.
+          // 미납액을 계산합니다. 오늘 날짜(UTC 기준) 이전의 '납부완료'가 아닌 모든 차감 내역의 미지급 잔액을 합산합니다.
           const unpaid_balance = finalDeductions
-              .filter(d => d.status !== DeductionStatus.PAID)
+              .filter(d => {
+                  const deductionDateParts = d.date.split('-').map(Number);
+                  const deductionDate = new Date(Date.UTC(deductionDateParts[0], deductionDateParts[1] - 1, deductionDateParts[2]));
+                  return d.status !== DeductionStatus.PAID && deductionDate < today;
+              })
               .reduce((sum, d) => sum + (d.amount - d.paid_amount), 0);
 
           // 계약 상태를 업데이트합니다.
