@@ -193,7 +193,7 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({ contra
 
     const partnerMap = useMemo(() => new Map(partners.map(p => [p.id, p.name])), [partners]);
 
-    const activeContracts = useMemo(() => {
+    const contractsToList = useMemo(() => {
         const filtered = contracts.filter(c => {
              const partnerName = partnerMap.get(c.partner_id) || '';
              const lesseeName = c.lessee_name || '';
@@ -203,14 +203,17 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({ contra
                 partnerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 lesseeName.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 distributorName.toLowerCase().includes(searchTerm.toLowerCase());
+            
+            // '진행중'인 계약이거나, '만료'되었지만 미납액이 있는 계약만 표시합니다.
+            const statusMatch = c.status === ContractStatus.ACTIVE || (c.status === ContractStatus.EXPIRED && c.unpaid_balance > 0);
 
-            return c.status === ContractStatus.ACTIVE && searchMatch;
+            return statusMatch && searchMatch;
         });
         return filtered.sort((a,b) => (b.unpaid_balance || 0) - (a.unpaid_balance || 0));
     }, [contracts, partnerMap, searchTerm]);
     
     const summary = useMemo(() => {
-        return activeContracts.reduce(
+        return contractsToList.reduce(
             (acc, contract) => {
                 const totalPaid = (contract.daily_deductions || []).reduce((sum, d) => sum + d.paid_amount, 0);
                 const balance = contract.total_amount - totalPaid;
@@ -221,7 +224,7 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({ contra
             },
             { totalUnpaid: 0, totalBalance: 0 }
         );
-    }, [activeContracts]);
+    }, [contractsToList]);
 
     const handleToggleCard = (contractId: string) => {
         setOpenContractId(prevId => (prevId === contractId ? null : contractId));
@@ -298,7 +301,7 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({ contra
             </div>
             
             <div className="space-y-4">
-                {activeContracts.map(contract => (
+                {contractsToList.map(contract => (
                     <ContractDeductionCard
                         key={contract.id}
                         contract={contract}
@@ -310,9 +313,9 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({ contra
                         onCancelDeduction={onCancelDeduction}
                     />
                 ))}
-                 {activeContracts.length === 0 && (
+                 {contractsToList.length === 0 && (
                     <div className="bg-slate-800 rounded-lg shadow-lg p-8 text-center text-slate-400">
-                        <p>진행중인 계약이 없거나 검색 결과가 없습니다.</p>
+                        <p>관리할 일차감 내역이 없거나 검색 결과가 없습니다.</p>
                     </div>
                 )}
             </div>
