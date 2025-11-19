@@ -1,11 +1,12 @@
 
 import React, { useState, useMemo } from 'react';
-import { Contract, DeductionStatus, SettlementStatus } from '../types';
+import { Contract, Partner, DeductionStatus, SettlementStatus } from '../types';
 import { formatCurrency, formatDate } from '../lib/utils';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 interface DashboardProps {
   contracts: Contract[];
+  partners: Partner[];
 }
 
 const StatCard: React.FC<{ title: string; value: string | number; description: string; colorClass?: string }> = ({ title, value, description, colorClass = "bg-slate-800" }) => (
@@ -16,7 +17,7 @@ const StatCard: React.FC<{ title: string; value: string | number; description: s
   </div>
 );
 
-export const Dashboard: React.FC<DashboardProps> = ({ contracts }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ contracts, partners }) => {
   // --- Existing Logic ---
   const totalReceivables = contracts.reduce((sum, c) => sum + c.total_amount, 0);
   const totalPaid = contracts.reduce((sum, c) => {
@@ -31,6 +32,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ contracts }) => {
     .filter(c => c.settlement_status === SettlementStatus.REQUESTED || c.settlement_status === SettlementStatus.COMPLETED)
     .reduce((sum, c) => sum + c.total_amount, 0);
 
+  const partnerMap = useMemo(() => new Map(partners.map(p => [p.id, p.name])), [partners]);
 
   const chartData = contracts.map(c => {
       const paidAmount = (c.daily_deductions || [])
@@ -67,13 +69,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ contracts }) => {
                 c.lessee_name?.toLowerCase().includes(lowerKey) ||
                 c.distributor_name?.toLowerCase().includes(lowerKey) ||
                 c.device_name.toLowerCase().includes(lowerKey) ||
-                String(c.contract_number).includes(lowerKey);
+                String(c.contract_number).includes(lowerKey) ||
+                (partnerMap.get(c.partner_id) || '').toLowerCase().includes(lowerKey);
             if (!match) return false;
         }
 
         return true;
     });
-  }, [contracts, searchType, startDate, endDate, keyword]);
+  }, [contracts, searchType, startDate, endDate, keyword, partnerMap]);
 
   const filteredStats =useMemo(() => {
       return filteredContracts.reduce((acc, c) => {
@@ -168,7 +171,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ contracts }) => {
                       </div>
                   </div>
                    <div className="md:col-span-2">
-                      <label className="block text-xs font-medium text-slate-400 mb-1">검색어 (총판, 계약자, 기기명)</label>
+                      <label className="block text-xs font-medium text-slate-400 mb-1">검색어 (파트너, 총판, 계약자, 기기명)</label>
                       <input 
                           type="text" 
                           value={keyword}
@@ -202,11 +205,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ contracts }) => {
                   <thead className="bg-slate-700/50 text-slate-400 text-xs uppercase font-semibold">
                       <tr>
                           <th className="p-4">계약번호</th>
+                          <th className="p-4">파트너사</th>
                           <th className="p-4">총판</th>
                           <th className="p-4">계약자</th>
                           <th className="p-4">기기명</th>
                           <th className="p-4">계약일</th>
                           <th className="p-4">실행일</th>
+                          <th className="p-4">만료일</th>
                           <th className="p-4 text-center">수량</th>
                           <th className="p-4 text-right">채권액</th>
                       </tr>
@@ -216,18 +221,20 @@ export const Dashboard: React.FC<DashboardProps> = ({ contracts }) => {
                           filteredContracts.map(c => (
                               <tr key={c.id} className="hover:bg-slate-700/30 transition-colors">
                                   <td className="p-4 font-mono text-slate-400">#{c.contract_number}</td>
+                                  <td className="p-4 text-slate-300">{partnerMap.get(c.partner_id) || '-'}</td>
                                   <td className="p-4 text-white">{c.distributor_name || '-'}</td>
                                   <td className="p-4 text-white">{c.lessee_name}</td>
                                   <td className="p-4 text-slate-300">{c.device_name}</td>
                                   <td className="p-4 text-slate-400">{formatDate(c.contract_date)}</td>
                                   <td className="p-4 text-slate-400">{c.execution_date ? formatDate(c.execution_date) : '-'}</td>
+                                  <td className="p-4 text-slate-400">{formatDate(c.expiry_date)}</td>
                                   <td className="p-4 text-center text-slate-300">{c.units_required || 1}</td>
                                   <td className="p-4 text-right font-medium text-slate-200">{formatCurrency(c.total_amount)}</td>
                               </tr>
                           ))
                       ) : (
                           <tr>
-                              <td colSpan={8} className="p-8 text-center text-slate-500">조건에 맞는 계약 데이터가 없습니다.</td>
+                              <td colSpan={10} className="p-8 text-center text-slate-500">조건에 맞는 계약 데이터가 없습니다.</td>
                           </tr>
                       )}
                   </tbody>
