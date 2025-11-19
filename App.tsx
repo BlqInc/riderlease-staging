@@ -35,6 +35,7 @@ const App: React.FC = () => {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [greenwichSettlements, setGreenwichSettlements] = useState<IGreenwichSettlement[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   // Modal States
   const [isContractFormOpen, setIsContractFormOpen] = useState(false);
@@ -56,17 +57,30 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!isSupabaseConfigured) return;
 
-    supabase!.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session) fetchData();
-      setLoading(false);
-    });
+    const initializeSession = async () => {
+      try {
+        const { data: { session } } = await supabase!.auth.getSession();
+        setSession(session);
+        if (session) {
+          await fetchData(); // Wait for data before turning off loading
+        } else {
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error("Session initialization error:", error);
+        setLoading(false);
+      }
+    };
+
+    initializeSession();
 
     const {
       data: { subscription },
     } = supabase!.auth.onAuthStateChange((_event, session) => {
       setSession(session);
-      if (session) fetchData();
+      if (session) {
+         fetchData();
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -111,6 +125,7 @@ const App: React.FC = () => {
   const fetchData = async () => {
     if (!supabase) return;
     setLoading(true);
+    setFetchError(null);
     
     try {
         const [contractsRes, partnersRes, eventsRes, greenwichRes] = await Promise.all([
@@ -120,18 +135,19 @@ const App: React.FC = () => {
             supabase.from('greenwich_settlements').select('*').order('settlement_round', { ascending: false })
         ]);
 
-        if (contractsRes.error) throw contractsRes.error;
-        if (partnersRes.error) throw partnersRes.error;
-        if (eventsRes.error) throw eventsRes.error;
-        if (greenwichRes.error) throw greenwichRes.error;
+        if (contractsRes.error) throw new Error(`계약 데이터 로드 실패: ${contractsRes.error.message}`);
+        if (partnersRes.error) throw new Error(`파트너 데이터 로드 실패: ${partnersRes.error.message}`);
+        if (eventsRes.error) throw new Error(`일정 데이터 로드 실패: ${eventsRes.error.message}`);
+        if (greenwichRes.error) throw new Error(`정산 데이터 로드 실패: ${greenwichRes.error.message}`);
 
         setContracts(processContracts(contractsRes.data || []));
         setPartners(partnersRes.data || []);
         setEvents(eventsRes.data || []);
         setGreenwichSettlements(greenwichRes.data || []);
 
-    } catch (error) {
+    } catch (error: any) {
         console.error('Error fetching data:', error);
+        setFetchError(error.message || '데이터를 불러오는 중 알 수 없는 오류가 발생했습니다.');
     } finally {
         setLoading(false);
     }
@@ -502,6 +518,19 @@ const App: React.FC = () => {
             {loading ? (
                 <div className="flex items-center justify-center h-full">
                     <div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-indigo-500"></div>
+                </div>
+            ) : fetchError ? (
+                <div className="flex flex-col items-center justify-center h-full p-8">
+                    <div className="bg-red-900/20 border border-red-500/50 rounded-lg p-6 text-center max-w-lg">
+                        <h2 className="text-2xl font-bold text-red-400 mb-2">데이터 로딩 실패</h2>
+                        <p className="text-slate-300 mb-4">{fetchError}</p>
+                        <button 
+                            onClick={fetchData}
+                            className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg transition-colors"
+                        >
+                            다시 시도
+                        </button>
+                    </div>
                 </div>
             ) : (
                 <>
