@@ -129,8 +129,8 @@ const App: React.FC = () => {
     
     try {
         const [contractsRes, partnersRes, eventsRes, greenwichRes] = await Promise.all([
-            supabase.from('contracts').select('*').order('created_at', { ascending: false }),
-            supabase.from('partners').select('*').order('created_at', { ascending: false }),
+            supabase.from('contracts').select('*').order('contract_number', { ascending: false }),
+            supabase.from('partners').select('*').order('name', { ascending: true }),
             supabase.from('events').select('*').order('date', { ascending: true }),
             supabase.from('greenwich_settlements').select('*').order('settlement_round', { ascending: false })
         ]);
