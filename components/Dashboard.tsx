@@ -17,45 +17,65 @@ const StatCard: React.FC<{ title: string; value: string | number; description: s
   </div>
 );
 
-export const Dashboard: React.FC<DashboardProps> = ({ contracts, partners }) => {
-  // --- Existing Logic ---
-  const totalReceivables = contracts.reduce((sum, c) => sum + c.total_amount, 0);
-  const totalPaid = contracts.reduce((sum, c) => {
+export const Dashboard: React.FC<DashboardProps> = ({ contracts = [], partners = [] }) => {
+  // Ensure inputs are arrays to prevent crashes
+  const safeContracts = Array.isArray(contracts) ? contracts : [];
+  const safePartners = Array.isArray(partners) ? partners : [];
+
+  const totalReceivables = safeContracts.reduce((sum, c) => sum + (Number(c.total_amount) || 0), 0);
+  const totalPaid = safeContracts.reduce((sum, c) => {
       const paidDeductions = (c.daily_deductions || [])
           .filter(d => d.status === DeductionStatus.PAID)
-          .reduce((deductionSum, d) => deductionSum + d.amount, 0);
+          .reduce((deductionSum, d) => deductionSum + (Number(d.amount) || 0), 0);
       return sum + paidDeductions;
   }, 0);
-  const activeContracts = contracts.filter(c => c.status === '진행중').length;
+  const activeContracts = safeContracts.filter(c => c.status === '진행중').length;
   
-  const totalSettlementRequested = contracts
+  const totalSettlementRequested = safeContracts
     .filter(c => c.settlement_status === SettlementStatus.REQUESTED || c.settlement_status === SettlementStatus.COMPLETED)
-    .reduce((sum, c) => sum + c.total_amount, 0);
+    .reduce((sum, c) => sum + (Number(c.total_amount) || 0), 0);
 
-  const partnerMap = useMemo(() => new Map(partners.map(p => [p.id, p.name])), [partners]);
+  const partnerMap = useMemo(() => {
+      const map = new Map<string, string>();
+      safePartners.forEach(p => {
+          if(p && p.id) map.set(p.id, String(p.name || ''));
+      });
+      return map;
+  }, [safePartners]);
 
-  const chartData = contracts.map(c => {
-      const paidAmount = (c.daily_deductions || [])
-        .filter(d => d.status === DeductionStatus.PAID)
-        .reduce((sum, d) => sum + d.amount, 0);
-      return {
-          name: c.device_name.slice(0, 10) + '...',
-          '총 채권': c.total_amount,
-          '납부액': paidAmount,
-      };
-  });
+  const chartData = useMemo(() => {
+      return safeContracts.map((c, index) => {
+          const paidAmount = (c.daily_deductions || [])
+            .filter(d => d.status === DeductionStatus.PAID)
+            .reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
+          const deviceName = String(c.device_name || '알 수 없는 기기');
+          // Handle potential NaN or Infinity
+          const totalAmount = Number(c.total_amount);
+          const safeTotalAmount = isNaN(totalAmount) || !isFinite(totalAmount) ? 0 : totalAmount;
+          
+          return {
+              name: deviceName.length > 8 ? deviceName.slice(0, 8) + '...' : deviceName,
+              '총 채권': safeTotalAmount,
+              '납부액': paidAmount,
+              key: c.id || `chart-item-${index}`
+          };
+      }).slice(0, 50); // Limit items to prevent rendering issues with too many bars
+  }, [safeContracts]);
 
-  // --- New Search Logic ---
+  // --- Search Logic ---
   const [searchType, setSearchType] = useState<'contract_date' | 'execution_date'>('contract_date');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [keyword, setKeyword] = useState('');
 
   const filteredContracts = useMemo(() => {
-    return contracts.filter(c => {
+    return safeContracts.filter(c => {
+        if (!c) return false;
+
         // 1. Date Filter
         const targetDateStr = searchType === 'contract_date' ? c.contract_date : c.execution_date;
-        if (!targetDateStr && (startDate || endDate)) return false; // 날짜 없는데 검색조건 있으면 제외
+        
+        if (!targetDateStr && (startDate || endDate)) return false;
         
         if (targetDateStr) {
             if (startDate && targetDateStr < startDate) return false;
@@ -65,31 +85,42 @@ export const Dashboard: React.FC<DashboardProps> = ({ contracts, partners }) => 
         // 2. Keyword Filter
         if (keyword) {
             const lowerKey = keyword.toLowerCase();
+            const lessee = String(c.lessee_name || '').toLowerCase();
+            const distributor = String(c.distributor_name || '').toLowerCase();
+            const device = String(c.device_name || '').toLowerCase();
+            const cNumber = String(c.contract_number || '').toLowerCase();
+            
+            let partnerName = '';
+            if (c.partner_id && partnerMap.has(c.partner_id)) {
+                partnerName = String(partnerMap.get(c.partner_id) || '').toLowerCase();
+            }
+
             const match = 
-                c.lessee_name?.toLowerCase().includes(lowerKey) ||
-                c.distributor_name?.toLowerCase().includes(lowerKey) ||
-                c.device_name.toLowerCase().includes(lowerKey) ||
-                String(c.contract_number).includes(lowerKey) ||
-                (partnerMap.get(c.partner_id) || '').toLowerCase().includes(lowerKey);
+                lessee.includes(lowerKey) ||
+                distributor.includes(lowerKey) ||
+                device.includes(lowerKey) ||
+                cNumber.includes(lowerKey) ||
+                partnerName.includes(lowerKey);
+                
             if (!match) return false;
         }
 
         return true;
     });
-  }, [contracts, searchType, startDate, endDate, keyword, partnerMap]);
+  }, [safeContracts, searchType, startDate, endDate, keyword, partnerMap]);
 
-  const filteredStats =useMemo(() => {
+  const filteredStats = useMemo(() => {
       return filteredContracts.reduce((acc, c) => {
           acc.count += 1;
-          acc.units += (c.units_required || 1);
-          acc.amount += c.total_amount;
+          acc.units += (Number(c.units_required) || 1);
+          acc.amount += (Number(c.total_amount) || 0);
           return acc;
       }, { count: 0, units: 0, amount: 0 });
   }, [filteredContracts]);
 
 
   return (
-    <div className="p-8 space-y-8">
+    <div className="p-8 space-y-8 animate-fade-in">
       {/* Section 1: Global Overview */}
       <div>
         <h2 className="text-3xl font-bold text-white mb-6">대시보드</h2>
@@ -105,21 +136,44 @@ export const Dashboard: React.FC<DashboardProps> = ({ contracts, partners }) => 
       <div className="bg-slate-800 p-6 rounded-lg shadow-lg border border-slate-700">
         <h3 className="text-xl font-bold text-white mb-4">계약별 현황 차트</h3>
         <div style={{ width: '100%', height: 400 }}>
-             <ResponsiveContainer>
+            {chartData.length > 0 ? (
+             <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.1} />
-                    <XAxis dataKey="name" stroke="#94a3b8" />
-                    <YAxis stroke="#94a3b8" tickFormatter={(value) => `${Number(value) / 10000}만`} />
-                    <Tooltip
-                        contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155' }}
-                        labelStyle={{ color: '#cbd5e1' }}
-                        formatter={(value: number) => formatCurrency(value)}
+                    <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.1} vertical={false} />
+                    <XAxis 
+                        dataKey="name" 
+                        stroke="#94a3b8" 
+                        tick={{fontSize: 12}} 
+                        interval={0} 
+                        angle={-45} 
+                        textAnchor="end" 
+                        height={60}
                     />
-                    <Legend />
-                    <Bar dataKey="총 채권" fill="#4f46e5" />
-                    <Bar dataKey="납부액" fill="#22c55e" />
+                    <YAxis 
+                        stroke="#94a3b8" 
+                        tickFormatter={(value) => `${Number(value) / 10000}만`} 
+                        tick={{fontSize: 12}}
+                    />
+                    <Tooltip
+                        contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
+                        labelStyle={{ color: '#e2e8f0', fontWeight: 'bold', marginBottom: '4px' }}
+                        itemStyle={{ fontSize: '12px' }}
+                        formatter={(value: any) => [formatCurrency(Number(value)), '']}
+                        cursor={{fill: 'rgba(255,255,255,0.05)'}}
+                    />
+                    <Legend wrapperStyle={{ paddingTop: '10px' }} />
+                    <Bar dataKey="총 채권" fill="#6366f1" radius={[4, 4, 0, 0]} maxBarSize={50} />
+                    <Bar dataKey="납부액" fill="#22c55e" radius={[4, 4, 0, 0]} maxBarSize={50} />
                 </BarChart>
             </ResponsiveContainer>
+            ) : (
+                <div className="h-full flex flex-col items-center justify-center text-slate-500">
+                    <svg className="w-12 h-12 mb-2 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2z" />
+                    </svg>
+                    <p>표시할 차트 데이터가 없습니다.</p>
+                </div>
+            )}
         </div>
       </div>
 
@@ -204,16 +258,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ contracts, partners }) => 
               <table className="w-full text-left">
                   <thead className="bg-slate-700/50 text-slate-400 text-xs uppercase font-semibold">
                       <tr>
-                          <th className="p-4">계약번호</th>
-                          <th className="p-4">파트너사</th>
-                          <th className="p-4">총판</th>
-                          <th className="p-4">계약자</th>
-                          <th className="p-4">기기명</th>
-                          <th className="p-4">계약일</th>
-                          <th className="p-4">실행일</th>
-                          <th className="p-4">만료일</th>
-                          <th className="p-4 text-center">수량</th>
-                          <th className="p-4 text-right">채권액</th>
+                          <th className="p-4 whitespace-nowrap">계약번호</th>
+                          <th className="p-4 whitespace-nowrap">파트너사</th>
+                          <th className="p-4 whitespace-nowrap">총판</th>
+                          <th className="p-4 whitespace-nowrap">계약자</th>
+                          <th className="p-4 whitespace-nowrap">기기명</th>
+                          <th className="p-4 whitespace-nowrap">계약일</th>
+                          <th className="p-4 whitespace-nowrap">실행일</th>
+                          <th className="p-4 whitespace-nowrap">만료일</th>
+                          <th className="p-4 whitespace-nowrap text-center">수량</th>
+                          <th className="p-4 whitespace-nowrap text-right">채권액</th>
                       </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-700 text-sm">
@@ -221,15 +275,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ contracts, partners }) => 
                           filteredContracts.map(c => (
                               <tr key={c.id} className="hover:bg-slate-700/30 transition-colors">
                                   <td className="p-4 font-mono text-slate-400">#{c.contract_number}</td>
-                                  <td className="p-4 text-slate-300">{partnerMap.get(c.partner_id) || '-'}</td>
+                                  <td className="p-4 text-slate-300">{(c.partner_id && partnerMap.has(c.partner_id) ? partnerMap.get(c.partner_id) : '-') || '-'}</td>
                                   <td className="p-4 text-white">{c.distributor_name || '-'}</td>
                                   <td className="p-4 text-white">{c.lessee_name}</td>
-                                  <td className="p-4 text-slate-300">{c.device_name}</td>
+                                  <td className="p-4 text-slate-300">{c.device_name || '-'}</td>
                                   <td className="p-4 text-slate-400">{formatDate(c.contract_date)}</td>
                                   <td className="p-4 text-slate-400">{c.execution_date ? formatDate(c.execution_date) : '-'}</td>
                                   <td className="p-4 text-slate-400">{formatDate(c.expiry_date)}</td>
                                   <td className="p-4 text-center text-slate-300">{c.units_required || 1}</td>
-                                  <td className="p-4 text-right font-medium text-slate-200">{formatCurrency(c.total_amount)}</td>
+                                  <td className="p-4 text-right font-medium text-slate-200">{formatCurrency(Number(c.total_amount) || 0)}</td>
                               </tr>
                           ))
                       ) : (
