@@ -1,659 +1,643 @@
 
-
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { supabase, isSupabaseConfigured } from './lib/supabaseClient';
 import { Sidebar, View } from './components/Sidebar';
+import { Login } from './components/Login';
+import { ConfigurationError } from './components/ConfigurationError';
 import { Dashboard } from './components/Dashboard';
 import { ContractManagement } from './components/ContractManagement';
 import { DeductionManagement } from './components/DeductionManagement';
 import { ShippingManagement } from './components/ShippingManagement';
 import { SettlementManagement } from './components/SettlementManagement';
 import { CreditorSettlementData } from './components/CreditorSettlementData';
-import { GreenwichSettlement } from './components/GreenwichSettlement';
 import { PartnersManagement } from './components/PartnersManagement';
-import ContractDetailModal from './components/ContractDetailModal';
-import { ContractFormModal } from './components/ContractFormModal';
-import { PartnerDetailModal } from './components/PartnerDetailModal';
-import { PartnerFormModal } from './components/PartnerFormModal';
 import { Calendar } from './components/Calendar';
-import { EventFormModal } from './components/EventFormModal';
 import { DatabaseManagement } from './components/DatabaseManagement';
-import { ConfigurationError } from './components/ConfigurationError';
-import { Login } from './components/Login';
-import { Contract, Partner, PriceTier, SettlementStatus, CalendarEvent, ContractStatus, DeductionStatus, DailyDeductionLog, ShippingStatus, GreenwichSettlement as IGreenwichSettlement } from './types';
-import { supabase, isSupabaseConfigured } from './lib/supabaseClient';
-import { Session } from '@supabase/supabase-js';
+import { GreenwichSettlement } from './components/GreenwichSettlement';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
-type EditingContractState = Contract | 'new' | null;
-type EditingPartnerState = Partner | 'new' | null;
-type EditingEventState = Partial<CalendarEvent> | null;
+import { ContractFormModal } from './components/ContractFormModal';
+import ContractDetailModal from './components/ContractDetailModal';
+
+import { PartnerFormModal } from './components/PartnerFormModal';
+import { PartnerDetailModal } from './components/PartnerDetailModal';
+import { EventFormModal } from './components/EventFormModal';
+
+import { Contract, Partner, CalendarEvent, GreenwichSettlement as IGreenwichSettlement, DeductionStatus, PriceTier } from './types';
 
 const App: React.FC = () => {
-  const [session, setSession] = useState<Session | null>(null);
-  const [sessionLoading, setSessionLoading] = useState(true);
+  const [session, setSession] = useState<any>(null);
   const [currentView, setCurrentView] = useState<View>('dashboard');
+  
+  // Data States
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [partners, setPartners] = useState<Partner[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [greenwichSettlements, setGreenwichSettlements] = useState<IGreenwichSettlement[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+
+  // Modal States
+  const [isContractFormOpen, setIsContractFormOpen] = useState(false);
+  const [editingContract, setEditingContract] = useState<Contract | null>(null);
+  const [contractFormTemplate, setContractFormTemplate] = useState<Partial<Contract> | null>(null);
   
   const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
-  const [editingContract, setEditingContract] = useState<EditingContractState>(null);
-  const [newContractTemplate, setNewContractTemplate] = useState<Partial<Contract> | null>(null);
 
+  const [isPartnerFormOpen, setIsPartnerFormOpen] = useState(false);
+  const [editingPartner, setEditingPartner] = useState<Partner | null>(null);
+  const [isPartnerTemplateMode, setIsPartnerTemplateMode] = useState(false);
+  
   const [selectedPartnerId, setSelectedPartnerId] = useState<string | null>(null);
-  const [editingPartner, setEditingPartner] = useState<EditingPartnerState>(null);
-  const [isNewPartnerTemplate, setIsNewPartnerTemplate] = useState(false);
-
-  const [editingEvent, setEditingEvent] = useState<EditingEventState>(null);
-  const [selectedCalendarDate, setSelectedCalendarDate] = useState<string>('');
-
-  const selectedPartner = selectedPartnerId ? partners.find(p => p.id === selectedPartnerId) ?? null : null;
-  const priceTemplates = useMemo(() => partners.filter(p => p.is_template), [partners]);
+  
+  const [isEventFormOpen, setIsEventFormOpen] = useState(false);
+  const [editingEvent, setEditingEvent] = useState<Partial<CalendarEvent> | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
 
   useEffect(() => {
-    if (!supabase) return;
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    if (!isSupabaseConfigured) return;
+
+    supabase!.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-      setSessionLoading(false);
+      if (session) fetchData();
+      setLoading(false);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const {
+      data: { subscription },
+    } = supabase!.auth.onAuthStateChange((_event, session) => {
       setSession(session);
+      if (session) fetchData();
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  const processContracts = (rawContracts: any[]): Contract[] => {
-      // Use UTC for today's date to ensure consistent comparisons across timezones
-      const localToday = new Date();
-      const today = new Date(Date.UTC(localToday.getUTCFullYear(), localToday.getUTCMonth(), localToday.getUTCDate()));
+  const processContracts = (data: any[]): Contract[] => {
+    if (!Array.isArray(data)) return [];
+    return data.map(c => {
+      // Ensure all numbers are actually numbers and not NaN
+      const units = (c.units_required && !isNaN(Number(c.units_required))) ? Number(c.units_required) : 1;
+      const rawTotalAmount = (c.total_amount && !isNaN(Number(c.total_amount))) ? Number(c.total_amount) : 0;
+      const rawDailyDeduction = (c.daily_deduction && !isNaN(Number(c.daily_deduction))) ? Number(c.daily_deduction) : 0;
+      
+      const total_amount = rawTotalAmount * units;
+      const daily_deduction = rawDailyDeduction * units;
 
-      return rawContracts.map(rawContract => {
-          // 원본 데이터는 변경하지 않습니다.
-          const units = Number(rawContract.units_required) || 1;
-          
-          // 총액을 먼저 계산합니다.
-          const totalAmount = (Number(rawContract.total_amount) || 0) * units;
-          const totalDailyDeduction = (Number(rawContract.daily_deduction) || 0) * units;
-
-          let finalDeductions: DailyDeductionLog[] = [];
-          
-          if (rawContract.execution_date && rawContract.expiry_date) {
-              const existingDeductionsMap = new Map<string, DailyDeductionLog>((rawContract.daily_deductions || []).map(d => [d.date, d]));
-              
-              const startParts = rawContract.execution_date.split('-').map(Number);
-              const startDate = new Date(Date.UTC(startParts[0], startParts[1] - 1, startParts[2]));
-
-              const expiryParts = rawContract.expiry_date.split('-').map(Number);
-              const expiryDate = new Date(Date.UTC(expiryParts[0], expiryParts[1] - 1, expiryParts[2]));
-              
-              let currentDate = new Date(startDate.getTime());
-
-              // 만료일과 오늘 날짜 중 더 미래의 날짜까지 루프를 돕니다.
-              const loopEndDate = today.getTime() > expiryDate.getTime() ? today : expiryDate;
-              
-              while (currentDate <= loopEndDate) {
-                  const dateString = currentDate.toISOString().split('T')[0];
-                  const existingDeduction = existingDeductionsMap.get(dateString);
-
-                  if (existingDeduction) {
-                      // 기존 차감 내역이 있으면 그대로 사용합니다.
-                      finalDeductions.push(existingDeduction);
-                  } else {
-                      // 없으면 새로 생성합니다. amount는 총 일차감액을 사용합니다.
-                      finalDeductions.push({
-                          id: `${rawContract.id}-${dateString}`,
-                          date: dateString,
-                          amount: totalDailyDeduction,
-                          status: currentDate < today ? DeductionStatus.UNPAID : DeductionStatus.PENDING,
-                          paid_amount: 0,
-                      });
-                  }
-                  currentDate.setUTCDate(currentDate.getUTCDate() + 1);
-              }
-          } else {
-              // 실행일 또는 만료일이 없는 경우, 기존 DB 데이터만 사용합니다.
-              finalDeductions = rawContract.daily_deductions || [];
-          }
-          
-          // 미납액을 계산합니다. 오늘 날짜(UTC 기준) 이전의 '납부완료'가 아닌 모든 차감 내역의 미지급 잔액을 합산합니다.
-          const unpaid_balance = finalDeductions
-              .filter(d => {
-                  const deductionDateParts = d.date.split('-').map(Number);
-                  const deductionDate = new Date(Date.UTC(deductionDateParts[0], deductionDateParts[1] - 1, deductionDateParts[2]));
-                  return d.status !== DeductionStatus.PAID && deductionDate < today;
-              })
-              .reduce((sum, d) => sum + (d.amount - d.paid_amount), 0);
-
-          // 계약 상태를 업데이트합니다.
-          let finalStatus = rawContract.status;
-          if (rawContract.status === ContractStatus.ACTIVE && rawContract.expiry_date) {
-            const expiryParts = rawContract.expiry_date.split('-').map(Number);
-            const expiryDate = new Date(Date.UTC(expiryParts[0], expiryParts[1] - 1, expiryParts[2]));
-            if (expiryDate < today) {
-                finalStatus = ContractStatus.EXPIRED;
-            }
-          }
-          
-          // 정산 상태를 업데이트합니다.
-          const isSettlementReady = 
-              rawContract.shipping_status === ShippingStatus.DELIVERED &&
-              rawContract.is_lessee_contract_signed &&
-              !!rawContract.settlement_document_url;
-          
-          let settlement_status = rawContract.settlement_status;
-          if (settlement_status === SettlementStatus.NOT_READY && isSettlementReady) {
-              settlement_status = SettlementStatus.READY;
-          } else if (settlement_status === SettlementStatus.READY && !isSettlementReady) {
-              settlement_status = SettlementStatus.NOT_READY;
-          }
-          
-          // 모든 계산이 끝난 후, 최종적으로 새로운 객체를 만들어 반환합니다.
-          return {
-              ...rawContract,
-              total_amount: totalAmount,
-              daily_deduction: totalDailyDeduction,
-              daily_deductions: finalDeductions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
-              unpaid_balance,
-              status: finalStatus,
-              settlement_status
-          };
-      });
+      // Calculate unpaid balance from deductions
+      const daily_deductions = Array.isArray(c.daily_deductions) ? c.daily_deductions : [];
+      const unpaid_balance = daily_deductions.reduce((sum: number, d: any) => {
+        const dAmount = (d.amount && !isNaN(Number(d.amount))) ? Number(d.amount) : 0;
+        const dPaid = (d.paid_amount && !isNaN(Number(d.paid_amount))) ? Number(d.paid_amount) : 0;
+        return sum + (dAmount - dPaid);
+      }, 0);
+      
+      return {
+        ...c,
+        units_required: units,
+        units_secured: (c.units_secured && !isNaN(Number(c.units_secured))) ? Number(c.units_secured) : 0,
+        contract_number: (c.contract_number && !isNaN(Number(c.contract_number))) ? Number(c.contract_number) : 0,
+        duration_days: (c.duration_days && !isNaN(Number(c.duration_days))) ? Number(c.duration_days) : 0,
+        procurement_cost: (c.procurement_cost && !isNaN(Number(c.procurement_cost))) ? Number(c.procurement_cost) : null,
+        contract_initial_deduction: (c.contract_initial_deduction && !isNaN(Number(c.contract_initial_deduction))) ? Number(c.contract_initial_deduction) : null,
+        settlement_round: (c.settlement_round && !isNaN(Number(c.settlement_round))) ? Number(c.settlement_round) : null,
+        total_amount,
+        daily_deduction,
+        unpaid_balance,
+        daily_deductions: daily_deductions
+      };
+    });
   };
 
-
-  const fetchData = useCallback(async () => {
+  const fetchData = async () => {
     if (!supabase) return;
     setLoading(true);
-    setError(null);
+    
     try {
-      const [
-        { data: contractsData, error: contractsError },
-        { data: partnersData, error: partnersError },
-        { data: eventsData, error: eventsError },
-        { data: greenwichData, error: greenwichError },
-      ] = await Promise.all([
-        supabase.from('contracts').select('*').order('contract_number', { ascending: false }),
-        supabase.from('partners').select('*').order('name'),
-        supabase.from('events').select('*'),
-        supabase.from('greenwich_settlements').select('*').order('settlement_round', { ascending: false }),
-      ]);
+        const [contractsRes, partnersRes, eventsRes, greenwichRes] = await Promise.all([
+            supabase.from('contracts').select('*').order('created_at', { ascending: false }),
+            supabase.from('partners').select('*').order('created_at', { ascending: false }),
+            supabase.from('events').select('*').order('date', { ascending: true }),
+            supabase.from('greenwich_settlements').select('*').order('settlement_round', { ascending: false })
+        ]);
 
-      if (contractsError) throw new Error(`계약 정보 로딩 실패: ${contractsError.message}`);
-      if (partnersError) throw new Error(`파트너 정보 로딩 실패: ${partnersError.message}`);
-      if (eventsError) throw new Error(`캘린더 정보 로딩 실패: ${eventsError.message}`);
-      if (greenwichError) throw new Error(`그린위치 정산 정보 로딩 실패: ${greenwichError.message}`);
-      
-      const processedContracts = processContracts(contractsData || []);
-      setContracts(processedContracts);
-      setPartners(partnersData || []);
-      setEvents(eventsData || []);
-      setGreenwichSettlements(greenwichData || []);
-    } catch (err: any) {
-      setError(err.message);
+        if (contractsRes.error) throw contractsRes.error;
+        if (partnersRes.error) throw partnersRes.error;
+        if (eventsRes.error) throw eventsRes.error;
+        if (greenwichRes.error) throw greenwichRes.error;
+
+        setContracts(processContracts(contractsRes.data || []));
+        setPartners(partnersRes.data || []);
+        setEvents(eventsRes.data || []);
+        setGreenwichSettlements(greenwichRes.data || []);
+
+    } catch (error) {
+        console.error('Error fetching data:', error);
     } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (session) {
-        fetchData();
-    }
-  }, [fetchData, session]);
-
-  // --- CRUD Handlers ---
-
-  const handleSaveContract = async (data: Omit<Contract, 'unpaid_balance' | 'id' | 'contract_number'> & { id?: string; contract_number?: number; }) => {
-    if (!supabase) return;
-    try {
-      if (data.id) {
-        // Update: `contract_number` is not updatable, so we exclude it.
-        const { id, contract_number, ...updateData } = data;
-        // FIX: Supabase update call expects a partial object. The `updateData` is a full object, which is valid.
-        // The 'never' error was caused by incorrect Supabase client typing, now fixed in `lib/supabaseClient.ts`.
-        const { error } = await supabase.from('contracts').update(updateData).match({ id });
-        if (error) throw error;
-      } else {
-        // Insert: Generate a new contract number.
-        const { data: latestContract, error: latestError } = await supabase
-            .from('contracts')
-            .select('contract_number')
-            .order('contract_number', { ascending: false })
-            .limit(1)
-            .single();
-
-        if (latestError && latestError.code !== 'PGRST116') throw latestError;
-        // FIX: Correctly access contract_number from latestContract. The 'never' type error is resolved in supabaseClient.ts.
-        const lastContractNumber = latestContract ? latestContract.contract_number : 0;
-        const insertData = { ...data, contract_number: lastContractNumber + 1 };
-        
-        // FIX: Supabase insert call expects a valid insert object. The 'never' error was caused by incorrect Supabase client typing.
-        const { error } = await supabase.from('contracts').insert(insertData);
-        if (error) throw error;
-      }
-      
-      setEditingContract(null);
-      await fetchData();
-    } catch (err: any) {
-      setError(`계약 저장 실패: ${err.message}`);
+        setLoading(false);
     }
   };
 
-  const handleDeleteContract = async (contractId: string) => {
-    if (!supabase) return;
-    try {
-      const { error } = await supabase.from('contracts').delete().match({ id: contractId });
-      if (error) throw error;
-      setSelectedContract(null);
-      await fetchData();
-    } catch (err: any) {
-      setError(`계약 삭제 실패: ${err.message}`);
-    }
-  };
+  // --- Contract Handlers ---
   
-  const handleSavePartner = async (data: Omit<Partner, 'id'> & { id?: string }) => {
-    if (!supabase) return;
-    try {
-      if (data.id) {
-        const { id, ...updateData } = data;
-        // FIX: Supabase update call expects a partial object. `updateData` is valid. The 'never' error is resolved in supabaseClient.ts.
-        const { error } = await supabase.from('partners').update(updateData).match({ id });
-        if (error) throw error;
-      } else {
-        // FIX: Supabase insert call expects a valid insert object. The 'never' error is resolved in supabaseClient.ts.
-        const { error } = await supabase.from('partners').insert(data);
-        if (error) throw error;
+  const handleSaveContract = async (contractData: any) => {
+      if (!supabase) return;
+      
+      const { id, unpaid_balance, daily_deductions, ...dataToSave } = contractData;
+
+      try {
+          if (id) {
+              const { error } = await (supabase.from('contracts') as any).update(dataToSave).eq('id', id);
+              if (error) throw error;
+          } else {
+              const maxNumber = contracts.reduce((max, c) => Math.max(max, c.contract_number || 0), 0);
+              const { error } = await (supabase.from('contracts') as any).insert({ ...dataToSave, contract_number: maxNumber + 1 });
+              if (error) throw error;
+          }
+          fetchData();
+          setIsContractFormOpen(false);
+          setEditingContract(null);
+          setContractFormTemplate(null);
+      } catch (error: any) {
+          console.error('Error saving contract:', error);
+          alert(`계약 저장 실패: ${error.message}`);
       }
-      setEditingPartner(null);
-      await fetchData();
-    } catch (err: any) {
-      setError(`파트너 저장 실패: ${err.message}`);
-    }
   };
 
-  const handleDeletePartner = async (partnerId: string) => {
-    if (!supabase) return;
-    if (window.confirm('정말 이 파트너사/템플릿을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) {
-        try {
-            const { error } = await supabase.from('partners').delete().match({ id: partnerId });
-            if (error) throw error;
-            setSelectedPartnerId(null);
-            await fetchData();
-        } catch (err: any) {
-            setError(`파트너 삭제 실패: ${err.message}`);
-        }
-    }
-  };
-
-  const handlePriceTierUpdate = async (partnerId: string, price_list: PriceTier[] | null) => {
+  const handleDeleteContract = async (id: string) => {
       if (!supabase) return;
       try {
-          // FIX: Supabase update call expects a partial object. This is valid. The 'never' error is resolved in supabaseClient.ts.
-          const { error } = await supabase.from('partners').update({ price_list }).match({ id: partnerId });
+          const { error } = await supabase.from('contracts').delete().eq('id', id);
           if (error) throw error;
-          await fetchData();
-      } catch (err: any) {
-          setError(`단가표 업데이트 실패: ${err.message}`);
+          fetchData();
+          setSelectedContract(null);
+      } catch (error: any) {
+          console.error('Error deleting contract:', error);
+          alert(`계약 삭제 실패: ${error.message}`);
       }
-  };
-
-  const handleSaveEvent = async (data: Omit<CalendarEvent, 'id'> & { id?: string }) => {
-    if (!supabase) return;
-    try {
-      if (data.id) {
-        const { id, ...updateData } = data;
-        // FIX: Supabase update call expects a partial object. `updateData` is valid. The 'never' error is resolved in supabaseClient.ts.
-        const { error } = await supabase.from('events').update(updateData).match({ id });
-        if (error) throw error;
-      } else {
-        // FIX: Supabase insert call expects a valid insert object. The 'never' error is resolved in supabaseClient.ts.
-        const { error } = await supabase.from('events').insert(data);
-        if (error) throw error;
-      }
-      setEditingEvent(null);
-      await fetchData();
-    } catch (err: any)
-{
-      setError(`이벤트 저장 실패: ${err.message}`);
-    }
-  };
-
-  const handleDeleteEvent = async (eventId: string) => {
-    if (!supabase) return;
-    try {
-      const { error } = await supabase.from('events').delete().match({ id: eventId });
-      if (error) throw error;
-      setEditingEvent(null);
-      await fetchData();
-    } catch (err: any) {
-      setError(`이벤트 삭제 실패: ${err.message}`);
-    }
-  };
-
-  const handleSaveGreenwichSettlement = async (data: Omit<IGreenwichSettlement, 'id' | 'created_at'> & { id?: string }) => {
-    if (!supabase) return;
-    try {
-      if (data.id) {
-        const { id, ...updateData } = data;
-        const { error } = await supabase.from('greenwich_settlements').update(updateData).match({ id });
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from('greenwich_settlements').insert(data);
-        if (error) throw error;
-      }
-      await fetchData();
-    } catch (err: any) {
-      setError(`그린위치 정산 저장 실패: ${err.message}`);
-    }
-  };
-
-  const handleDeleteGreenwichSettlement = async (id: string) => {
-    if (!supabase) return;
-    if (window.confirm('정말 이 정산 차수를 삭제하시겠습니까?')) {
-        try {
-            const { error } = await supabase.from('greenwich_settlements').delete().match({ id });
-            if (error) throw error;
-            await fetchData();
-        } catch (err: any) {
-            setError(`그린위치 정산 삭제 실패: ${err.message}`);
-        }
-    }
   };
   
-  const handleUpdateContractField = async (contractId: string, updates: Partial<Omit<Contract, 'id' | 'contract_number' | 'unpaid_balance'>>) => {
-    if (!supabase) return;
-    try {
-      // FIX: Supabase update call is valid. The 'never' error is resolved in supabaseClient.ts.
-      const { error } = await supabase.from('contracts').update(updates).match({ id: contractId });
-      if (error) throw error;
-      await fetchData();
-      return true;
-    } catch (err: any) {
-      setError(`계약 업데이트 실패: ${err.message}`);
-      return false;
-    }
+  const handleImportContracts = async (newContracts: any[]) => {
+      if (!supabase) return;
+      
+      let currentMaxNumber = contracts.reduce((max, c) => Math.max(max, c.contract_number || 0), 0);
+
+      const contractsWithNumbers = newContracts.map(c => {
+          currentMaxNumber += 1;
+          return { ...c, contract_number: currentMaxNumber };
+      });
+
+      try {
+          const { error } = await (supabase.from('contracts') as any).insert(contractsWithNumbers);
+          if (error) throw error;
+          fetchData();
+      } catch (error: any) {
+          console.error('Error importing contracts:', error);
+          throw error;
+      }
   };
 
+  // --- Partner Handlers ---
+
+  const handleSavePartner = async (partnerData: any) => {
+      if (!supabase) return;
+      const { id, ...dataToSave } = partnerData;
+      try {
+          if (id) {
+              const { error } = await (supabase.from('partners') as any).update(dataToSave).eq('id', id);
+              if (error) throw error;
+          } else {
+              const { error } = await (supabase.from('partners') as any).insert(dataToSave);
+              if (error) throw error;
+          }
+          fetchData();
+          setIsPartnerFormOpen(false);
+          setEditingPartner(null);
+      } catch (error: any) {
+          console.error('Error saving partner:', error);
+          alert(`파트너 저장 실패: ${error.message}`);
+      }
+  };
+
+  const handleDeletePartner = async (id: string) => {
+       if (!supabase) return;
+      try {
+          const { error } = await supabase.from('partners').delete().eq('id', id);
+          if (error) throw error;
+          fetchData();
+          setSelectedPartnerId(null);
+      } catch (error: any) {
+          console.error('Error deleting partner:', error);
+          alert(`파트너 삭제 실패: ${error.message}`);
+      }
+  };
+
+  const handleUpdatePriceTier = async (partnerId: string, priceTierId: string, data: Partial<PriceTier>) => {
+      const partner = partners.find(p => p.id === partnerId);
+      if (!partner || !partner.price_list) return;
+      
+      const newPriceList = partner.price_list.map(p => p.id === priceTierId ? { ...p, ...data } : p);
+      await handleSavePartner({ id: partnerId, price_list: newPriceList });
+  };
+
+  const handleDeletePriceTier = async (partnerId: string, priceTierId: string) => {
+      const partner = partners.find(p => p.id === partnerId);
+      if (!partner || !partner.price_list) return;
+
+      const newPriceList = partner.price_list.filter(p => p.id !== priceTierId);
+      await handleSavePartner({ id: partnerId, price_list: newPriceList });
+  };
+  
+  const handleAddPriceTier = async (partnerId: string, tierData: Omit<PriceTier, 'id'>) => {
+       const partner = partners.find(p => p.id === partnerId);
+      if (!partner) return;
+      
+      const newTier = { ...tierData, id: `pt-${Date.now()}` };
+      const newPriceList = [...(partner.price_list || []), newTier];
+      await handleSavePartner({ id: partnerId, price_list: newPriceList });
+  };
+
+  const handleAddPriceTiersFromMaster = async (partnerId: string, tiers: PriceTier[]) => {
+       const partner = partners.find(p => p.id === partnerId);
+      if (!partner) return;
+      
+      const newTiers = tiers.map(t => ({ ...t, id: `pt-${Date.now()}-${Math.random().toString(36).substr(2,9)}` }));
+      const newPriceList = [...(partner.price_list || []), ...newTiers];
+      await handleSavePartner({ id: partnerId, price_list: newPriceList });
+  };
+
+  // --- Event Handlers ---
+  
+  const handleSaveEvent = async (eventData: any) => {
+      if (!supabase) return;
+      const { id, ...dataToSave } = eventData;
+      try {
+          if (id) {
+              const { error } = await (supabase.from('events') as any).update(dataToSave).eq('id', id);
+              if (error) throw error;
+          } else {
+              const { error } = await (supabase.from('events') as any).insert(dataToSave);
+              if (error) throw error;
+          }
+          fetchData();
+          setIsEventFormOpen(false);
+          setEditingEvent(null);
+      } catch (error: any) {
+           console.error('Error saving event:', error);
+          alert(`일정 저장 실패: ${error.message}`);
+      }
+  };
+
+  const handleDeleteEvent = async (id: string) => {
+      if (!supabase) return;
+       try {
+          const { error } = await supabase.from('events').delete().eq('id', id);
+          if (error) throw error;
+          fetchData();
+          setIsEventFormOpen(false);
+          setEditingEvent(null);
+      } catch (error: any) {
+           console.error('Error deleting event:', error);
+          alert(`일정 삭제 실패: ${error.message}`);
+      }
+  };
+
+  // --- Deduction/Settlement Logic ---
+
   const handleAddPayment = async (contractId: string, amount: number) => {
+      if (!supabase) return;
       const contract = contracts.find(c => c.id === contractId);
       if (!contract || !contract.daily_deductions) return;
 
       let remainingAmount = amount;
-      const updatedDeductions = contract.daily_deductions.map(d => {
-          if (remainingAmount <= 0 || d.status === DeductionStatus.PAID) {
-              return d;
-          }
-
-          const needed = d.amount - d.paid_amount;
-          const payment = Math.min(needed, remainingAmount);
-          
-          const newPaidAmount = d.paid_amount + payment;
-          remainingAmount -= payment;
-
-          const newStatus = newPaidAmount >= d.amount ? DeductionStatus.PAID : DeductionStatus.PARTIAL;
-
-          return { ...d, paid_amount: newPaidAmount, status: newStatus };
-      });
+      // Process oldest unpaid deductions first
+      const sortedDeductions = [...contract.daily_deductions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       
-      await handleUpdateContractField(contractId, { daily_deductions: updatedDeductions });
-  };
-  
-  const handleSettleDeduction = async (contractId: string, deductionId: string) => {
-    const contract = contracts.find(c => c.id === contractId);
-    if (!contract || !contract.daily_deductions) return;
+      const updatedDeductions = sortedDeductions.map(d => {
+          if (remainingAmount <= 0) return d;
+          if (d.status === DeductionStatus.PAID) return d;
 
-    const updatedDeductions = contract.daily_deductions.map(d => {
-        if (d.id === deductionId) {
-            return { ...d, status: DeductionStatus.PAID, paid_amount: d.amount };
-        }
-        return d;
-    });
-    await handleUpdateContractField(contractId, { daily_deductions: updatedDeductions });
-  };
-  
-  const handleCancelDeduction = async (contractId: string, deductionId: string) => {
-    const contract = contracts.find(c => c.id === contractId);
-    if (!contract || !contract.daily_deductions) return;
-
-    const localToday = new Date();
-    const today = new Date(Date.UTC(localToday.getUTCFullYear(), localToday.getUTCMonth(), localToday.getUTCDate()));
-
-    const updatedDeductions = contract.daily_deductions.map(d => {
-        if (d.id === deductionId) {
-            const deductionDateParts = d.date.split('-').map(Number);
-            const deductionDate = new Date(Date.UTC(deductionDateParts[0], deductionDateParts[1] - 1, deductionDateParts[2]));
-            const newStatus = deductionDate < today ? DeductionStatus.UNPAID : DeductionStatus.PENDING;
-            return { ...d, status: newStatus, paid_amount: 0 };
-        }
-        return d;
-    });
-     await handleUpdateContractField(contractId, { daily_deductions: updatedDeductions });
-  };
-  
-  const handleBulkUpdate = async (updates: ({ id: string; } & Partial<Omit<Contract, 'id' | 'contract_number' | 'unpaid_balance'>>) []) => {
-      if (!supabase) return;
-      try {
-          const updatePromises = updates.map(u => {
-              const { id, ...updateData } = u;
-              return supabase.from('contracts').update(updateData).match({ id });
-          });
-          const results = await Promise.all(updatePromises);
-          for (const result of results) {
-              if (result.error) throw result.error;
+          const unpaidPortion = d.amount - d.paid_amount;
+          const paymentForThis = Math.min(remainingAmount, unpaidPortion);
+          
+          d.paid_amount += paymentForThis;
+          remainingAmount -= paymentForThis;
+          
+          if (d.paid_amount >= d.amount) {
+              d.status = DeductionStatus.PAID;
+          } else if (d.paid_amount > 0) {
+              d.status = DeductionStatus.PARTIAL;
           }
-          await fetchData();
-      } catch (err: any) {
-          setError(`일괄 업데이트 실패: ${err.message}`);
+          return d;
+      });
+
+      try {
+          const { error } = await (supabase.from('contracts') as any).update({ daily_deductions: updatedDeductions }).eq('id', contractId);
+          if (error) throw error;
+          fetchData();
+      } catch (error: any) {
+          alert(`입금 처리 실패: ${error.message}`);
       }
   };
 
-  const handleLogout = async () => {
-    if (!supabase) return;
-    await supabase.auth.signOut();
+  const handleSettleDeduction = async (contractId: string, deductionId: string) => {
+       if (!supabase) return;
+      const contract = contracts.find(c => c.id === contractId);
+      if (!contract || !contract.daily_deductions) return;
+
+      const updatedDeductions = contract.daily_deductions.map(d => {
+          if (d.id === deductionId) {
+              return { ...d, paid_amount: d.amount, status: DeductionStatus.PAID };
+          }
+          return d;
+      });
+       try {
+          const { error } = await (supabase.from('contracts') as any).update({ daily_deductions: updatedDeductions }).eq('id', contractId);
+          if (error) throw error;
+          fetchData();
+      } catch (error: any) {
+          alert(`처리 실패: ${error.message}`);
+      }
+  };
+
+  const handleCancelDeduction = async (contractId: string, deductionId: string) => {
+       if (!supabase) return;
+      const contract = contracts.find(c => c.id === contractId);
+      if (!contract || !contract.daily_deductions) return;
+
+      const updatedDeductions = contract.daily_deductions.map(d => {
+          if (d.id === deductionId) {
+              return { ...d, paid_amount: 0, status: DeductionStatus.UNPAID };
+          }
+          return d;
+      });
+      try {
+          const { error } = await (supabase.from('contracts') as any).update({ daily_deductions: updatedDeductions }).eq('id', contractId);
+          if (error) throw error;
+          fetchData();
+      } catch (error: any) {
+          alert(`취소 실패: ${error.message}`);
+      }
+  };
+
+  const handleUpdatePrerequisites = async (contractId: string, updates: any) => {
+       if (!supabase) return;
+       try {
+          const { error } = await (supabase.from('contracts') as any).update(updates).eq('id', contractId);
+          if (error) throw error;
+          fetchData();
+      } catch (error: any) {
+          alert(`업데이트 실패: ${error.message}`);
+      }
+  };
+
+  const handleRequestSettlement = async (contractId: string) => {
+       if (!supabase) return;
+       try {
+           // Set status to REQUESTED and set requested_date
+          const { error } = await (supabase.from('contracts') as any).update({ 
+              settlement_status: '정산 요청됨',
+              settlement_request_date: new Date().toISOString()
+           }).eq('id', contractId);
+          if (error) throw error;
+          fetchData();
+      } catch (error: any) {
+          alert(`요청 실패: ${error.message}`);
+      }
+  };
+  
+  const handleCompleteSettlement = async (contractId: string) => {
+       if (!supabase) return;
+       try {
+          const { error } = await (supabase.from('contracts') as any).update({ 
+              settlement_status: '정산 완료',
+              status: '정산완료',
+              settlement_date: new Date().toISOString()
+           }).eq('id', contractId);
+          if (error) throw error;
+          fetchData();
+      } catch (error: any) {
+          alert(`완료 처리 실패: ${error.message}`);
+      }
+  };
+  
+  const handleBulkRequestSettlement = async (ids: string[]) => {
+       if (!supabase) return;
+       try {
+          const { error } = await (supabase.from('contracts') as any).update({ 
+              settlement_status: '정산 요청됨',
+              settlement_request_date: new Date().toISOString()
+           }).in('id', ids);
+          if (error) throw error;
+          fetchData();
+      } catch (error: any) {
+          alert(`일괄 요청 실패: ${error.message}`);
+      }
+  };
+
+  const handleBulkCompleteSettlement = async (ids: string[]) => {
+      if (!supabase) return;
+       try {
+          const { error } = await (supabase.from('contracts') as any).update({ 
+              settlement_status: '정산 완료',
+              status: '정산완료',
+              settlement_date: new Date().toISOString()
+           }).in('id', ids);
+          if (error) throw error;
+          fetchData();
+      } catch (error: any) {
+          alert(`일괄 완료 실패: ${error.message}`);
+      }
+  };
+
+  // --- Greenwich Settlement Handlers ---
+
+  const handleSaveGreenwichSettlement = async (data: any) => {
+      if (!supabase) return;
+      const { id, ...dataToSave } = data;
+      try {
+          if (id) {
+               const { error } = await (supabase.from('greenwich_settlements') as any).update(dataToSave).eq('id', id);
+               if (error) throw error;
+          } else {
+               const { error } = await (supabase.from('greenwich_settlements') as any).insert(dataToSave);
+               if (error) throw error;
+          }
+          fetchData();
+      } catch (error: any) {
+          alert(`저장 실패: ${error.message}`);
+      }
+  };
+
+  const handleDeleteGreenwichSettlement = async (id: string) => {
+       if (!supabase) return;
+       try {
+           const { error } = await supabase.from('greenwich_settlements').delete().eq('id', id);
+           if (error) throw error;
+           fetchData();
+      } catch (error: any) {
+          alert(`삭제 실패: ${error.message}`);
+      }
   };
 
   if (!isSupabaseConfigured) {
     return <ConfigurationError />;
   }
 
-  if (sessionLoading) {
-    return <div className="flex h-screen bg-slate-900 items-center justify-center text-white text-xl">인증 정보를 확인하는 중...</div>;
-  }
-
   if (!session) {
     return <Login />;
   }
 
+  const selectedPartner = partners.find(p => p.id === selectedPartnerId) || null;
+
   return (
-    <div className="flex h-screen bg-slate-900 text-slate-200">
-      <Sidebar currentView={currentView} onNavigate={setCurrentView} onLogout={handleLogout} />
-      <main className="flex-1 ml-64 overflow-y-auto">
-        {loading && <div className="p-8 text-center text-lg animate-pulse">데이터를 불러오는 중입니다...</div>}
-        {error && <div className="p-8 m-8 bg-red-900/50 border border-red-700 text-red-300 rounded-lg">{error}</div>}
-        {!loading && !error && (
-          <>
-            {currentView === 'dashboard' && <Dashboard contracts={contracts} />}
-            {currentView === 'contractManagement' && (
-              <ContractManagement
-                contracts={contracts}
-                partners={partners}
-                onSelectContract={setSelectedContract}
-                onAddContract={(template) => {
-                  setNewContractTemplate(template ?? null);
-                  setEditingContract('new');
-                }}
-                onImportContracts={async (newContracts) => {
-                  if (!supabase) return;
-                  const { data: latestContract, error: latestError } = await supabase.from('contracts').select('contract_number').order('contract_number', { ascending: false }).limit(1).single();
-                  if (latestError && latestError.code !== 'PGRST116') throw new Error(`Import failed: ${latestError.message}`);
-                  
-                  // FIX: Correctly access contract_number. The 'never' type error is resolved in supabaseClient.ts.
-                  const lastContractNumber = latestContract ? latestContract.contract_number : 0;
-                  let nextContractNumber = lastContractNumber + 1;
-                  
-                  const contractsToInsert = newContracts.map(c => ({...c, contract_number: nextContractNumber++}));
-                  
-                  // FIX: Supabase insert call expects an array of valid insert objects. The 'never' type error is resolved in supabaseClient.ts.
-                  const { error } = await supabase.from('contracts').insert(contractsToInsert as any);
-                  if (error) throw new Error(`Import failed: ${error.message}`);
-                  await fetchData();
-                }}
-              />
+    <div className="flex h-screen bg-slate-900 text-white overflow-hidden">
+      <Sidebar 
+        currentView={currentView} 
+        onNavigate={setCurrentView} 
+        onLogout={() => supabase!.auth.signOut()} 
+      />
+      
+      <main className="flex-1 ml-64 overflow-y-auto h-full">
+        <ErrorBoundary>
+            {loading ? (
+                <div className="flex items-center justify-center h-full">
+                    <div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-indigo-500"></div>
+                </div>
+            ) : (
+                <>
+                    {currentView === 'dashboard' && <Dashboard contracts={contracts} partners={partners} />}
+                    {currentView === 'contractManagement' && (
+                      <ContractManagement
+                        contracts={contracts}
+                        partners={partners}
+                        onSelectContract={(c) => { setSelectedContract(c); }}
+                        onAddContract={(template) => { 
+                            setEditingContract(null); 
+                            setContractFormTemplate(template || null);
+                            setIsContractFormOpen(true); 
+                        }}
+                        onImportContracts={handleImportContracts}
+                      />
+                    )}
+                    {currentView === 'deductionManagement' && (
+                        <DeductionManagement 
+                            contracts={contracts}
+                            partners={partners}
+                            onAddPayment={handleAddPayment}
+                            onSettleDeduction={handleSettleDeduction}
+                            onCancelDeduction={handleCancelDeduction}
+                        />
+                    )}
+                    {currentView === 'shippingManagement' && (
+                        <ShippingManagement contracts={contracts} partners={partners} onSelectContract={setSelectedContract} />
+                    )}
+                    {currentView === 'settlementManagement' && (
+                        <SettlementManagement 
+                            contracts={contracts} 
+                            partners={partners} 
+                            onSelectContract={setSelectedContract}
+                            onRequestSettlement={handleRequestSettlement}
+                            onCompleteSettlement={handleCompleteSettlement}
+                            onUpdatePrerequisites={handleUpdatePrerequisites}
+                            onBulkRequestSettlement={handleBulkRequestSettlement}
+                            onBulkCompleteSettlement={handleBulkCompleteSettlement}
+                        />
+                    )}
+                    {currentView === 'creditorSettlementData' && <CreditorSettlementData contracts={contracts} />}
+                    {currentView === 'partners' && (
+                        <PartnersManagement 
+                            partners={partners} 
+                            onSelectPartner={(id) => setSelectedPartnerId(id)} 
+                            onAddPartner={() => { setEditingPartner(null); setIsPartnerTemplateMode(false); setIsPartnerFormOpen(true); }}
+                            onAddTemplate={() => { setEditingPartner(null); setIsPartnerTemplateMode(true); setIsPartnerFormOpen(true); }}
+                        />
+                    )}
+                    {currentView === 'calendar' && (
+                        <Calendar 
+                            events={events} 
+                            onAddEvent={(date) => { setSelectedDate(date); setEditingEvent(null); setIsEventFormOpen(true); }} 
+                            onEditEvent={(event) => { setEditingEvent(event); setIsEventFormOpen(true); }}
+                        />
+                    )}
+                    {currentView === 'database' && <DatabaseManagement />}
+                    {currentView === 'greenwichSettlement' && (
+                        <GreenwichSettlement 
+                            contracts={contracts} 
+                            settlements={greenwichSettlements}
+                            onSave={handleSaveGreenwichSettlement}
+                            onDelete={handleDeleteGreenwichSettlement}
+                        />
+                    )}
+                </>
             )}
-             {currentView === 'deductionManagement' && (
-                <DeductionManagement 
-                    contracts={contracts}
-                    partners={partners}
-                    onAddPayment={handleAddPayment}
-                    onSettleDeduction={handleSettleDeduction}
-                    onCancelDeduction={handleCancelDeduction}
-                />
-            )}
-            {currentView === 'shippingManagement' && (
-                <ShippingManagement 
-                    contracts={contracts}
-                    partners={partners}
-                    onSelectContract={setSelectedContract}
-                />
-            )}
-            {currentView === 'settlementManagement' && (
-                <SettlementManagement 
-                    contracts={contracts}
-                    partners={partners}
-                    onSelectContract={setSelectedContract}
-                    onRequestSettlement={(id) => handleUpdateContractField(id, { settlement_status: SettlementStatus.REQUESTED, settlement_request_date: new Date().toISOString() })}
-                    onCompleteSettlement={(id) => handleUpdateContractField(id, { settlement_status: SettlementStatus.COMPLETED, settlement_date: new Date().toISOString() })}
-                    onUpdatePrerequisites={(id, updates) => handleUpdateContractField(id, updates)}
-                    onBulkRequestSettlement={(ids) => handleBulkUpdate(ids.map(id => ({ id, settlement_status: SettlementStatus.REQUESTED, settlement_request_date: new Date().toISOString() })))}
-                    onBulkCompleteSettlement={(ids) => handleBulkUpdate(ids.map(id => ({ id, settlement_status: SettlementStatus.COMPLETED, settlement_date: new Date().toISOString() })))}
-                />
-            )}
-            {currentView === 'creditorSettlementData' && <CreditorSettlementData contracts={contracts} />}
-            {currentView === 'greenwichSettlement' && (
-              <GreenwichSettlement
-                contracts={contracts}
-                settlements={greenwichSettlements}
-                onSave={handleSaveGreenwichSettlement}
-                onDelete={handleDeleteGreenwichSettlement}
-              />
-            )}
-            {currentView === 'partners' && (
-                <PartnersManagement
-                    partners={partners}
-                    onSelectPartner={setSelectedPartnerId}
-                    onAddPartner={() => { setIsNewPartnerTemplate(false); setEditingPartner('new'); }}
-                    onAddTemplate={() => { setIsNewPartnerTemplate(true); setEditingPartner('new'); }}
-                />
-            )}
-            {currentView === 'calendar' && (
-                <Calendar 
-                    events={events}
-                    onAddEvent={(date) => { setSelectedCalendarDate(date); setEditingEvent({}); }}
-                    onEditEvent={setEditingEvent}
-                />
-            )}
-            {currentView === 'database' && <DatabaseManagement />}
-          </>
-        )}
+        </ErrorBoundary>
       </main>
+      
+      {/* Modals */}
+      
+      {isContractFormOpen && (
+          <ContractFormModal
+            isOpen={isContractFormOpen}
+            onClose={() => { setIsContractFormOpen(false); setContractFormTemplate(null); }}
+            onSave={handleSaveContract}
+            partners={partners}
+            contractToEdit={editingContract}
+            template={contractFormTemplate}
+          />
+      )}
 
-      {/* --- Modals --- */}
       {selectedContract && (
-        <ContractDetailModal
-          contract={selectedContract}
-          partner={partners.find(p => p.id === selectedContract.partner_id) || null}
-          onClose={() => setSelectedContract(null)}
-          onEdit={(c) => { setSelectedContract(null); setEditingContract(c); }}
-          onDelete={handleDeleteContract}
-          onDuplicate={(c) => {
-              const { id, contract_number, daily_deductions, ...template } = c;
-              // When duplicating, we must revert to per-unit pricing for the form template.
-              // 'c' is a processed contract, so its amounts are total values.
-              const units = c.units_required || 1;
-              
-              // FIX: Correctly calculate per-unit price from the total price. This ensures
-              // that when the new contract form is populated, it starts with the correct
-              // per-unit price, which will not change when the quantity is adjusted.
-              template.total_amount = (c.total_amount || 0) / units;
-              template.daily_deduction = (c.daily_deduction || 0) / units;
+          <ContractDetailModal
+            contract={selectedContract}
+            partner={partners.find(p => p.id === selectedContract.partner_id) || null}
+            onClose={() => setSelectedContract(null)}
+            onEdit={(c) => { setSelectedContract(null); setEditingContract(c); setIsContractFormOpen(true); }}
+            onDelete={handleDeleteContract}
+            onDuplicate={(c) => {
+                setSelectedContract(null);
+                const { id, contract_number, ...rest } = c;
+                setContractFormTemplate(rest);
+                setEditingContract(null);
+                setIsContractFormOpen(true);
+            }}
+          />
+      )}
 
-              setNewContractTemplate(template);
-              setSelectedContract(null);
-              setEditingContract('new');
-          }}
-        />
+      {isPartnerFormOpen && (
+          <PartnerFormModal
+             isOpen={isPartnerFormOpen}
+             onClose={() => setIsPartnerFormOpen(false)}
+             onSave={handleSavePartner}
+             partnerToEdit={editingPartner}
+             isTemplate={isPartnerTemplateMode}
+          />
       )}
-      {editingContract && (
-        <ContractFormModal
-          isOpen={!!editingContract}
-          onClose={() => setEditingContract(null)}
-          onSave={handleSaveContract}
-          partners={partners.filter(p => !p.is_template)}
-          contractToEdit={editingContract === 'new' ? null : editingContract}
-          template={editingContract === 'new' ? newContractTemplate : null}
-        />
-      )}
+
       {selectedPartner && (
-        <PartnerDetailModal
-            partner={selectedPartner}
-            priceTemplates={priceTemplates}
-            onClose={() => setSelectedPartnerId(null)}
-            onEdit={(p) => { setSelectedPartnerId(null); setEditingPartner(p); }}
-            onDelete={handleDeletePartner}
-            onAddPriceTier={(partnerId, tier) => {
-                const p = partners.find(p => p.id === partnerId);
-                if (!p) return;
-                const newTier = { ...tier, id: `pt-${Date.now()}` };
-                const updatedPriceList = [...(p.price_list || []), newTier];
-                handlePriceTierUpdate(partnerId, updatedPriceList);
-            }}
-            onUpdatePriceTier={(partnerId, tierId, data) => {
-                const p = partners.find(p => p.id === partnerId);
-                if (!p || !p.price_list) return;
-                const updatedPriceList = p.price_list.map(t => t.id === tierId ? { ...t, ...data } : t);
-                handlePriceTierUpdate(partnerId, updatedPriceList);
-            }}
-            onDeletePriceTier={(partnerId, tierId) => {
-                const p = partners.find(p => p.id === partnerId);
-                if (!p || !p.price_list) return;
-                const updatedPriceList = p.price_list.filter(t => t.id !== tierId);
-                handlePriceTierUpdate(partnerId, updatedPriceList);
-            }}
-            onAddPriceTiersFromMaster={(partnerId, tiers) => {
-                const p = partners.find(p => p.id === partnerId);
-                if (!p) return;
-                const newTiers = tiers.map(tier => ({
-                  ...tier,
-                  id: `pt-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-                }));
-                const updatedPriceList = [...(p.price_list || []), ...newTiers];
-                handlePriceTierUpdate(partnerId, updatedPriceList);
-            }}
-        />
+          <PartnerDetailModal
+             partner={selectedPartner}
+             priceTemplates={partners.filter(p => p.is_template)}
+             onClose={() => setSelectedPartnerId(null)}
+             onEdit={(p) => { setSelectedPartnerId(null); setEditingPartner(p); setIsPartnerFormOpen(true); }}
+             onDelete={handleDeletePartner}
+             onAddPriceTier={handleAddPriceTier}
+             onUpdatePriceTier={handleUpdatePriceTier}
+             onDeletePriceTier={handleDeletePriceTier}
+             onAddPriceTiersFromMaster={handleAddPriceTiersFromMaster}
+          />
       )}
-      {editingPartner && (
-        <PartnerFormModal
-            isOpen={!!editingPartner}
-            onClose={() => setEditingPartner(null)}
-            onSave={handleSavePartner}
-            partnerToEdit={editingPartner === 'new' ? null : editingPartner}
-            isTemplate={isNewPartnerTemplate || (editingPartner !== 'new' && !!editingPartner?.is_template)}
-        />
+
+      {isEventFormOpen && (
+          <EventFormModal
+              isOpen={isEventFormOpen}
+              onClose={() => setIsEventFormOpen(false)}
+              onSave={handleSaveEvent}
+              onDelete={handleDeleteEvent}
+              eventToEdit={editingEvent}
+              selectedDate={selectedDate}
+          />
       )}
-       {editingEvent && (
-        <EventFormModal
-          isOpen={!!editingEvent}
-          onClose={() => setEditingEvent(null)}
-          onSave={handleSaveEvent}
-          onDelete={handleDeleteEvent}
-          eventToEdit={editingEvent}
-          selectedDate={selectedCalendarDate}
-        />
-      )}
+
     </div>
   );
 };
