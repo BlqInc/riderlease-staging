@@ -74,6 +74,7 @@ export const ShippingManagement: React.FC<ShippingManagementProps> = ({ contract
                 <th className="p-4 font-semibold text-slate-400">계약번호</th>
                 <th className="p-4 font-semibold text-slate-400">계약자</th>
                 <th className="p-4 font-semibold text-slate-400">기기명</th>
+                <th className="p-4 font-semibold text-slate-400">색상</th>
                 <th className="p-4 font-semibold text-slate-400 text-center">조달상태</th>
                 <th className="p-4 font-semibold text-slate-400 text-center">확보/필요</th>
                 <th className="p-4 font-semibold text-slate-400">조달처/비용</th>
@@ -87,6 +88,7 @@ export const ShippingManagement: React.FC<ShippingManagementProps> = ({ contract
                   <td className="p-4 text-center font-mono text-indigo-400">#{contract.contract_number}</td>
                   <td className="p-4">{contract.lessee_name}</td>
                   <td className="p-4 font-medium text-white">{contract.device_name}</td>
+                  <td className="p-4 text-slate-300">{contract.color || '-'}</td>
                   <td className="p-4 text-center"><ProcurementStatusBadge status={contract.procurement_status} /></td>
                   <td className="p-4 text-center">{contract.units_secured || 0} / {contract.units_required || 0}</td>
                   <td className="p-4">
