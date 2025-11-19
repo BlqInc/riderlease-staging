@@ -1,4 +1,4 @@
-
+\\\
 
 import React, { useMemo, useState } from 'react';
 import { Contract, Partner, DeductionStatus, ContractStatus } from '../types';
@@ -220,9 +220,10 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({ contra
 
                 acc.totalUnpaid += contract.unpaid_balance;
                 acc.totalBalance += balance;
+                acc.totalDailyDeduction += contract.daily_deduction;
                 return acc;
             },
-            { totalUnpaid: 0, totalBalance: 0 }
+            { totalUnpaid: 0, totalBalance: 0, totalDailyDeduction: 0 }
         );
     }, [contractsToList]);
 
@@ -289,7 +290,11 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({ contra
                 />
             </div>
 
-            <div className="bg-slate-900/50 p-4 rounded-lg mb-6 grid grid-cols-2 gap-4 text-center">
+            <div className="bg-slate-900/50 p-4 rounded-lg mb-6 grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
+                <div>
+                    <p className="text-sm text-slate-400">검색 결과 일일 차감 총액</p>
+                    <p className="text-2xl font-bold text-white">{formatCurrency(summary.totalDailyDeduction)}</p>
+                </div>
                 <div>
                     <p className="text-sm text-slate-400">검색 결과 총 미납액</p>
                     <p className="text-2xl font-bold text-red-400">{formatCurrency(summary.totalUnpaid)}</p>
