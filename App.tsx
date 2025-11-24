@@ -165,18 +165,14 @@ const App: React.FC = () => {
       const unitDailyDeduction = Number(dataToSave.daily_deduction || 0);
       const totalDailyDeduction = unitDailyDeduction * units;
 
-      // Function to generate deduction schedule
-      const generateDeductions = () => {
-          const duration = Number(dataToSave.duration_days || 0);
-          // Use execution_date if available, else contract_date
-          const startStr = dataToSave.execution_date || dataToSave.contract_date;
-          
+      // Helper function: Generate deduction schedule
+      const generateDeductions = (startStr: string, duration: number, amount: number) => {
           if (!startStr || duration <= 0) return null;
 
           const logs = [];
-          // Parse date safely to avoid timezone issues (treat as YYYY, MM, DD)
+          // Parse date safely (YYYY-MM-DD)
           const parts = startStr.split('-').map(Number);
-          // Create date in UTC to ensure consistency
+          // Create date in UTC
           const startDate = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
           
           for (let i = 0; i < duration; i++) {
@@ -186,7 +182,7 @@ const App: React.FC = () => {
               logs.push({
                   id: `ded-${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${i}`,
                   date: d.toISOString().split('T')[0],
-                  amount: totalDailyDeduction,
+                  amount: amount,
                   status: DeductionStatus.UNPAID,
                   paid_amount: 0
               });
@@ -201,21 +197,31 @@ const App: React.FC = () => {
               let payload = { ...dataToSave };
 
               if (existingContract) {
-                  // Check if we need to regenerate deductions
+                  // Determine new values
                   const newStart = dataToSave.execution_date || dataToSave.contract_date;
-                  const oldStart = existingContract.execution_date || existingContract.contract_date;
-                  
                   const newDuration = Number(dataToSave.duration_days);
-                  const oldDuration = existingContract.duration_days;
                   
-                  const oldTotalDailyDeduction = existingContract.daily_deduction; // This is the total value from state
+                  // Determine old values (from DB)
+                  const oldStart = existingContract.execution_date || existingContract.contract_date;
+                  const oldDuration = existingContract.duration_days;
+                  const oldTotalDailyDeduction = existingContract.daily_deduction; // state already has total amount
 
-                  // Regenerate if key fields changed OR if there are no existing deductions (fixing the 'missing' bug)
-                  const hasNoDeductions = !existingContract.daily_deductions || existingContract.daily_deductions.length === 0;
-                  const fieldsChanged = newStart !== oldStart || newDuration !== oldDuration || totalDailyDeduction !== oldTotalDailyDeduction;
+                  // CRITICAL FIX: Check if actual deduction logs match the target start date
+                  const currentLogs = existingContract.daily_deductions || [];
+                  const hasNoDeductions = currentLogs.length === 0;
+                  const firstLogDate = currentLogs.length > 0 ? currentLogs[0].date : null;
+                  
+                  // If the first log date differs from the intended new start date, force regeneration
+                  // This fixes the bug where DB field is updated but JSON logs are stale
+                  const isDateMismatch = firstLogDate && newStart && firstLogDate !== newStart;
+
+                  const fieldsChanged = newStart !== oldStart || 
+                                        newDuration !== oldDuration || 
+                                        totalDailyDeduction !== oldTotalDailyDeduction ||
+                                        isDateMismatch;
 
                   if (fieldsChanged || hasNoDeductions) {
-                      const newDeductions = generateDeductions();
+                      const newDeductions = generateDeductions(newStart, newDuration, totalDailyDeduction);
                       if (newDeductions) {
                           payload.daily_deductions = newDeductions;
                       }
@@ -228,7 +234,11 @@ const App: React.FC = () => {
               // Insert new contract
               const maxNumber = contracts.reduce((max, c) => Math.max(max, c.contract_number || 0), 0);
               
-              const newDeductions = generateDeductions();
+              const newStart = dataToSave.execution_date || dataToSave.contract_date;
+              const duration = Number(dataToSave.duration_days || 0);
+              
+              const newDeductions = generateDeductions(newStart, duration, totalDailyDeduction);
+              
               const payload = { 
                   ...dataToSave, 
                   contract_number: maxNumber + 1,
