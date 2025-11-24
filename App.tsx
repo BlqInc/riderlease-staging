@@ -158,15 +158,84 @@ const App: React.FC = () => {
   const handleSaveContract = async (contractData: any) => {
       if (!supabase) return;
       
-      const { id, unpaid_balance, daily_deductions, ...dataToSave } = contractData;
+      const { id, unpaid_balance, daily_deductions: _ignored, ...dataToSave } = contractData;
+
+      // Helper to calculate total daily deduction amount
+      const units = Number(dataToSave.units_required || 1);
+      const unitDailyDeduction = Number(dataToSave.daily_deduction || 0);
+      const totalDailyDeduction = unitDailyDeduction * units;
+
+      // Function to generate deduction schedule
+      const generateDeductions = () => {
+          const duration = Number(dataToSave.duration_days || 0);
+          // Use execution_date if available, else contract_date
+          const startStr = dataToSave.execution_date || dataToSave.contract_date;
+          
+          if (!startStr || duration <= 0) return null;
+
+          const logs = [];
+          // Parse date safely to avoid timezone issues (treat as YYYY, MM, DD)
+          const parts = startStr.split('-').map(Number);
+          // Create date in UTC to ensure consistency
+          const startDate = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+          
+          for (let i = 0; i < duration; i++) {
+              const d = new Date(startDate);
+              d.setUTCDate(d.getUTCDate() + i);
+              
+              logs.push({
+                  id: `ded-${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${i}`,
+                  date: d.toISOString().split('T')[0],
+                  amount: totalDailyDeduction,
+                  status: DeductionStatus.UNPAID,
+                  paid_amount: 0
+              });
+          }
+          return logs;
+      };
 
       try {
           if (id) {
-              const { error } = await (supabase.from('contracts') as any).update(dataToSave).eq('id', id);
+              // Update existing contract
+              const existingContract = contracts.find(c => c.id === id);
+              let payload = { ...dataToSave };
+
+              if (existingContract) {
+                  // Check if we need to regenerate deductions
+                  const newStart = dataToSave.execution_date || dataToSave.contract_date;
+                  const oldStart = existingContract.execution_date || existingContract.contract_date;
+                  
+                  const newDuration = Number(dataToSave.duration_days);
+                  const oldDuration = existingContract.duration_days;
+                  
+                  const oldTotalDailyDeduction = existingContract.daily_deduction; // This is the total value from state
+
+                  // Regenerate if key fields changed OR if there are no existing deductions (fixing the 'missing' bug)
+                  const hasNoDeductions = !existingContract.daily_deductions || existingContract.daily_deductions.length === 0;
+                  const fieldsChanged = newStart !== oldStart || newDuration !== oldDuration || totalDailyDeduction !== oldTotalDailyDeduction;
+
+                  if (fieldsChanged || hasNoDeductions) {
+                      const newDeductions = generateDeductions();
+                      if (newDeductions) {
+                          payload.daily_deductions = newDeductions;
+                      }
+                  }
+              }
+
+              const { error } = await (supabase.from('contracts') as any).update(payload).eq('id', id);
               if (error) throw error;
           } else {
+              // Insert new contract
               const maxNumber = contracts.reduce((max, c) => Math.max(max, c.contract_number || 0), 0);
-              const { error } = await (supabase.from('contracts') as any).insert({ ...dataToSave, contract_number: maxNumber + 1 });
+              
+              const newDeductions = generateDeductions();
+              const payload = { 
+                  ...dataToSave, 
+                  contract_number: maxNumber + 1,
+                  daily_deductions: newDeductions 
+              };
+
+              const { error } = await (supabase.from('contracts') as any).insert(payload);
               if (error) throw error;
           }
           fetchData();
