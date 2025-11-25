@@ -88,6 +88,11 @@ const App: React.FC = () => {
 
   const processContracts = (data: any[]): Contract[] => {
     if (!Array.isArray(data)) return [];
+
+    // Get today's date in YYYY-MM-DD format (local time logic)
+    const now = new Date();
+    const today = new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
+
     return data.map(c => {
       // Ensure all numbers are actually numbers and not NaN
       const units = (c.units_required && !isNaN(Number(c.units_required))) ? Number(c.units_required) : 1;
@@ -97,9 +102,12 @@ const App: React.FC = () => {
       const total_amount = rawTotalAmount * units;
       const daily_deduction = rawDailyDeduction * units;
 
-      // Calculate unpaid balance from deductions
+      // Calculate unpaid balance from deductions (Only up to TODAY)
       const daily_deductions = Array.isArray(c.daily_deductions) ? c.daily_deductions : [];
       const unpaid_balance = daily_deductions.reduce((sum: number, d: any) => {
+        // Skip future dates
+        if (d.date > today) return sum;
+
         const dAmount = (d.amount && !isNaN(Number(d.amount))) ? Number(d.amount) : 0;
         const dPaid = (d.paid_amount && !isNaN(Number(d.paid_amount))) ? Number(d.paid_amount) : 0;
         return sum + (dAmount - dPaid);
