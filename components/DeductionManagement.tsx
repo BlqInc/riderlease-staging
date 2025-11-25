@@ -1,3 +1,5 @@
+
+
 import React, { useMemo, useState } from 'react';
 import { Contract, Partner, DeductionStatus, ContractStatus } from '../types';
 import { formatDate, formatCurrency } from '../lib/utils';
@@ -202,8 +204,12 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({ contra
                 lesseeName.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 distributorName.toLowerCase().includes(searchTerm.toLowerCase());
             
-            // '진행중'인 계약이거나, '만료'되었지만 미납액이 있는 계약만 표시합니다.
-            const statusMatch = c.status === ContractStatus.ACTIVE || (c.status === ContractStatus.EXPIRED && c.unpaid_balance > 0);
+            // '진행중' 또는 '정산완료'인 계약이거나, '만료'되었지만 미납액이 있는 계약을 표시합니다.
+            // 정산완료(SETTLED)는 채권사 정산이 완료된 것이며, 일차감 정산과는 무관하므로 목록에 표시합니다.
+            const statusMatch = 
+                c.status === ContractStatus.ACTIVE || 
+                c.status === ContractStatus.SETTLED || 
+                (c.status === ContractStatus.EXPIRED && c.unpaid_balance > 0);
 
             return statusMatch && searchMatch;
         });
@@ -246,9 +252,10 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({ contra
     
     const handleExport = () => {
         const header = ['계약번호', '파트너사', '총판명', '계약자', '기기명', '차감일', '차감액', '납부액', '미납액', '상태'];
-        const allActiveContracts = contracts.filter(c => c.status === ContractStatus.ACTIVE);
+        // 진행중과 정산완료 모두 포함
+        const relevantContracts = contracts.filter(c => c.status === ContractStatus.ACTIVE || c.status === ContractStatus.SETTLED);
 
-        const rows = allActiveContracts.flatMap(c => 
+        const rows = relevantContracts.flatMap(c => 
             (c.daily_deductions || []).map(d => [
                 c.contract_number,
                 partnerMap.get(c.partner_id) || 'N/A',
