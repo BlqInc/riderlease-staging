@@ -1,10 +1,12 @@
 
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Contract, Partner, DeductionStatus, ContractStatus } from '../types';
 import { formatDate, formatCurrency } from '../lib/utils';
 import { exportToCsv } from '../lib/csvUtils';
 import { CloseIcon, DownloadIcon } from './icons/IconComponents';
+
+type ActiveTab = '전체' | '고소건';
 
 interface DeductionManagementProps {
   contracts: Contract[];
@@ -12,6 +14,8 @@ interface DeductionManagementProps {
   onAddPayment: (contractId: string, amount: number) => void;
   onSettleDeduction: (contractId: string, deductionId: string) => void;
   onCancelDeduction: (contractId: string, deductionId: string) => void;
+  onToggleLawsuit: (contractId: string) => void;
+  onBulkSettleDeductions: (contractId: string, deductionIds: string[]) => void;
 }
 
 const PaymentModal: React.FC<{
@@ -99,19 +103,47 @@ const ContractDeductionCard: React.FC<{
     onOpenPaymentModal: (contract: Contract) => void;
     onSettleDeduction: (contractId: string, deductionId: string) => void;
     onCancelDeduction: (contractId: string, deductionId: string) => void;
-}> = ({ contract, partnerName, isOpen, onToggle, onOpenPaymentModal, onSettleDeduction, onCancelDeduction }) => {
+    onToggleLawsuit: () => void;
+    onBulkSettle: (deductionIds: string[]) => void;
+}> = ({ contract, partnerName, isOpen, onToggle, onOpenPaymentModal, onSettleDeduction, onCancelDeduction, onToggleLawsuit, onBulkSettle }) => {
+
+    const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
+
+    useEffect(() => {
+        if (!isOpen) setCheckedIds(new Set());
+    }, [isOpen]);
 
     const totalPaid = (contract.daily_deductions || []).reduce((sum, d) => sum + d.paid_amount, 0);
     const balance = contract.total_amount - totalPaid;
-    
+
+    const toggleCheck = (id: string) => {
+        setCheckedIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
+
+    const handleBulkSettle = () => {
+        if (checkedIds.size === 0) return;
+        onBulkSettle(Array.from(checkedIds));
+        setCheckedIds(new Set());
+    };
+
     return (
         <div className="bg-slate-800 rounded-lg shadow-lg overflow-hidden transition-all duration-300">
-            <div 
+            <div
                 className="flex justify-between items-center p-4 cursor-pointer hover:bg-slate-700/50"
                 onClick={onToggle}
             >
                 <div className="flex-1">
-                    <p className="font-bold text-white text-lg">[#<span className="text-indigo-400">{contract.contract_number}</span>] - {contract.distributor_name || '총판 없음'} / {contract.lessee_name}</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-bold text-white text-lg">[#<span className="text-indigo-400">{contract.contract_number}</span>] - {contract.distributor_name || '총판 없음'} / {contract.lessee_name}</p>
+                        {contract.is_lawsuit && (
+                            <span className="px-2 py-0.5 text-xs font-bold bg-red-600/30 text-red-300 border border-red-500/50 rounded-full">고소건</span>
+                        )}
+                    </div>
                     <p className="text-sm text-slate-400">{contract.device_name} / {partnerName}</p>
                 </div>
                 <div className="flex-1 text-right px-4">
@@ -124,8 +156,18 @@ const ContractDeductionCard: React.FC<{
                     <p className="text-sm text-slate-400">총 잔액</p>
                     <p className="font-bold text-xl text-yellow-400">{formatCurrency(balance)}</p>
                 </div>
-                <div className="flex items-center space-x-4 px-4">
-                    <button 
+                <div className="flex items-center space-x-2 px-4">
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onToggleLawsuit(); }}
+                        className={`text-xs font-bold py-1.5 px-3 rounded-lg transition-colors ${
+                            contract.is_lawsuit
+                                ? 'bg-red-700 hover:bg-red-800 text-white'
+                                : 'bg-slate-600 hover:bg-slate-500 text-slate-300'
+                        }`}
+                    >
+                        {contract.is_lawsuit ? '고소건 해제' : '고소건 지정'}
+                    </button>
+                    <button
                         onClick={(e) => { e.stopPropagation(); onOpenPaymentModal(contract); }}
                         className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition-colors text-sm"
                     >
@@ -139,25 +181,48 @@ const ContractDeductionCard: React.FC<{
 
             {isOpen && (
                 <div className="p-4 border-t border-slate-700 bg-slate-800/50 animate-fade-in">
-                    <h4 className="font-bold text-white mb-3 px-2">일일 차감 내역</h4>
+                    <div className="flex justify-between items-center mb-3 px-2">
+                        <h4 className="font-bold text-white">일일 차감 내역</h4>
+                        {checkedIds.size > 0 && (
+                            <button
+                                onClick={handleBulkSettle}
+                                className="bg-green-600 hover:bg-green-700 text-white text-sm font-bold py-1.5 px-4 rounded-lg transition-colors"
+                            >
+                                선택 {checkedIds.size}건 전액 처리
+                            </button>
+                        )}
+                    </div>
                     <div className="max-h-80 overflow-y-auto space-y-2 pr-2">
                         {(contract.daily_deductions || []).length > 0 ? (
                             [...(contract.daily_deductions || [])].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(deduction => (
-                                <div key={deduction.id} className="flex justify-between items-center bg-slate-700/80 p-3 rounded-md">
-                                    <div>
-                                        <p className="font-semibold text-white">{formatDate(deduction.date)}</p>
-                                        <p className="text-sm font-semibold">
-                                          {deduction.paid_amount > 0 ? (
-                                              <><span className="text-yellow-400">{formatCurrency(deduction.paid_amount)}</span> / {formatCurrency(deduction.amount)}</>
-                                          ) : (
-                                              formatCurrency(deduction.amount)
-                                          )}
-                                        </p>
+                                <div key={deduction.id} className={`flex justify-between items-center p-3 rounded-md transition-colors ${checkedIds.has(deduction.id) ? 'bg-indigo-900/40 border border-indigo-500/50' : 'bg-slate-700/80'}`}>
+                                    <div className="flex items-center gap-3">
+                                        {deduction.status !== DeductionStatus.PAID ? (
+                                            <input
+                                                type="checkbox"
+                                                checked={checkedIds.has(deduction.id)}
+                                                onChange={() => toggleCheck(deduction.id)}
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="w-4 h-4 accent-indigo-500 cursor-pointer flex-shrink-0"
+                                            />
+                                        ) : (
+                                            <div className="w-4 h-4 flex-shrink-0" />
+                                        )}
+                                        <div>
+                                            <p className="font-semibold text-white">{formatDate(deduction.date)}</p>
+                                            <p className="text-sm font-semibold">
+                                              {deduction.paid_amount > 0 ? (
+                                                  <><span className="text-yellow-400">{formatCurrency(deduction.paid_amount)}</span> / {formatCurrency(deduction.amount)}</>
+                                              ) : (
+                                                  formatCurrency(deduction.amount)
+                                              )}
+                                            </p>
+                                        </div>
                                     </div>
                                     <div className="flex items-center space-x-3">
                                         <DeductionStatusBadge status={deduction.status} />
                                         {deduction.status !== DeductionStatus.PAID && (
-                                            <button 
+                                            <button
                                                 onClick={() => onSettleDeduction(contract.id, deduction.id)}
                                                 className="bg-green-600 hover:bg-green-700 text-white text-xs font-bold py-1 px-3 rounded-md transition-colors"
                                             >
@@ -165,7 +230,7 @@ const ContractDeductionCard: React.FC<{
                                             </button>
                                         )}
                                         {deduction.paid_amount > 0 && (
-                                            <button 
+                                            <button
                                                 onClick={() => onCancelDeduction(contract.id, deduction.id)}
                                                 className="bg-yellow-600 hover:bg-yellow-700 text-white text-xs font-bold py-1 px-3 rounded-md transition-colors"
                                             >
@@ -186,10 +251,11 @@ const ContractDeductionCard: React.FC<{
 };
 
 
-export const DeductionManagement: React.FC<DeductionManagementProps> = ({ contracts, partners, onAddPayment, onSettleDeduction, onCancelDeduction }) => {
+export const DeductionManagement: React.FC<DeductionManagementProps> = ({ contracts, partners, onAddPayment, onSettleDeduction, onCancelDeduction, onToggleLawsuit, onBulkSettleDeductions }) => {
     const [openContractId, setOpenContractId] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [paymentModalContract, setPaymentModalContract] = useState<Contract | null>(null);
+    const [activeTab, setActiveTab] = useState<ActiveTab>('전체');
 
     const partnerMap = useMemo(() => new Map(partners.map(p => [p.id, p.name])), [partners]);
 
@@ -203,19 +269,22 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({ contra
                 partnerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 lesseeName.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 distributorName.toLowerCase().includes(searchTerm.toLowerCase());
-            
+
             // '진행중' 또는 '정산완료'인 계약이거나, '만료'되었지만 미납액이 있는 계약을 표시합니다.
             // 정산완료(SETTLED)는 채권사 정산이 완료된 것이며, 일차감 정산과는 무관하므로 목록에 표시합니다.
-            const statusMatch = 
-                c.status === ContractStatus.ACTIVE || 
-                c.status === ContractStatus.SETTLED || 
+            const statusMatch =
+                c.status === ContractStatus.ACTIVE ||
+                c.status === ContractStatus.SETTLED ||
                 (c.status === ContractStatus.EXPIRED && c.unpaid_balance > 0);
 
-            return statusMatch && searchMatch;
+            // 탭 필터: 고소건 탭은 is_lawsuit=true만, 전체 탭은 is_lawsuit=false/null만 표시
+            const tabMatch = activeTab === '고소건' ? !!c.is_lawsuit : !c.is_lawsuit;
+
+            return statusMatch && searchMatch && tabMatch;
         });
         return filtered.sort((a,b) => (b.unpaid_balance || 0) - (a.unpaid_balance || 0));
-    }, [contracts, partnerMap, searchTerm]);
-    
+    }, [contracts, partnerMap, searchTerm, activeTab]);
+
     const summary = useMemo(() => {
         return contractsToList.reduce(
             (acc, contract) => {
@@ -231,10 +300,12 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({ contra
         );
     }, [contractsToList]);
 
+    const lawsuitCount = useMemo(() => contracts.filter(c => !!c.is_lawsuit).length, [contracts]);
+
     const handleToggleCard = (contractId: string) => {
         setOpenContractId(prevId => (prevId === contractId ? null : contractId));
     };
-    
+
     const handleOpenPaymentModal = (contract: Contract) => {
       setPaymentModalContract(contract);
     };
@@ -242,20 +313,20 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({ contra
     const handleClosePaymentModal = () => {
         setPaymentModalContract(null);
     };
-    
+
     const handlePaymentSubmit = (amount: number) => {
         if (paymentModalContract) {
             onAddPayment(paymentModalContract.id, amount);
         }
         handleClosePaymentModal();
     };
-    
+
     const handleExport = () => {
         const header = ['계약번호', '파트너사', '총판명', '계약자', '기기명', '차감일', '차감액', '납부액', '미납액', '상태'];
         // 진행중과 정산완료 모두 포함
         const relevantContracts = contracts.filter(c => c.status === ContractStatus.ACTIVE || c.status === ContractStatus.SETTLED);
 
-        const rows = relevantContracts.flatMap(c => 
+        const rows = relevantContracts.flatMap(c =>
             (c.daily_deductions || []).map(d => [
                 c.contract_number,
                 partnerMap.get(c.partner_id) || 'N/A',
@@ -284,7 +355,27 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({ contra
                     CSV로 내보내기
                 </button>
             </div>
-            
+
+            {/* 탭 */}
+            <div className="flex space-x-1 mb-4 bg-slate-800 p-1 rounded-lg w-fit">
+                {(['전체', '고소건'] as ActiveTab[]).map(tab => (
+                    <button
+                        key={tab}
+                        onClick={() => setActiveTab(tab)}
+                        className={`px-5 py-2 rounded-md text-sm font-semibold transition-colors flex items-center gap-2 ${
+                            activeTab === tab
+                                ? 'bg-indigo-600 text-white'
+                                : 'text-slate-400 hover:text-white'
+                        }`}
+                    >
+                        {tab}
+                        {tab === '고소건' && lawsuitCount > 0 && (
+                            <span className="bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full leading-none">{lawsuitCount}</span>
+                        )}
+                    </button>
+                ))}
+            </div>
+
             <div className="flex items-center space-x-4 bg-slate-800 p-4 rounded-lg mb-6">
                 <input
                   type="text"
@@ -309,7 +400,7 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({ contra
                     <p className="text-2xl font-bold text-yellow-400">{formatCurrency(summary.totalBalance)}</p>
                 </div>
             </div>
-            
+
             <div className="space-y-4">
                 {contractsToList.map(contract => (
                     <ContractDeductionCard
@@ -321,6 +412,8 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({ contra
                         onOpenPaymentModal={handleOpenPaymentModal}
                         onSettleDeduction={onSettleDeduction}
                         onCancelDeduction={onCancelDeduction}
+                        onToggleLawsuit={() => onToggleLawsuit(contract.id)}
+                        onBulkSettle={(ids) => onBulkSettleDeductions(contract.id, ids)}
                     />
                 ))}
                  {contractsToList.length === 0 && (
@@ -329,7 +422,7 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({ contra
                     </div>
                 )}
             </div>
-            
+
             {paymentModalContract && (
                 <PaymentModal
                     isOpen={!!paymentModalContract}

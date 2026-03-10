@@ -23,7 +23,7 @@ import { PartnerFormModal } from './components/PartnerFormModal';
 import { PartnerDetailModal } from './components/PartnerDetailModal';
 import { EventFormModal } from './components/EventFormModal';
 
-import { Contract, Partner, CalendarEvent, GreenwichSettlement as IGreenwichSettlement } from './types';
+import { Contract, Partner, CalendarEvent, GreenwichSettlement as IGreenwichSettlement, DeductionStatus } from './types';
 
 const App: React.FC = () => {
   const [session, setSession] = useState<any>(null);
@@ -76,6 +76,109 @@ const App: React.FC = () => {
     }
   };
 
+  // 일차감: 입금 처리 (오래된 미납일부터 순서대로 자동 배분)
+  const handleAddPayment = async (contractId: string, amount: number) => {
+    const contract = contracts.find(c => c.id === contractId);
+    if (!contract || !supabase) return;
+
+    let remaining = amount;
+    const sorted = [...(contract.daily_deductions || [])].sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+    const updatedDeductions = sorted.map(d => {
+      if (remaining <= 0 || d.status === DeductionStatus.PAID) return d;
+      const owed = d.amount - d.paid_amount;
+      if (owed <= 0) return d;
+      const payment = Math.min(owed, remaining);
+      remaining -= payment;
+      const newPaid = d.paid_amount + payment;
+      return {
+        ...d,
+        paid_amount: newPaid,
+        status: newPaid >= d.amount ? DeductionStatus.PAID : DeductionStatus.PARTIAL,
+      };
+    });
+    const unpaidBalance = updatedDeductions.reduce((sum, d) => sum + (d.amount - d.paid_amount), 0);
+
+    const { data } = await supabase
+      .from('contracts')
+      .update({ daily_deductions: updatedDeductions, unpaid_balance: unpaidBalance })
+      .eq('id', contractId)
+      .select()
+      .single();
+    if (data) setContracts(prev => prev.map(c => c.id === contractId ? { ...data, unpaid_balance: unpaidBalance } : c));
+  };
+
+  // 일차감: 특정 날짜 전액 처리
+  const handleSettleDeduction = async (contractId: string, deductionId: string) => {
+    const contract = contracts.find(c => c.id === contractId);
+    if (!contract || !supabase) return;
+
+    const updatedDeductions = (contract.daily_deductions || []).map(d =>
+      d.id === deductionId ? { ...d, status: DeductionStatus.PAID, paid_amount: d.amount } : d
+    );
+    const unpaidBalance = updatedDeductions.reduce((sum, d) => sum + (d.amount - d.paid_amount), 0);
+
+    const { data } = await supabase
+      .from('contracts')
+      .update({ daily_deductions: updatedDeductions, unpaid_balance: unpaidBalance })
+      .eq('id', contractId)
+      .select()
+      .single();
+    if (data) setContracts(prev => prev.map(c => c.id === contractId ? { ...data, unpaid_balance: unpaidBalance } : c));
+  };
+
+  // 일차감: 납부 취소
+  const handleCancelDeduction = async (contractId: string, deductionId: string) => {
+    const contract = contracts.find(c => c.id === contractId);
+    if (!contract || !supabase) return;
+
+    const updatedDeductions = (contract.daily_deductions || []).map(d =>
+      d.id === deductionId ? { ...d, status: DeductionStatus.UNPAID, paid_amount: 0 } : d
+    );
+    const unpaidBalance = updatedDeductions.reduce((sum, d) => sum + (d.amount - d.paid_amount), 0);
+
+    const { data } = await supabase
+      .from('contracts')
+      .update({ daily_deductions: updatedDeductions, unpaid_balance: unpaidBalance })
+      .eq('id', contractId)
+      .select()
+      .single();
+    if (data) setContracts(prev => prev.map(c => c.id === contractId ? { ...data, unpaid_balance: unpaidBalance } : c));
+  };
+
+  // 일차감: 고소건 지정/해제
+  const handleToggleLawsuit = async (contractId: string) => {
+    const contract = contracts.find(c => c.id === contractId);
+    if (!contract || !supabase) return;
+
+    const newValue = !contract.is_lawsuit;
+    await supabase.from('contracts').update({ is_lawsuit: newValue }).eq('id', contractId);
+    setContracts(prev => prev.map(c => c.id === contractId ? { ...c, is_lawsuit: newValue } : c));
+  };
+
+  // 일차감: 체크박스 선택 후 일괄 전액 처리
+  const handleBulkSettleDeductions = async (contractId: string, deductionIds: string[]) => {
+    const contract = contracts.find(c => c.id === contractId);
+    if (!contract || !supabase) return;
+
+    const idSet = new Set(deductionIds);
+    const updatedDeductions = (contract.daily_deductions || []).map(d =>
+      idSet.has(d.id) && d.status !== DeductionStatus.PAID
+        ? { ...d, status: DeductionStatus.PAID, paid_amount: d.amount }
+        : d
+    );
+    const unpaidBalance = updatedDeductions.reduce((sum, d) => sum + (d.amount - d.paid_amount), 0);
+
+    const { data } = await supabase
+      .from('contracts')
+      .update({ daily_deductions: updatedDeductions, unpaid_balance: unpaidBalance })
+      .eq('id', contractId)
+      .select()
+      .single();
+    if (data) setContracts(prev => prev.map(c => c.id === contractId ? { ...data, unpaid_balance: unpaidBalance } : c));
+  };
+
   if (!isSupabaseConfigured) return <ConfigurationError />;
   if (!session) return <Login />;
 
@@ -96,7 +199,7 @@ const App: React.FC = () => {
             <>
               {currentView === 'dashboard' && <Dashboard contracts={contracts} partners={partners} />}
               {currentView === 'contractManagement' && <ContractManagement contracts={contracts} partners={partners} onSelectContract={()=>{}} onAddContract={() => {}} onImportContracts={async () => {}} />}
-              {currentView === 'deductionManagement' && <DeductionManagement contracts={contracts} partners={partners} onAddPayment={()=>{}} onSettleDeduction={()=>{}} onCancelDeduction={()=>{}} />}
+              {currentView === 'deductionManagement' && <DeductionManagement contracts={contracts} partners={partners} onAddPayment={handleAddPayment} onSettleDeduction={handleSettleDeduction} onCancelDeduction={handleCancelDeduction} onToggleLawsuit={handleToggleLawsuit} onBulkSettleDeductions={handleBulkSettleDeductions} />}
               {currentView === 'shippingManagement' && <ShippingManagement contracts={contracts} partners={partners} onSelectContract={()=>{}} />}
               {currentView === 'settlementManagement' && <SettlementManagement contracts={contracts} partners={partners} onSelectContract={()=>{}} onRequestSettlement={()=>{}} onCompleteSettlement={()=>{}} onUpdatePrerequisites={()=>{}} onBulkRequestSettlement={()=>{}} onBulkCompleteSettlement={()=>{}} />}
               {currentView === 'creditorSettlementData' && <CreditorSettlementData contracts={contracts} />}

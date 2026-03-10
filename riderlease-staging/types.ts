@@ -98,6 +98,7 @@ export interface Contract {
   units_secured: number | null;
   delivery_method_to_lessee: string | null;
 
+  is_lawsuit: boolean | null;
   settlement_status: SettlementStatus;
   is_lessee_contract_signed: boolean;
   settlement_request_date: string | null;
