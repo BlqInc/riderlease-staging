@@ -482,6 +482,41 @@ const App: React.FC = () => {
       }
   };
 
+  // 일차감: 고소건 지정/해제
+  const handleToggleLawsuit = async (contractId: string) => {
+    if (!supabase) return;
+    const contract = contracts.find(c => c.id === contractId);
+    if (!contract) return;
+    const newValue = !contract.is_lawsuit;
+    try {
+      const { error } = await (supabase.from('contracts') as any).update({ is_lawsuit: newValue }).eq('id', contractId);
+      if (error) throw error;
+      setContracts(prev => prev.map(c => c.id === contractId ? { ...c, is_lawsuit: newValue } : c));
+    } catch (error: any) {
+      alert(`처리 실패: ${error.message}`);
+    }
+  };
+
+  // 일차감: 체크박스 선택 후 일괄 전액 처리
+  const handleBulkSettleDeductions = async (contractId: string, deductionIds: string[]) => {
+    if (!supabase) return;
+    const contract = contracts.find(c => c.id === contractId);
+    if (!contract || !contract.daily_deductions) return;
+    const idSet = new Set(deductionIds);
+    const updatedDeductions = contract.daily_deductions.map(d =>
+      idSet.has(d.id) && d.status !== DeductionStatus.PAID
+        ? { ...d, status: DeductionStatus.PAID, paid_amount: d.amount }
+        : d
+    );
+    try {
+      const { error } = await (supabase.from('contracts') as any).update({ daily_deductions: updatedDeductions }).eq('id', contractId);
+      if (error) throw error;
+      fetchData();
+    } catch (error: any) {
+      alert(`처리 실패: ${error.message}`);
+    }
+  };
+
   const handleUpdatePrerequisites = async (contractId: string, updates: any) => {
        if (!supabase) return;
        try {
@@ -636,12 +671,14 @@ const App: React.FC = () => {
                       />
                     )}
                     {currentView === 'deductionManagement' && (
-                        <DeductionManagement 
+                        <DeductionManagement
                             contracts={contracts}
                             partners={partners}
                             onAddPayment={handleAddPayment}
                             onSettleDeduction={handleSettleDeduction}
                             onCancelDeduction={handleCancelDeduction}
+                            onToggleLawsuit={handleToggleLawsuit}
+                            onBulkSettleDeductions={handleBulkSettleDeductions}
                         />
                     )}
                     {currentView === 'shippingManagement' && (

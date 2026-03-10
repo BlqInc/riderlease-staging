@@ -1,5 +1,3 @@
-
-
 export enum ContractStatus {
   ACTIVE = '진행중',
   EXPIRED = '만료',
@@ -33,7 +31,7 @@ export enum SettlementStatus {
 
 export interface DailyDeductionLog {
   id: string;
-  date: string; // YYYY-MM-DD
+  date: string;
   amount: number;
   status: DeductionStatus;
   paid_amount: number;
@@ -69,7 +67,7 @@ export interface Contract {
   total_amount: number;
   daily_deduction: number;
   daily_deductions: DailyDeductionLog[] | null;
-  unpaid_balance: number; // Client-side calculated
+  unpaid_balance: number;
   status: ContractStatus;
   contract_file_url: string | null;
   
@@ -98,6 +96,7 @@ export interface Contract {
   units_secured: number | null;
   delivery_method_to_lessee: string | null;
 
+  is_lawsuit: boolean | null;
   settlement_status: SettlementStatus;
   is_lessee_contract_signed: boolean;
   settlement_request_date: string | null;
@@ -108,9 +107,18 @@ export interface Contract {
 export interface CalendarEvent {
   id: string;
   title: string;
-  date: string; // YYYY-MM-DD
+  date: string;
   user: string;
   color: string;
-  end_date: string | null; // YYYY-MM-DD
-  time: string | null; // HH:MM
+  end_date: string | null;
+  time: string | null;
+}
+
+export interface GreenwichSettlement {
+  id: string;
+  settlement_round: number;
+  start_date: string;
+  end_date: string;
+  total_daily_deduction_amount: number;
+  created_at: string;
 }
