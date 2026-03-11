@@ -35,19 +35,18 @@ export const ShippingManagement: React.FC<ShippingManagementProps> = ({ contract
   const partnerMap = useMemo(() => new Map(partners.map(p => [p.id, p.name])), [partners]);
 
   const filteredContracts = useMemo(() => {
+    const lowerSearch = searchTerm.toLowerCase();
     return contracts
       .filter(c => {
         const partnerName = partnerMap.get(c.partner_id) || '';
-        const lesseeName = c.lessee_name || '';
-        const contractNumberString = String(c.contract_number);
         return (
-          c.device_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          partnerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          lesseeName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          contractNumberString.includes(searchTerm)
+          (c.device_name || '').toLowerCase().includes(lowerSearch) ||
+          partnerName.toLowerCase().includes(lowerSearch) ||
+          (c.lessee_name || '').toLowerCase().includes(lowerSearch) ||
+          String(c.contract_number).includes(searchTerm)
         );
       })
-      .sort((a, b) => new Date(b.contract_date).getTime() - new Date(a.contract_date).getTime());
+      .sort((a, b) => b.contract_date < a.contract_date ? -1 : b.contract_date > a.contract_date ? 1 : 0);
   }, [contracts, searchTerm, partnerMap]);
 
   return (

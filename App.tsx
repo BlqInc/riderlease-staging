@@ -454,7 +454,7 @@ const App: React.FC = () => {
 
     let remainingAmount = amount;
     const sortedDeductions = [...contract.daily_deductions].sort(
-      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+      (a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0
     );
 
     const updatedDeductions = sortedDeductions.map(d => {

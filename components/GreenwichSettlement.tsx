@@ -17,6 +17,20 @@ export const GreenwichSettlement: React.FC<GreenwichSettlementProps> = ({ contra
     const [editingSettlement, setEditingSettlement] = useState<Partial<IGreenwichSettlement> | null>(null);
     const [selectedSettlementId, setSelectedSettlementId] = useState<string | null>(null);
 
+    // 계약 데이터에서 차수별 일차감 합계를 한 번만 계산 (렌더마다 반복 계산 방지)
+    const settlementTotalsMap = useMemo(() => {
+        const map = new Map<number, number>();
+        for (const c of contracts) {
+            if (!c.settlement_round) continue;
+            const units = c.units_required || 1;
+            const amount = c.contract_initial_deduction && c.contract_initial_deduction > 0
+                ? c.contract_initial_deduction * units
+                : c.daily_deduction;
+            map.set(c.settlement_round, (map.get(c.settlement_round) || 0) + amount);
+        }
+        return map;
+    }, [contracts]);
+
     const handleOpenModal = (settlement?: IGreenwichSettlement) => {
         setEditingSettlement(settlement || null);
         setIsModalOpen(true);
@@ -30,30 +44,10 @@ export const GreenwichSettlement: React.FC<GreenwichSettlementProps> = ({ contra
     const handleSave = (data: Omit<IGreenwichSettlement, 'id' | 'created_at' | 'total_daily_deduction_amount'> & { id?: string }) => {
         // Although we calculate dynamically for display, we can still save the snapshot to DB if needed.
         // Or we could just save 0 since the display ignores it. keeping logic for consistency.
-        const contractsForRound = contracts.filter(c => c.settlement_round === data.settlement_round);
-        const total_daily_deduction_amount = contractsForRound.reduce((sum, c) => {
-            const units = c.units_required || 1;
-            if (c.contract_initial_deduction && c.contract_initial_deduction > 0) {
-                return sum + (c.contract_initial_deduction * units);
-            }
-            // The daily_deduction in the Contract object is already multiplied by units
-            return sum + c.daily_deduction;
-        }, 0);
+        const total_daily_deduction_amount = settlementTotalsMap.get(data.settlement_round) || 0;
         
         onSave({ ...data, total_daily_deduction_amount });
         handleCloseModal();
-    };
-
-    // Helper to calculate total for a round dynamically (Real-time calculation)
-    const getSettlementTotal = (roundNumber: number) => {
-        const roundContracts = contracts.filter(c => c.settlement_round === roundNumber);
-        return roundContracts.reduce((sum, c) => {
-            const units = c.units_required || 1;
-            if (c.contract_initial_deduction && c.contract_initial_deduction > 0) {
-                return sum + (c.contract_initial_deduction * units);
-            }
-            return sum + c.daily_deduction;
-        }, 0);
     };
 
     const selectedSettlement = useMemo(() => {
@@ -67,23 +61,15 @@ export const GreenwichSettlement: React.FC<GreenwichSettlementProps> = ({ contra
     }, [selectedSettlement, contracts]);
 
     const todaysTotalSettlementAmount = useMemo(() => {
-        const localToday = new Date();
-        const todayUTC = new Date(Date.UTC(localToday.getUTCFullYear(), localToday.getUTCMonth(), localToday.getUTCDate()));
-
+        const now = new Date();
+        const todayStr = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().split('T')[0];
         return settlements.reduce((total, settlement) => {
-            const startParts = settlement.start_date.split('-').map(Number);
-            const startDateUTC = new Date(Date.UTC(startParts[0], startParts[1] - 1, startParts[2]));
-            
-            const endParts = settlement.end_date.split('-').map(Number);
-            const endDateUTC = new Date(Date.UTC(endParts[0], endParts[1] - 1, endParts[2]));
-            
-            if (todayUTC >= startDateUTC && todayUTC <= endDateUTC) {
-                // Use live calculation
-                return total + getSettlementTotal(settlement.settlement_round);
+            if (todayStr >= settlement.start_date && todayStr <= settlement.end_date) {
+                return total + (settlementTotalsMap.get(settlement.settlement_round) || 0);
             }
             return total;
         }, 0);
-    }, [settlements, contracts]); // contracts dependency ensures update on contract change
+    }, [settlements, settlementTotalsMap]);
     
 
     return (
@@ -131,7 +117,7 @@ export const GreenwichSettlement: React.FC<GreenwichSettlementProps> = ({ contra
                                         </div>
                                         <div className="mt-3 pt-3 border-t border-slate-700">
                                             <p className="text-sm text-slate-400">일일 총 차감액 (실시간)</p>
-                                            <p className="font-bold text-xl text-yellow-400">{formatCurrency(getSettlementTotal(s.settlement_round))}</p>
+                                            <p className="font-bold text-xl text-yellow-400">{formatCurrency((settlementTotalsMap.get(s.settlement_round) || 0))}</p>
                                         </div>
                                     </div>
                                 ))}
@@ -146,7 +132,7 @@ export const GreenwichSettlement: React.FC<GreenwichSettlementProps> = ({ contra
                                 <h3 className="text-2xl font-bold text-white mb-4">{selectedSettlement.settlement_round}차 정산 상세 정보</h3>
                                 <div className="bg-slate-900/50 p-4 rounded-lg mb-6 space-y-2">
                                     <p><span className="font-semibold text-slate-400">정산 기간:</span> <span className="text-white">{formatDate(selectedSettlement.start_date)} ~ {formatDate(selectedSettlement.end_date)}</span></p>
-                                    <p><span className="font-semibold text-slate-400">일일 총 차감액:</span> <span className="font-bold text-2xl text-yellow-400 ml-2">{formatCurrency(getSettlementTotal(selectedSettlement.settlement_round))}</span></p>
+                                    <p><span className="font-semibold text-slate-400">일일 총 차감액:</span> <span className="font-bold text-2xl text-yellow-400 ml-2">{formatCurrency((settlementTotalsMap.get(selectedSettlement.settlement_round) || 0))}</span></p>
                                     <p><span className="font-semibold text-slate-400">포함된 계약 수:</span> <span className="text-white">{contractsForSelectedRound.length}건</span></p>
                                 </div>
 

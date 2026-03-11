@@ -40,6 +40,14 @@ export const SettlementManagement: React.FC<SettlementManagementProps> = ({
   
   const partnerMap = useMemo(() => new Map(partners.map(p => [p.id, p.name])), [partners]);
 
+  const tabCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const c of contracts) {
+      counts[c.settlement_status] = (counts[c.settlement_status] || 0) + 1;
+    }
+    return counts;
+  }, [contracts]);
+
   const filteredContracts = useMemo(() => {
     return contracts.filter(c => c.settlement_status === activeTab);
   }, [contracts, activeTab]);
@@ -108,7 +116,7 @@ export const SettlementManagement: React.FC<SettlementManagementProps> = ({
                                     : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-500'
                             } whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors focus:outline-none`}
                         >
-                            {tab.label} ({contracts.filter(c => c.settlement_status === tab.key).length})
+                            {tab.label} ({tabCounts[tab.key] || 0})
                         </button>
                     ))}
                 </nav>

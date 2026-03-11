@@ -453,10 +453,10 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
                               </thead>
                               <tbody>
                                 {group.contracts.map(contract => {
-                                  const totalPaid = (contract.daily_deductions || [])
-                                    .filter(d => d.status === DeductionStatus.PAID)
-                                    .reduce((sum, d) => sum + d.amount, 0);
-                                  const remaining = contract.total_amount - totalPaid;
+                                  const remaining = (contract.daily_deductions || []).reduce(
+                                    (sum, d) => d.status === DeductionStatus.PAID ? sum - d.amount : sum,
+                                    contract.total_amount
+                                  );
                                   return (
                                     <tr key={contract.id} onClick={(e) => { e.stopPropagation(); onSelectContract(contract); }} className="border-b border-slate-700 last:border-b-0 hover:bg-slate-700/70 cursor-pointer transition-colors">
                                       <td className="p-3 text-center font-mono text-indigo-400">#{contract.contract_number}</td>

@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 import { Contract, Partner, DeductionStatus } from '../types';
 import { formatDate, formatCurrency, getDaysDifference } from '../lib/utils';
@@ -48,7 +49,9 @@ const ContractDetailModal: React.FC<ContractDetailModalProps> = ({ contract, par
     .reduce((sum, d) => sum + d.paid_amount, 0);
 
   const remainingPrincipal = contract.total_amount - totalPaid;
-  const isOverdue = new Date(contract.expiry_date) < new Date() && contract.status !== '정산완료';
+  const today = new Date();
+  const todayStr = new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().split('T')[0];
+  const isOverdue = contract.expiry_date < todayStr && contract.status !== '정산완료';
 
   const handleDelete = () => {
     if (window.confirm(`[#${contract.contract_number}] '${contract.device_name}' 계약을 정말 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`)) {
@@ -93,6 +96,7 @@ const ContractDetailModal: React.FC<ContractDetailModalProps> = ({ contract, par
                         <DetailItem label="만료일" value={formatDate(contract.expiry_date)} />
                         <DetailItem label="계약 기간" value={`${contract.duration_days}일`} />
                         <DetailItem label="일차감" value={formatCurrency(contract.daily_deduction)} />
+                        <DetailItem label="계약서 일차감액" value={contract.contract_initial_deduction ? formatCurrency(contract.contract_initial_deduction) : 'N/A'} />
                         <DetailItem label="첨부된 계약서" value={contract.contract_file_url ? <a href={contract.contract_file_url} target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline">파일 보기</a> : '없음'} />
                     </DetailSection>
 
@@ -137,7 +141,7 @@ const ContractDetailModal: React.FC<ContractDetailModalProps> = ({ contract, par
                  <div>
                     <h3 className="text-xl font-bold text-white mb-4">일일 차감 내역</h3>
                     <div className="space-y-2 max-h-96 overflow-y-auto pr-2">
-                        {(contract.daily_deductions || []).length > 0 ? [...(contract.daily_deductions || [])].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(d => (
+                        {(contract.daily_deductions || []).length > 0 ? [...(contract.daily_deductions || [])].sort((a,b) => b.date < a.date ? -1 : b.date > a.date ? 1 : 0).map(d => (
                             <div key={d.id} className="bg-slate-700 p-3 rounded-lg flex justify-between items-center">
                                 <div>
                                     <p className="font-semibold text-white">{formatDate(d.date)}</p>
