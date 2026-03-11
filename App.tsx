@@ -530,6 +530,31 @@ const App: React.FC = () => {
     }
   }, [contracts]);
 
+  const handleBulkCancelDeductions = useCallback(async (contractId: string, deductionIds: string[]) => {
+    if (!supabase) return;
+    const contract = contracts.find(c => c.id === contractId);
+    if (!contract || !contract.daily_deductions) return;
+    const idSet = new Set(deductionIds);
+    const updatedDeductions = contract.daily_deductions.map(d =>
+      idSet.has(d.id) && d.status === DeductionStatus.PAID
+        ? { ...d, status: DeductionStatus.UNPAID, paid_amount: 0 }
+        : d
+    );
+    try {
+      const { error } = await (supabase.from('contracts') as any)
+        .update({ daily_deductions: updatedDeductions })
+        .eq('id', contractId);
+      if (error) throw error;
+      setContracts(prev => prev.map(c =>
+        c.id === contractId
+          ? { ...c, daily_deductions: updatedDeductions, unpaid_balance: calcUnpaidBalance(updatedDeductions) }
+          : c
+      ) as Contract[]);
+    } catch (error: any) {
+      alert(`일괄 납부 취소 실패: ${error.message}`);
+    }
+  }, [contracts]);
+
   const handleToggleLawsuit = useCallback(async (contractId: string) => {
     if (!supabase) return;
     const contract = contracts.find(c => c.id === contractId);
@@ -744,6 +769,7 @@ const App: React.FC = () => {
                   onCancelDeduction={handleCancelDeduction}
                   onToggleLawsuit={handleToggleLawsuit}
                   onBulkSettleDeductions={handleBulkSettleDeductions}
+                  onBulkCancelDeductions={handleBulkCancelDeductions}
                 />
               )}
               {currentView === 'shippingManagement' && (

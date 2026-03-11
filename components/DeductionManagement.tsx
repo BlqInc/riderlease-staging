@@ -16,6 +16,7 @@ interface DeductionManagementProps {
   onCancelDeduction: (contractId: string, deductionId: string) => void;
   onToggleLawsuit: (contractId: string) => void;
   onBulkSettleDeductions: (contractId: string, deductionIds: string[]) => void;
+  onBulkCancelDeductions: (contractId: string, deductionIds: string[]) => void;
 }
 
 const PaymentModal: React.FC<{
@@ -65,8 +66,8 @@ const PaymentModal: React.FC<{
               />
             </div>
             <div className="text-sm text-slate-400 bg-slate-900/50 p-3 rounded-md">
-                <p>현재 미납액: <span className="font-bold text-red-400">{formatCurrency(contract.unpaid_balance)}</span></p>
-                <p className="mt-1">입력된 금액은 가장 오래된 미납일부터 순서대로 자동 처리됩니다.</p>
+              <p>현재 미납액: <span className="font-bold text-red-400">{formatCurrency(contract.unpaid_balance)}</span></p>
+              <p className="mt-1">입력된 금액은 가장 오래된 미납일부터 순서대로 자동 처리됩니다.</p>
             </div>
           </div>
           <footer className="p-6 bg-slate-800/50 flex justify-end space-x-4">
@@ -83,7 +84,6 @@ const PaymentModal: React.FC<{
   );
 };
 
-
 const DeductionStatusBadge: React.FC<{ status: DeductionStatus }> = ({ status }) => {
   const baseClasses = "px-2 py-1 text-xs font-semibold rounded-full";
   const statusClasses = {
@@ -95,342 +95,389 @@ const DeductionStatusBadge: React.FC<{ status: DeductionStatus }> = ({ status })
   return <span className={`${baseClasses} ${statusClasses[status]}`}>{status}</span>;
 };
 
+// Props에서 contractId를 받아 stable 콜백과 결합 → memo 효과 극대화
 const ContractDeductionCard = memo<{
-    contract: Contract;
-    partnerName: string;
-    isOpen: boolean;
-    onToggle: () => void;
-    onOpenPaymentModal: (contract: Contract) => void;
-    onSettleDeduction: (contractId: string, deductionId: string) => void;
-    onCancelDeduction: (contractId: string, deductionId: string) => void;
-    onToggleLawsuit: () => void;
-    onBulkSettle: (deductionIds: string[]) => void;
-}>(({ contract, partnerName, isOpen, onToggle, onOpenPaymentModal, onSettleDeduction, onCancelDeduction, onToggleLawsuit, onBulkSettle }) => {
+  contract: Contract;
+  partnerName: string;
+  isOpen: boolean;
+  onToggle: (contractId: string) => void;
+  onOpenPaymentModal: (contract: Contract) => void;
+  onSettleDeduction: (contractId: string, deductionId: string) => void;
+  onCancelDeduction: (contractId: string, deductionId: string) => void;
+  onToggleLawsuit: (contractId: string) => void;
+  onBulkSettle: (contractId: string, deductionIds: string[]) => void;
+  onBulkCancel: (contractId: string, deductionIds: string[]) => void;
+}>(({ contract, partnerName, isOpen, onToggle, onOpenPaymentModal, onSettleDeduction, onCancelDeduction, onToggleLawsuit, onBulkSettle, onBulkCancel }) => {
 
-    const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
 
-    useEffect(() => {
-        if (!isOpen) setCheckedIds(new Set());
-    }, [isOpen]);
+  useEffect(() => {
+    if (!isOpen) setCheckedIds(new Set());
+  }, [isOpen]);
 
-    const { balance, sortedDeductions } = useMemo(() => {
-        const deductions = contract.daily_deductions || [];
-        const paid = deductions.reduce((sum, d) => sum + d.paid_amount, 0);
-        const sorted = [...deductions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        return { balance: contract.total_amount - paid, sortedDeductions: sorted };
-    }, [contract.daily_deductions, contract.total_amount]);
+  const { balance, sortedDeductions } = useMemo(() => {
+    const deductions = contract.daily_deductions || [];
+    const paid = deductions.reduce((sum, d) => sum + d.paid_amount, 0);
+    // YYYY-MM-DD 형식은 문자열 비교로 날짜 정렬 가능 → Date 객체 생성 불필요
+    const sorted = [...deductions].sort((a, b) => b.date < a.date ? -1 : b.date > a.date ? 1 : 0);
+    return { balance: contract.total_amount - paid, sortedDeductions: sorted };
+  }, [contract.daily_deductions, contract.total_amount]);
 
-    const toggleCheck = useCallback((id: string) => {
-        setCheckedIds(prev => {
-            const next = new Set(prev);
-            if (next.has(id)) next.delete(id);
-            else next.add(id);
-            return next;
-        });
-    }, []);
+  // 체크된 항목 중 미납/부분납부 건수, 완납 건수 계산
+  const { checkedUnpaidCount, checkedPaidCount } = useMemo(() => {
+    let unpaid = 0;
+    let paid = 0;
+    for (const d of sortedDeductions) {
+      if (!checkedIds.has(d.id)) continue;
+      if (d.status === DeductionStatus.PAID) paid++;
+      else unpaid++;
+    }
+    return { checkedUnpaidCount: unpaid, checkedPaidCount: paid };
+  }, [checkedIds, sortedDeductions]);
 
-    const handleBulkSettle = useCallback(() => {
-        if (checkedIds.size === 0) return;
-        onBulkSettle(Array.from(checkedIds));
-        setCheckedIds(new Set());
-    }, [checkedIds, onBulkSettle]);
+  const toggleCheck = useCallback((id: string) => {
+    setCheckedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
-    return (
-        <div className="bg-slate-800 rounded-lg shadow-lg overflow-hidden transition-all duration-300">
-            <div
-                className="flex justify-between items-center p-4 cursor-pointer hover:bg-slate-700/50"
-                onClick={onToggle}
-            >
-                <div className="flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                        <p className="font-bold text-white text-lg">[#<span className="text-indigo-400">{contract.contract_number}</span>] - {contract.distributor_name || '총판 없음'} / {contract.lessee_name}</p>
-                        {contract.is_lawsuit && (
-                            <span className="px-2 py-0.5 text-xs font-bold bg-red-600/30 text-red-300 border border-red-500/50 rounded-full">고소건</span>
-                        )}
-                    </div>
-                    <p className="text-sm text-slate-400">{contract.device_name} / {partnerName}</p>
-                </div>
-                <div className="flex-1 text-right px-4">
-                    <p className="text-sm text-slate-400">미납액</p>
-                    <p className={`font-bold text-xl ${contract.unpaid_balance > 0 ? 'text-red-400' : 'text-green-400'}`}>
-                        {formatCurrency(contract.unpaid_balance)}
-                    </p>
-                </div>
-                <div className="flex-1 text-right px-4">
-                    <p className="text-sm text-slate-400">총 잔액</p>
-                    <p className="font-bold text-xl text-yellow-400">{formatCurrency(balance)}</p>
-                </div>
-                <div className="flex items-center space-x-2 px-4">
-                    <button
-                        onClick={(e) => { e.stopPropagation(); onToggleLawsuit(); }}
-                        className={`text-xs font-bold py-1.5 px-3 rounded-lg transition-colors ${
-                            contract.is_lawsuit
-                                ? 'bg-red-700 hover:bg-red-800 text-white'
-                                : 'bg-slate-600 hover:bg-slate-500 text-slate-300'
-                        }`}
-                    >
-                        {contract.is_lawsuit ? '고소건 해제' : '고소건 지정'}
-                    </button>
-                    <button
-                        onClick={(e) => { e.stopPropagation(); onOpenPaymentModal(contract); }}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition-colors text-sm"
-                    >
-                        입금 처리
-                    </button>
-                    <svg className={`w-6 h-6 text-slate-400 transform transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                </div>
-            </div>
+  const handleToggleClick = useCallback((e: React.MouseEvent) => {
+    onToggle(contract.id);
+  }, [contract.id, onToggle]);
 
-            {isOpen && (
-                <div className="p-4 border-t border-slate-700 bg-slate-800/50 animate-fade-in">
-                    <div className="flex justify-between items-center mb-3 px-2">
-                        <h4 className="font-bold text-white">일일 차감 내역</h4>
-                        {checkedIds.size > 0 && (
-                            <button
-                                onClick={handleBulkSettle}
-                                className="bg-green-600 hover:bg-green-700 text-white text-sm font-bold py-1.5 px-4 rounded-lg transition-colors"
-                            >
-                                선택 {checkedIds.size}건 전액 처리
-                            </button>
-                        )}
-                    </div>
-                    <div className="max-h-80 overflow-y-auto space-y-2 pr-2">
-                        {sortedDeductions.length > 0 ? (
-                            sortedDeductions.map(deduction => (
-                                <div key={deduction.id} className={`flex justify-between items-center p-3 rounded-md transition-colors ${checkedIds.has(deduction.id) ? 'bg-indigo-900/40 border border-indigo-500/50' : 'bg-slate-700/80'}`}>
-                                    <div className="flex items-center gap-3">
-                                        {deduction.status !== DeductionStatus.PAID ? (
-                                            <input
-                                                type="checkbox"
-                                                checked={checkedIds.has(deduction.id)}
-                                                onChange={() => toggleCheck(deduction.id)}
-                                                onClick={(e) => e.stopPropagation()}
-                                                className="w-4 h-4 accent-indigo-500 cursor-pointer flex-shrink-0"
-                                            />
-                                        ) : (
-                                            <div className="w-4 h-4 flex-shrink-0" />
-                                        )}
-                                        <div>
-                                            <p className="font-semibold text-white">{formatDate(deduction.date)}</p>
-                                            <p className="text-sm font-semibold">
-                                              {deduction.paid_amount > 0 ? (
-                                                  <><span className="text-yellow-400">{formatCurrency(deduction.paid_amount)}</span> / {formatCurrency(deduction.amount)}</>
-                                              ) : (
-                                                  formatCurrency(deduction.amount)
-                                              )}
-                                            </p>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center space-x-3">
-                                        <DeductionStatusBadge status={deduction.status} />
-                                        {deduction.status !== DeductionStatus.PAID && (
-                                            <button
-                                                onClick={() => onSettleDeduction(contract.id, deduction.id)}
-                                                className="bg-green-600 hover:bg-green-700 text-white text-xs font-bold py-1 px-3 rounded-md transition-colors"
-                                            >
-                                                전액 처리
-                                            </button>
-                                        )}
-                                        {deduction.paid_amount > 0 && (
-                                            <button
-                                                onClick={() => onCancelDeduction(contract.id, deduction.id)}
-                                                className="bg-yellow-600 hover:bg-yellow-700 text-white text-xs font-bold py-1 px-3 rounded-md transition-colors"
-                                            >
-                                                납부 취소
-                                            </button>
-                                        )}
-                                    </div>
-                                </div>
-                            ))
-                        ) : (
-                            <p className="text-center text-slate-400 py-4">생성된 일차감 내역이 없습니다.</p>
-                        )}
-                    </div>
-                </div>
+  const handleLawsuitClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    onToggleLawsuit(contract.id);
+  }, [contract.id, onToggleLawsuit]);
+
+  const handlePaymentClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    onOpenPaymentModal(contract);
+  }, [contract, onOpenPaymentModal]);
+
+  const handleBulkSettle = useCallback(() => {
+    const unpaidIds = sortedDeductions
+      .filter(d => checkedIds.has(d.id) && d.status !== DeductionStatus.PAID)
+      .map(d => d.id);
+    if (unpaidIds.length === 0) return;
+    onBulkSettle(contract.id, unpaidIds);
+    setCheckedIds(new Set());
+  }, [checkedIds, sortedDeductions, contract.id, onBulkSettle]);
+
+  const handleBulkCancel = useCallback(() => {
+    const paidIds = sortedDeductions
+      .filter(d => checkedIds.has(d.id) && d.status === DeductionStatus.PAID)
+      .map(d => d.id);
+    if (paidIds.length === 0) return;
+    onBulkCancel(contract.id, paidIds);
+    setCheckedIds(new Set());
+  }, [checkedIds, sortedDeductions, contract.id, onBulkCancel]);
+
+  return (
+    <div className="bg-slate-800 rounded-lg shadow-lg overflow-hidden transition-all duration-300">
+      <div
+        className="flex justify-between items-center p-4 cursor-pointer hover:bg-slate-700/50"
+        onClick={handleToggleClick}
+      >
+        <div className="flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="font-bold text-white text-lg">[#<span className="text-indigo-400">{contract.contract_number}</span>] - {contract.distributor_name || '총판 없음'} / {contract.lessee_name}</p>
+            {contract.is_lawsuit && (
+              <span className="px-2 py-0.5 text-xs font-bold bg-red-600/30 text-red-300 border border-red-500/50 rounded-full">고소건</span>
             )}
+          </div>
+          <p className="text-sm text-slate-400">{contract.device_name} / {partnerName}</p>
         </div>
-    );
+        <div className="flex-1 text-right px-4">
+          <p className="text-sm text-slate-400">미납액</p>
+          <p className={`font-bold text-xl ${contract.unpaid_balance > 0 ? 'text-red-400' : 'text-green-400'}`}>
+            {formatCurrency(contract.unpaid_balance)}
+          </p>
+        </div>
+        <div className="flex-1 text-right px-4">
+          <p className="text-sm text-slate-400">총 잔액</p>
+          <p className="font-bold text-xl text-yellow-400">{formatCurrency(balance)}</p>
+        </div>
+        <div className="flex items-center space-x-2 px-4">
+          <button
+            onClick={handleLawsuitClick}
+            className={`text-xs font-bold py-1.5 px-3 rounded-lg transition-colors ${
+              contract.is_lawsuit
+                ? 'bg-red-700 hover:bg-red-800 text-white'
+                : 'bg-slate-600 hover:bg-slate-500 text-slate-300'
+            }`}
+          >
+            {contract.is_lawsuit ? '고소건 해제' : '고소건 지정'}
+          </button>
+          <button
+            onClick={handlePaymentClick}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition-colors text-sm"
+          >
+            입금 처리
+          </button>
+          <svg className={`w-6 h-6 text-slate-400 transform transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </div>
+      </div>
+
+      {isOpen && (
+        <div className="p-4 border-t border-slate-700 bg-slate-800/50 animate-fade-in">
+          <div className="flex justify-between items-center mb-3 px-2">
+            <h4 className="font-bold text-white">일일 차감 내역</h4>
+            <div className="flex gap-2">
+              {checkedUnpaidCount > 0 && (
+                <button
+                  onClick={handleBulkSettle}
+                  className="bg-green-600 hover:bg-green-700 text-white text-sm font-bold py-1.5 px-4 rounded-lg transition-colors"
+                >
+                  선택 {checkedUnpaidCount}건 전액 처리
+                </button>
+              )}
+              {checkedPaidCount > 0 && (
+                <button
+                  onClick={handleBulkCancel}
+                  className="bg-yellow-600 hover:bg-yellow-700 text-white text-sm font-bold py-1.5 px-4 rounded-lg transition-colors"
+                >
+                  선택 {checkedPaidCount}건 납부 취소
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="max-h-80 overflow-y-auto space-y-2 pr-2">
+            {sortedDeductions.length > 0 ? (
+              sortedDeductions.map(deduction => (
+                <div key={deduction.id} className={`flex justify-between items-center p-3 rounded-md transition-colors ${checkedIds.has(deduction.id) ? 'bg-indigo-900/40 border border-indigo-500/50' : 'bg-slate-700/80'}`}>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={checkedIds.has(deduction.id)}
+                      onChange={() => toggleCheck(deduction.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-4 h-4 accent-indigo-500 cursor-pointer flex-shrink-0"
+                    />
+                    <div>
+                      <p className="font-semibold text-white">{formatDate(deduction.date)}</p>
+                      <p className="text-sm font-semibold">
+                        {deduction.paid_amount > 0 ? (
+                          <><span className="text-yellow-400">{formatCurrency(deduction.paid_amount)}</span> / {formatCurrency(deduction.amount)}</>
+                        ) : (
+                          formatCurrency(deduction.amount)
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <DeductionStatusBadge status={deduction.status} />
+                    {deduction.status !== DeductionStatus.PAID && (
+                      <button
+                        onClick={() => onSettleDeduction(contract.id, deduction.id)}
+                        className="bg-green-600 hover:bg-green-700 text-white text-xs font-bold py-1 px-3 rounded-md transition-colors"
+                      >
+                        전액 처리
+                      </button>
+                    )}
+                    {deduction.paid_amount > 0 && (
+                      <button
+                        onClick={() => onCancelDeduction(contract.id, deduction.id)}
+                        className="bg-yellow-600 hover:bg-yellow-700 text-white text-xs font-bold py-1 px-3 rounded-md transition-colors"
+                      >
+                        납부 취소
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="text-center text-slate-400 py-4">생성된 일차감 내역이 없습니다.</p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 });
 
 
-export const DeductionManagement: React.FC<DeductionManagementProps> = ({ contracts, partners, onAddPayment, onSettleDeduction, onCancelDeduction, onToggleLawsuit, onBulkSettleDeductions }) => {
-    const [openContractId, setOpenContractId] = useState<string | null>(null);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [paymentModalContract, setPaymentModalContract] = useState<Contract | null>(null);
-    const [activeTab, setActiveTab] = useState<ActiveTab>('전체');
+export const DeductionManagement: React.FC<DeductionManagementProps> = ({
+  contracts, partners,
+  onAddPayment, onSettleDeduction, onCancelDeduction,
+  onToggleLawsuit, onBulkSettleDeductions, onBulkCancelDeductions,
+}) => {
+  const [openContractId, setOpenContractId] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [paymentModalContract, setPaymentModalContract] = useState<Contract | null>(null);
+  const [activeTab, setActiveTab] = useState<ActiveTab>('전체');
 
-    const partnerMap = useMemo(() => new Map(partners.map(p => [p.id, p.name])), [partners]);
+  const partnerMap = useMemo(() => new Map(partners.map(p => [p.id, p.name])), [partners]);
 
-    const contractsToList = useMemo(() => {
-        const filtered = contracts.filter(c => {
-             const partnerName = partnerMap.get(c.partner_id) || '';
-             const lesseeName = c.lessee_name || '';
-             const distributorName = c.distributor_name || '';
-             const searchMatch =
-                c.device_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                partnerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                lesseeName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                distributorName.toLowerCase().includes(searchTerm.toLowerCase());
+  const contractsToList = useMemo(() => {
+    const lowerSearch = searchTerm.toLowerCase();
+    const filtered = contracts.filter(c => {
+      const partnerName = partnerMap.get(c.partner_id) || '';
+      const searchMatch = !lowerSearch ||
+        (c.device_name || '').toLowerCase().includes(lowerSearch) ||
+        partnerName.toLowerCase().includes(lowerSearch) ||
+        (c.lessee_name || '').toLowerCase().includes(lowerSearch) ||
+        (c.distributor_name || '').toLowerCase().includes(lowerSearch);
 
-            const statusMatch =
-                c.status === ContractStatus.ACTIVE ||
-                c.status === ContractStatus.SETTLED ||
-                (c.status === ContractStatus.EXPIRED && c.unpaid_balance > 0);
+      const statusMatch =
+        c.status === ContractStatus.ACTIVE ||
+        c.status === ContractStatus.SETTLED ||
+        (c.status === ContractStatus.EXPIRED && c.unpaid_balance > 0);
 
-            const tabMatch = activeTab === '고소건' ? !!c.is_lawsuit : !c.is_lawsuit;
+      const tabMatch = activeTab === '고소건' ? !!c.is_lawsuit : !c.is_lawsuit;
 
-            return statusMatch && searchMatch && tabMatch;
-        });
-        return filtered.sort((a,b) => (b.unpaid_balance || 0) - (a.unpaid_balance || 0));
-    }, [contracts, partnerMap, searchTerm, activeTab]);
+      return statusMatch && searchMatch && tabMatch;
+    });
+    return filtered.sort((a, b) => (b.unpaid_balance || 0) - (a.unpaid_balance || 0));
+  }, [contracts, partnerMap, searchTerm, activeTab]);
 
-    const summary = useMemo(() => {
-        return contractsToList.reduce(
-            (acc, contract) => {
-                const totalPaid = (contract.daily_deductions || []).reduce((sum, d) => sum + d.paid_amount, 0);
-                const balance = contract.total_amount - totalPaid;
-
-                acc.totalUnpaid += contract.unpaid_balance;
-                acc.totalBalance += balance;
-                acc.totalDailyDeduction += contract.daily_deduction;
-                return acc;
-            },
-            { totalUnpaid: 0, totalBalance: 0, totalDailyDeduction: 0 }
-        );
-    }, [contractsToList]);
-
-    const lawsuitCount = useMemo(() => contracts.filter(c => !!c.is_lawsuit).length, [contracts]);
-
-    const handleToggleCard = (contractId: string) => {
-        setOpenContractId(prevId => (prevId === contractId ? null : contractId));
-    };
-
-    const handleOpenPaymentModal = (contract: Contract) => {
-      setPaymentModalContract(contract);
-    };
-
-    const handleClosePaymentModal = () => {
-        setPaymentModalContract(null);
-    };
-
-    const handlePaymentSubmit = (amount: number) => {
-        if (paymentModalContract) {
-            onAddPayment(paymentModalContract.id, amount);
-        }
-        handleClosePaymentModal();
-    };
-
-    const handleExport = () => {
-        const header = ['계약번호', '파트너사', '총판명', '계약자', '기기명', '차감일', '차감액', '납부액', '미납액', '상태'];
-        const relevantContracts = contracts.filter(c => c.status === ContractStatus.ACTIVE || c.status === ContractStatus.SETTLED);
-
-        const rows = relevantContracts.flatMap(c =>
-            (c.daily_deductions || []).map(d => [
-                c.contract_number,
-                partnerMap.get(c.partner_id) || 'N/A',
-                c.distributor_name || 'N/A',
-                c.lessee_name || 'N/A',
-                c.device_name,
-                d.date,
-                d.amount,
-                d.paid_amount,
-                d.amount - d.paid_amount,
-                d.status
-            ])
-        );
-        exportToCsv(`일차감_전체내역_${new Date().toISOString().split('T')[0]}.csv`, [header, ...rows]);
-    };
-
-    return (
-        <div className="p-8">
-            <div className="flex justify-between items-center mb-6">
-                <h2 className="text-3xl font-bold text-white">일차감 관리</h2>
-                <button
-                    onClick={handleExport}
-                    className="flex items-center bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition-colors shadow-md hover:shadow-lg"
-                >
-                    <DownloadIcon className="w-5 h-5 mr-2" />
-                    CSV로 내보내기
-                </button>
-            </div>
-
-            {/* 탭 */}
-            <div className="flex space-x-1 mb-4 bg-slate-800 p-1 rounded-lg w-fit">
-                {(['전체', '고소건'] as ActiveTab[]).map(tab => (
-                    <button
-                        key={tab}
-                        onClick={() => setActiveTab(tab)}
-                        className={`px-5 py-2 rounded-md text-sm font-semibold transition-colors flex items-center gap-2 ${
-                            activeTab === tab
-                                ? 'bg-indigo-600 text-white'
-                                : 'text-slate-400 hover:text-white'
-                        }`}
-                    >
-                        {tab}
-                        {tab === '고소건' && lawsuitCount > 0 && (
-                            <span className="bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full leading-none">{lawsuitCount}</span>
-                        )}
-                    </button>
-                ))}
-            </div>
-
-            <div className="flex items-center space-x-4 bg-slate-800 p-4 rounded-lg mb-6">
-                <input
-                  type="text"
-                  placeholder="총판명, 계약자명, 기기명, 파트너사 검색..."
-                  className="bg-slate-700 text-white placeholder-slate-400 rounded-lg px-4 py-2 w-full md:w-2/5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-            </div>
-
-            <div className="bg-slate-900/50 p-4 rounded-lg mb-6 grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
-                <div>
-                    <p className="text-sm text-slate-400">검색 결과 일일 차감 총액</p>
-                    <p className="text-2xl font-bold text-white">{formatCurrency(summary.totalDailyDeduction)}</p>
-                </div>
-                <div>
-                    <p className="text-sm text-slate-400">검색 결과 총 미납액</p>
-                    <p className="text-2xl font-bold text-red-400">{formatCurrency(summary.totalUnpaid)}</p>
-                </div>
-                <div>
-                    <p className="text-sm text-slate-400">검색 결과 총 잔액</p>
-                    <p className="text-2xl font-bold text-yellow-400">{formatCurrency(summary.totalBalance)}</p>
-                </div>
-            </div>
-
-            <div className="space-y-4">
-                {contractsToList.map(contract => (
-                    <ContractDeductionCard
-                        key={contract.id}
-                        contract={contract}
-                        partnerName={partnerMap.get(contract.partner_id) || '알 수 없음'}
-                        isOpen={openContractId === contract.id}
-                        onToggle={() => handleToggleCard(contract.id)}
-                        onOpenPaymentModal={handleOpenPaymentModal}
-                        onSettleDeduction={onSettleDeduction}
-                        onCancelDeduction={onCancelDeduction}
-                        onToggleLawsuit={() => onToggleLawsuit(contract.id)}
-                        onBulkSettle={(ids) => onBulkSettleDeductions(contract.id, ids)}
-                    />
-                ))}
-                 {contractsToList.length === 0 && (
-                    <div className="bg-slate-800 rounded-lg shadow-lg p-8 text-center text-slate-400">
-                        <p>관리할 일차감 내역이 없거나 검색 결과가 없습니다.</p>
-                    </div>
-                )}
-            </div>
-
-            {paymentModalContract && (
-                <PaymentModal
-                    isOpen={!!paymentModalContract}
-                    onClose={handleClosePaymentModal}
-                    onSubmit={handlePaymentSubmit}
-                    contract={paymentModalContract}
-                />
-            )}
-        </div>
+  const summary = useMemo(() => {
+    return contractsToList.reduce(
+      (acc, contract) => {
+        const totalPaid = (contract.daily_deductions || []).reduce((sum, d) => sum + d.paid_amount, 0);
+        acc.totalUnpaid += contract.unpaid_balance;
+        acc.totalBalance += contract.total_amount - totalPaid;
+        acc.totalDailyDeduction += contract.daily_deduction;
+        return acc;
+      },
+      { totalUnpaid: 0, totalBalance: 0, totalDailyDeduction: 0 }
     );
+  }, [contractsToList]);
+
+  const lawsuitCount = useMemo(() => contracts.filter(c => !!c.is_lawsuit).length, [contracts]);
+
+  // stable 콜백 → React.memo 효과 유지
+  const handleToggleCard = useCallback((contractId: string) => {
+    setOpenContractId(prevId => (prevId === contractId ? null : contractId));
+  }, []);
+
+  const handleOpenPaymentModal = useCallback((contract: Contract) => {
+    setPaymentModalContract(contract);
+  }, []);
+
+  const handleClosePaymentModal = useCallback(() => {
+    setPaymentModalContract(null);
+  }, []);
+
+  const handlePaymentSubmit = useCallback((amount: number) => {
+    setPaymentModalContract(prev => {
+      if (prev) onAddPayment(prev.id, amount);
+      return null;
+    });
+  }, [onAddPayment]);
+
+  const handleExport = useCallback(() => {
+    const header = ['계약번호', '파트너사', '총판명', '계약자', '기기명', '차감일', '차감액', '납부액', '미납액', '상태'];
+    const relevantContracts = contracts.filter(c => c.status === ContractStatus.ACTIVE || c.status === ContractStatus.SETTLED);
+    const rows = relevantContracts.flatMap(c =>
+      (c.daily_deductions || []).map(d => [
+        c.contract_number,
+        partnerMap.get(c.partner_id) || 'N/A',
+        c.distributor_name || 'N/A',
+        c.lessee_name || 'N/A',
+        c.device_name,
+        d.date,
+        d.amount,
+        d.paid_amount,
+        d.amount - d.paid_amount,
+        d.status,
+      ])
+    );
+    exportToCsv(`일차감_전체내역_${new Date().toISOString().split('T')[0]}.csv`, [header, ...rows]);
+  }, [contracts, partnerMap]);
+
+  return (
+    <div className="p-8">
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-3xl font-bold text-white">일차감 관리</h2>
+        <button
+          onClick={handleExport}
+          className="flex items-center bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition-colors shadow-md hover:shadow-lg"
+        >
+          <DownloadIcon className="w-5 h-5 mr-2" />
+          CSV로 내보내기
+        </button>
+      </div>
+
+      {/* 탭 */}
+      <div className="flex space-x-1 mb-4 bg-slate-800 p-1 rounded-lg w-fit">
+        {(['전체', '고소건'] as ActiveTab[]).map(tab => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`px-5 py-2 rounded-md text-sm font-semibold transition-colors flex items-center gap-2 ${
+              activeTab === tab ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            {tab}
+            {tab === '고소건' && lawsuitCount > 0 && (
+              <span className="bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full leading-none">{lawsuitCount}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex items-center space-x-4 bg-slate-800 p-4 rounded-lg mb-6">
+        <input
+          type="text"
+          placeholder="총판명, 계약자명, 기기명, 파트너사 검색..."
+          className="bg-slate-700 text-white placeholder-slate-400 rounded-lg px-4 py-2 w-full md:w-2/5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
+      </div>
+
+      <div className="bg-slate-900/50 p-4 rounded-lg mb-6 grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
+        <div>
+          <p className="text-sm text-slate-400">검색 결과 일일 차감 총액</p>
+          <p className="text-2xl font-bold text-white">{formatCurrency(summary.totalDailyDeduction)}</p>
+        </div>
+        <div>
+          <p className="text-sm text-slate-400">검색 결과 총 미납액</p>
+          <p className="text-2xl font-bold text-red-400">{formatCurrency(summary.totalUnpaid)}</p>
+        </div>
+        <div>
+          <p className="text-sm text-slate-400">검색 결과 총 잔액</p>
+          <p className="text-2xl font-bold text-yellow-400">{formatCurrency(summary.totalBalance)}</p>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        {contractsToList.map(contract => (
+          <ContractDeductionCard
+            key={contract.id}
+            contract={contract}
+            partnerName={partnerMap.get(contract.partner_id) || '알 수 없음'}
+            isOpen={openContractId === contract.id}
+            onToggle={handleToggleCard}
+            onOpenPaymentModal={handleOpenPaymentModal}
+            onSettleDeduction={onSettleDeduction}
+            onCancelDeduction={onCancelDeduction}
+            onToggleLawsuit={onToggleLawsuit}
+            onBulkSettle={onBulkSettleDeductions}
+            onBulkCancel={onBulkCancelDeductions}
+          />
+        ))}
+        {contractsToList.length === 0 && (
+          <div className="bg-slate-800 rounded-lg shadow-lg p-8 text-center text-slate-400">
+            <p>관리할 일차감 내역이 없거나 검색 결과가 없습니다.</p>
+          </div>
+        )}
+      </div>
+
+      {paymentModalContract && (
+        <PaymentModal
+          isOpen={!!paymentModalContract}
+          onClose={handleClosePaymentModal}
+          onSubmit={handlePaymentSubmit}
+          contract={paymentModalContract}
+        />
+      )}
+    </div>
+  );
 };
