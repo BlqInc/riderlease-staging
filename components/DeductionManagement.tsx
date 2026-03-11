@@ -1,6 +1,7 @@
 
 
-import React, { useMemo, useState, useEffect, useCallback, memo } from 'react';
+import React, { useMemo, useState, useEffect, useCallback, memo, useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { Contract, Partner, DeductionStatus, ContractStatus } from '../types';
 import { formatDate, formatCurrency } from '../lib/utils';
 import { exportToCsv } from '../lib/csvUtils';
@@ -144,7 +145,7 @@ const ContractDeductionCard = memo<{
     });
   }, []);
 
-  const handleToggleClick = useCallback((e: React.MouseEvent) => {
+  const handleToggleClick = useCallback(() => {
     onToggle(contract.id);
   }, [contract.id, onToggle]);
 
@@ -175,6 +176,16 @@ const ContractDeductionCard = memo<{
     onBulkCancel(contract.id, paidIds);
     setCheckedIds(new Set());
   }, [checkedIds, sortedDeductions, contract.id, onBulkCancel]);
+
+  // 가상 스크롤: 보이는 항목만 렌더링 (365개 → ~5개)
+  const deductionListRef = useRef<HTMLDivElement>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: sortedDeductions.length,
+    getScrollElement: () => deductionListRef.current,
+    estimateSize: () => 72, // 항목 높이 추정값 (px)
+    overscan: 3,            // 화면 밖 미리 렌더 개수
+    getItemKey: (index) => sortedDeductions[index].id,
+  });
 
   return (
     <div className="bg-slate-800 rounded-lg shadow-lg overflow-hidden transition-all duration-300">
@@ -247,54 +258,71 @@ const ContractDeductionCard = memo<{
               )}
             </div>
           </div>
-          <div className="max-h-80 overflow-y-auto space-y-2 pr-2">
-            {sortedDeductions.length > 0 ? (
-              sortedDeductions.map(deduction => (
-                <div key={deduction.id} className={`flex justify-between items-center p-3 rounded-md transition-colors ${checkedIds.has(deduction.id) ? 'bg-indigo-900/40 border border-indigo-500/50' : 'bg-slate-700/80'}`}>
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      checked={checkedIds.has(deduction.id)}
-                      onChange={() => toggleCheck(deduction.id)}
-                      onClick={(e) => e.stopPropagation()}
-                      className="w-4 h-4 accent-indigo-500 cursor-pointer flex-shrink-0"
-                    />
-                    <div>
-                      <p className="font-semibold text-white">{formatDate(deduction.date)}</p>
-                      <p className="text-sm font-semibold">
-                        {deduction.paid_amount > 0 ? (
-                          <><span className="text-yellow-400">{formatCurrency(deduction.paid_amount)}</span> / {formatCurrency(deduction.amount)}</>
-                        ) : (
-                          formatCurrency(deduction.amount)
-                        )}
-                      </p>
+          {sortedDeductions.length > 0 ? (
+            <div ref={deductionListRef} className="max-h-80 overflow-y-auto pr-2">
+              <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative' }}>
+                {rowVirtualizer.getVirtualItems().map(virtualItem => {
+                  const deduction = sortedDeductions[virtualItem.index];
+                  return (
+                    <div
+                      key={virtualItem.key}
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        transform: `translateY(${virtualItem.start}px)`,
+                        paddingBottom: '8px',
+                      }}
+                    >
+                      <div className={`flex justify-between items-center p-3 rounded-md transition-colors ${checkedIds.has(deduction.id) ? 'bg-indigo-900/40 border border-indigo-500/50' : 'bg-slate-700/80'}`}>
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="checkbox"
+                            checked={checkedIds.has(deduction.id)}
+                            onChange={() => toggleCheck(deduction.id)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-4 h-4 accent-indigo-500 cursor-pointer flex-shrink-0"
+                          />
+                          <div>
+                            <p className="font-semibold text-white">{formatDate(deduction.date)}</p>
+                            <p className="text-sm font-semibold">
+                              {deduction.paid_amount > 0 ? (
+                                <><span className="text-yellow-400">{formatCurrency(deduction.paid_amount)}</span> / {formatCurrency(deduction.amount)}</>
+                              ) : (
+                                formatCurrency(deduction.amount)
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-3">
+                          <DeductionStatusBadge status={deduction.status} />
+                          {deduction.status !== DeductionStatus.PAID && (
+                            <button
+                              onClick={() => onSettleDeduction(contract.id, deduction.id)}
+                              className="bg-green-600 hover:bg-green-700 text-white text-xs font-bold py-1 px-3 rounded-md transition-colors"
+                            >
+                              전액 처리
+                            </button>
+                          )}
+                          {deduction.paid_amount > 0 && (
+                            <button
+                              onClick={() => onCancelDeduction(contract.id, deduction.id)}
+                              className="bg-yellow-600 hover:bg-yellow-700 text-white text-xs font-bold py-1 px-3 rounded-md transition-colors"
+                            >
+                              납부 취소
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex items-center space-x-3">
-                    <DeductionStatusBadge status={deduction.status} />
-                    {deduction.status !== DeductionStatus.PAID && (
-                      <button
-                        onClick={() => onSettleDeduction(contract.id, deduction.id)}
-                        className="bg-green-600 hover:bg-green-700 text-white text-xs font-bold py-1 px-3 rounded-md transition-colors"
-                      >
-                        전액 처리
-                      </button>
-                    )}
-                    {deduction.paid_amount > 0 && (
-                      <button
-                        onClick={() => onCancelDeduction(contract.id, deduction.id)}
-                        className="bg-yellow-600 hover:bg-yellow-700 text-white text-xs font-bold py-1 px-3 rounded-md transition-colors"
-                      >
-                        납부 취소
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="text-center text-slate-400 py-4">생성된 일차감 내역이 없습니다.</p>
-            )}
-          </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <p className="text-center text-slate-400 py-4">생성된 일차감 내역이 없습니다.</p>
+          )}
         </div>
       )}
     </div>
