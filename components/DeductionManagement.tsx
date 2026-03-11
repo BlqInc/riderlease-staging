@@ -1,6 +1,6 @@
 
 
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useCallback, memo } from 'react';
 import { Contract, Partner, DeductionStatus, ContractStatus } from '../types';
 import { formatDate, formatCurrency } from '../lib/utils';
 import { exportToCsv } from '../lib/csvUtils';
@@ -95,7 +95,7 @@ const DeductionStatusBadge: React.FC<{ status: DeductionStatus }> = ({ status })
   return <span className={`${baseClasses} ${statusClasses[status]}`}>{status}</span>;
 };
 
-const ContractDeductionCard: React.FC<{
+const ContractDeductionCard = memo<{
     contract: Contract;
     partnerName: string;
     isOpen: boolean;
@@ -105,7 +105,7 @@ const ContractDeductionCard: React.FC<{
     onCancelDeduction: (contractId: string, deductionId: string) => void;
     onToggleLawsuit: () => void;
     onBulkSettle: (deductionIds: string[]) => void;
-}> = ({ contract, partnerName, isOpen, onToggle, onOpenPaymentModal, onSettleDeduction, onCancelDeduction, onToggleLawsuit, onBulkSettle }) => {
+}>(({ contract, partnerName, isOpen, onToggle, onOpenPaymentModal, onSettleDeduction, onCancelDeduction, onToggleLawsuit, onBulkSettle }) => {
 
     const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
 
@@ -113,23 +113,27 @@ const ContractDeductionCard: React.FC<{
         if (!isOpen) setCheckedIds(new Set());
     }, [isOpen]);
 
-    const totalPaid = (contract.daily_deductions || []).reduce((sum, d) => sum + d.paid_amount, 0);
-    const balance = contract.total_amount - totalPaid;
+    const { balance, sortedDeductions } = useMemo(() => {
+        const deductions = contract.daily_deductions || [];
+        const paid = deductions.reduce((sum, d) => sum + d.paid_amount, 0);
+        const sorted = [...deductions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        return { balance: contract.total_amount - paid, sortedDeductions: sorted };
+    }, [contract.daily_deductions, contract.total_amount]);
 
-    const toggleCheck = (id: string) => {
+    const toggleCheck = useCallback((id: string) => {
         setCheckedIds(prev => {
             const next = new Set(prev);
             if (next.has(id)) next.delete(id);
             else next.add(id);
             return next;
         });
-    };
+    }, []);
 
-    const handleBulkSettle = () => {
+    const handleBulkSettle = useCallback(() => {
         if (checkedIds.size === 0) return;
         onBulkSettle(Array.from(checkedIds));
         setCheckedIds(new Set());
-    };
+    }, [checkedIds, onBulkSettle]);
 
     return (
         <div className="bg-slate-800 rounded-lg shadow-lg overflow-hidden transition-all duration-300">
@@ -193,8 +197,8 @@ const ContractDeductionCard: React.FC<{
                         )}
                     </div>
                     <div className="max-h-80 overflow-y-auto space-y-2 pr-2">
-                        {(contract.daily_deductions || []).length > 0 ? (
-                            [...(contract.daily_deductions || [])].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(deduction => (
+                        {sortedDeductions.length > 0 ? (
+                            sortedDeductions.map(deduction => (
                                 <div key={deduction.id} className={`flex justify-between items-center p-3 rounded-md transition-colors ${checkedIds.has(deduction.id) ? 'bg-indigo-900/40 border border-indigo-500/50' : 'bg-slate-700/80'}`}>
                                     <div className="flex items-center gap-3">
                                         {deduction.status !== DeductionStatus.PAID ? (
@@ -248,7 +252,7 @@ const ContractDeductionCard: React.FC<{
             )}
         </div>
     );
-};
+});
 
 
 export const DeductionManagement: React.FC<DeductionManagementProps> = ({ contracts, partners, onAddPayment, onSettleDeduction, onCancelDeduction, onToggleLawsuit, onBulkSettleDeductions }) => {
