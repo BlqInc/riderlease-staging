@@ -339,6 +339,7 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [paymentModalContract, setPaymentModalContract] = useState<Contract | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>('전체');
+  const outerListRef = useRef<HTMLDivElement>(null);
 
   const partnerMap = useMemo(() => new Map(partners.map(p => [p.id, p.name])), [partners]);
 
@@ -363,6 +364,15 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({
     });
     return filtered.sort((a, b) => (b.unpaid_balance || 0) - (a.unpaid_balance || 0));
   }, [contracts, partnerMap, searchTerm, activeTab]);
+
+  const outerVirtualizer = useVirtualizer({
+    count: contractsToList.length,
+    getScrollElement: () => outerListRef.current,
+    estimateSize: () => 80,
+    overscan: 5,
+    measureElement: (el) => el.getBoundingClientRect().height,
+    getItemKey: (index) => contractsToList[index].id,
+  });
 
   const summary = useMemo(() => {
     return contractsToList.reduce(
@@ -475,28 +485,47 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({
         </div>
       </div>
 
-      <div className="space-y-4">
-        {contractsToList.map(contract => (
-          <ContractDeductionCard
-            key={contract.id}
-            contract={contract}
-            partnerName={partnerMap.get(contract.partner_id) || '알 수 없음'}
-            isOpen={openContractId === contract.id}
-            onToggle={handleToggleCard}
-            onOpenPaymentModal={handleOpenPaymentModal}
-            onSettleDeduction={onSettleDeduction}
-            onCancelDeduction={onCancelDeduction}
-            onToggleLawsuit={onToggleLawsuit}
-            onBulkSettle={onBulkSettleDeductions}
-            onBulkCancel={onBulkCancelDeductions}
-          />
-        ))}
-        {contractsToList.length === 0 && (
-          <div className="bg-slate-800 rounded-lg shadow-lg p-8 text-center text-slate-400">
-            <p>관리할 일차감 내역이 없거나 검색 결과가 없습니다.</p>
+      {contractsToList.length === 0 ? (
+        <div className="bg-slate-800 rounded-lg shadow-lg p-8 text-center text-slate-400">
+          <p>관리할 일차감 내역이 없거나 검색 결과가 없습니다.</p>
+        </div>
+      ) : (
+        <div ref={outerListRef} className="h-[calc(100vh-380px)] overflow-y-auto">
+          <div style={{ height: `${outerVirtualizer.getTotalSize()}px`, position: 'relative' }}>
+            {outerVirtualizer.getVirtualItems().map(virtualItem => {
+              const contract = contractsToList[virtualItem.index];
+              return (
+                <div
+                  key={virtualItem.key}
+                  data-index={virtualItem.index}
+                  ref={outerVirtualizer.measureElement}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${virtualItem.start}px)`,
+                    paddingBottom: '16px',
+                  }}
+                >
+                  <ContractDeductionCard
+                    contract={contract}
+                    partnerName={partnerMap.get(contract.partner_id) || '알 수 없음'}
+                    isOpen={openContractId === contract.id}
+                    onToggle={handleToggleCard}
+                    onOpenPaymentModal={handleOpenPaymentModal}
+                    onSettleDeduction={onSettleDeduction}
+                    onCancelDeduction={onCancelDeduction}
+                    onToggleLawsuit={onToggleLawsuit}
+                    onBulkSettle={onBulkSettleDeductions}
+                    onBulkCancel={onBulkCancelDeductions}
+                  />
+                </div>
+              );
+            })}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {paymentModalContract && (
         <PaymentModal
