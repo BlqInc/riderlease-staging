@@ -67,11 +67,11 @@ export const GreenwichSettlement: React.FC<GreenwichSettlementProps> = ({ contra
     const queryDateTotal = useMemo(() => {
         return settlements.reduce((total, s) => {
             if (queryDate >= s.start_date && queryDate <= s.end_date) {
-                return total + (s.total_daily_deduction_amount || 0);
+                return total + (settlementTotalsMap.get(s.settlement_round) || 0);
             }
             return total;
         }, 0);
-    }, [settlements, queryDate]);
+    }, [settlements, queryDate, settlementTotalsMap]);
     
 
     return (
