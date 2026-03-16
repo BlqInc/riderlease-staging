@@ -2,7 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { Contract, GreenwichSettlement as IGreenwichSettlement } from '../types';
 import { formatCurrency, formatDate } from '../lib/utils';
-import { PlusIcon, EditIcon, TrashIcon, CalendarIcon } from './icons/IconComponents';
+import { PlusIcon, EditIcon, TrashIcon } from './icons/IconComponents';
 import { GreenwichSettlementFormModal } from './GreenwichSettlementFormModal';
 
 interface GreenwichSettlementProps {
@@ -16,6 +16,10 @@ export const GreenwichSettlement: React.FC<GreenwichSettlementProps> = ({ contra
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingSettlement, setEditingSettlement] = useState<Partial<IGreenwichSettlement> | null>(null);
     const [selectedSettlementId, setSelectedSettlementId] = useState<string | null>(null);
+    const [queryDate, setQueryDate] = useState<string>(() => {
+        const now = new Date();
+        return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().split('T')[0];
+    });
 
     // 계약 데이터에서 차수별 일차감 합계를 한 번만 계산 (렌더마다 반복 계산 방지)
     const settlementTotalsMap = useMemo(() => {
@@ -60,16 +64,14 @@ export const GreenwichSettlement: React.FC<GreenwichSettlementProps> = ({ contra
         return contracts.filter(c => c.settlement_round === selectedSettlement.settlement_round);
     }, [selectedSettlement, contracts]);
 
-    const todaysTotalSettlementAmount = useMemo(() => {
-        const now = new Date();
-        const todayStr = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().split('T')[0];
-        return settlements.reduce((total, settlement) => {
-            if (todayStr >= settlement.start_date && todayStr <= settlement.end_date) {
-                return total + (settlementTotalsMap.get(settlement.settlement_round) || 0);
+    const queryDateTotal = useMemo(() => {
+        return settlements.reduce((total, s) => {
+            if (queryDate >= s.start_date && queryDate <= s.end_date) {
+                return total + (s.total_daily_deduction_amount || 0);
             }
             return total;
         }, 0);
-    }, [settlements, settlementTotalsMap]);
+    }, [settlements, queryDate]);
     
 
     return (
@@ -90,9 +92,15 @@ export const GreenwichSettlement: React.FC<GreenwichSettlementProps> = ({ contra
                     {/* Left: Settlement Round List */}
                     <div className="lg:col-span-1 space-y-4">
                         <div className="bg-slate-800 p-4 rounded-lg border border-green-700 shadow-lg">
-                           <p className="text-sm font-semibold text-green-300">오늘의 그린위치 정산 총액</p>
-                           <p className="text-3xl font-bold text-white mt-1">{formatCurrency(todaysTotalSettlementAmount)}</p>
-                           <p className="text-xs text-slate-500 mt-1">{formatDate(new Date().toISOString())} 기준 (실시간 집계)</p>
+                           <p className="text-sm font-semibold text-green-300">그린위치 정산 총액</p>
+                           <input
+                               type="date"
+                               value={queryDate}
+                               onChange={e => setQueryDate(e.target.value)}
+                               className="mt-2 w-full bg-slate-700 border border-slate-600 text-white text-sm rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-green-500"
+                           />
+                           <p className="text-3xl font-bold text-white mt-2">{formatCurrency(queryDateTotal)}</p>
+                           <p className="text-xs text-slate-500 mt-1">{formatDate(queryDate)} 기준 (저장된 스냅샷)</p>
                         </div>
                         
                         <div>
