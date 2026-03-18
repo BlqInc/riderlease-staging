@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Partner, PriceTier } from '../types';
 import { CloseIcon, UploadIcon } from './icons/IconComponents';
-import { read, utils } from 'xlsx';
+import { read, utils } from 'xlsx-js-style';
 
 interface PartnerFormModalProps {
   isOpen: boolean;

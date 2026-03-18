@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import * as XLSX from 'xlsx';
+import XLSX from 'xlsx-js-style';
 import { Contract } from '../types';
 import { CloseIcon } from './icons/IconComponents';
 
