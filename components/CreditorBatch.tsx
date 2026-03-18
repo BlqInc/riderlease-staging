@@ -47,19 +47,36 @@ const STYLE_FORMULA = {
   alignment: { horizontal: 'right', vertical: 'center' },
   font: { sz: 10 },
 };
-// 숫자 입력 셀 (노란, 회계 서식 없음)
+// 숫자 입력 셀 (노란, 회계 서식 없음 — 정수)
 const STYLE_INPUT_NUM = {
   fill: { patternType: 'solid', fgColor: { rgb: 'FFFF00' } },
   border: BORDER_ALL,
   alignment: { horizontal: 'right', vertical: 'center', wrapText: false },
   font: { sz: 10 },
 };
-// 회계 서식 (고객리스트 금액 열 전용)
+const ACC_FMT = '_-* #,##0.00_-;_-* -#,##0.00_-;_-* "-"??_-;_-@_-';
+// 회계 서식 — 노란 입력셀 (D, E, J 등)
+const STYLE_INPUT_ACC = {
+  fill: { patternType: 'solid', fgColor: { rgb: 'FFFF00' } },
+  border: BORDER_ALL,
+  alignment: { horizontal: 'right', vertical: 'center', wrapText: false },
+  font: { sz: 10 },
+  numFmt: ACC_FMT,
+};
+// 회계 서식 — 수식셀 (G, I: 흰 배경)
+const STYLE_FORMULA_ACC = {
+  fill: { patternType: 'solid', fgColor: { rgb: 'FFFFFF' } },
+  border: BORDER_ALL,
+  alignment: { horizontal: 'right', vertical: 'center' },
+  font: { sz: 10 },
+  numFmt: ACC_FMT,
+};
+// 회계 서식 (고객리스트 일출금액 열 전용)
 const STYLE_ACCOUNTING = {
   border: BORDER_ALL,
   alignment: { horizontal: 'right', vertical: 'center' },
   font: { sz: 10 },
-  numFmt: '_-* #,##0.00_-;_-* -#,##0.00_-;_-* "-"??_-;_-@_-',
+  numFmt: ACC_FMT,
 };
 const STYLE_HEADER = {
   fill: { patternType: 'solid', fgColor: { rgb: '1F4E79' } },
@@ -224,20 +241,20 @@ function buildWorkbook(
     const supplyAmt = supplyPrice ? Number(supplyPrice) * units : 0;
     const pName = formatProductName(c, edits);
 
-    // 입력 셀 (노란)
-    ws2[XLSX.utils.encode_cell({ c: 1, r })] = cStr(get(c, edits, 'distributor_name') || '', STYLE_INPUT);
-    ws2[XLSX.utils.encode_cell({ c: 2, r })] = cStr(pName, STYLE_INPUT);
-    ws2[XLSX.utils.encode_cell({ c: 3, r })] = cNum(unitA, STYLE_INPUT_NUM);
-    ws2[XLSX.utils.encode_cell({ c: 4, r })] = cNum(unitB, STYLE_INPUT_NUM);
-    ws2[XLSX.utils.encode_cell({ c: 5, r })] = cNum(units, STYLE_INPUT);
+    // 입력 셀
+    ws2[XLSX.utils.encode_cell({ c: 1, r })] = cStr(get(c, edits, 'distributor_name') || '', STYLE_INPUT);   // B: 총판명
+    ws2[XLSX.utils.encode_cell({ c: 2, r })] = cStr(pName, STYLE_INPUT);                                      // C: 상품명
+    ws2[XLSX.utils.encode_cell({ c: 3, r })] = cNum(unitA, STYLE_INPUT_ACC);                                  // D: 1대 일출금액(A) — 회계
+    ws2[XLSX.utils.encode_cell({ c: 4, r })] = cNum(unitB, STYLE_INPUT_ACC);                                  // E: 영업수수료(B) — 회계
+    ws2[XLSX.utils.encode_cell({ c: 5, r })] = cNum(units, STYLE_INPUT_NUM);                                  // F: 총대수 — 정수
 
     // 수식 셀
-    ws2[XLSX.utils.encode_cell({ c: 6, r })] = cNum(dailyTotal, STYLE_FORMULA, `=(D${rowNum}+E${rowNum})*F${rowNum}`);
-    ws2[XLSX.utils.encode_cell({ c: 7, r })] = cNum(days, STYLE_INPUT);
-    ws2[XLSX.utils.encode_cell({ c: 8, r })] = cNum(dailyTotal * days, STYLE_FORMULA, `=G${rowNum}*H${rowNum}`);
+    ws2[XLSX.utils.encode_cell({ c: 6, r })] = cNum(dailyTotal, STYLE_FORMULA_ACC, `=(D${rowNum}+E${rowNum})*F${rowNum}`); // G: 최종 일출금액 — 회계
+    ws2[XLSX.utils.encode_cell({ c: 7, r })] = cNum(days, STYLE_INPUT_NUM);                                   // H: 계약기간 — 정수
+    ws2[XLSX.utils.encode_cell({ c: 8, r })] = cNum(dailyTotal * days, STYLE_FORMULA_ACC, `=G${rowNum}*H${rowNum}`); // I: 총매출액 — 회계
 
-    // J: 공급대금 (입력)
-    ws2[XLSX.utils.encode_cell({ c: 9, r })] = cNum(supplyAmt, STYLE_INPUT_NUM);
+    // J: 공급대금 (입력, 회계)
+    ws2[XLSX.utils.encode_cell({ c: 9, r })] = cNum(supplyAmt, STYLE_INPUT_ACC);
   });
 
   ws2['!ref'] = XLSX.utils.encode_range({ s: { c: 0, r: 0 }, e: { c: 9, r: productRows.length + 10 } });
