@@ -193,7 +193,7 @@ function buildWorkbook(
     '1대 일출금액(A)', '영업수수료(B)',
     '총대수', '최종 일출금액(A+B)',
     '계약기간(일수)', '총매출액',
-    '1대공급가', '공급대금',
+    '공급대금',
   ];
   hdr2.forEach((h, ci) => {
     ws2[XLSX.utils.encode_cell({ c: ci + 1, r: 9 })] = cStr(h, STYLE_HEADER);
@@ -236,16 +236,14 @@ function buildWorkbook(
     ws2[XLSX.utils.encode_cell({ c: 7, r })] = cNum(days, STYLE_INPUT);
     ws2[XLSX.utils.encode_cell({ c: 8, r })] = cNum(dailyTotal * days, STYLE_FORMULA, `=G${rowNum}*H${rowNum}`);
 
-    // J: 1대공급가 (입력), K: 공급대금 = J*F (수식)
-    const unitSupply = supplyPrice ? Number(supplyPrice) : 0;
-    ws2[XLSX.utils.encode_cell({ c: 9,  r })] = cNum(unitSupply, STYLE_INPUT_NUM);
-    ws2[XLSX.utils.encode_cell({ c: 10, r })] = cNum(supplyAmt, STYLE_FORMULA, `=J${rowNum}*F${rowNum}`);
+    // J: 공급대금 (입력)
+    ws2[XLSX.utils.encode_cell({ c: 9, r })] = cNum(supplyAmt, STYLE_INPUT_NUM);
   });
 
-  ws2['!ref'] = XLSX.utils.encode_range({ s: { c: 0, r: 0 }, e: { c: 10, r: productRows.length + 10 } });
+  ws2['!ref'] = XLSX.utils.encode_range({ s: { c: 0, r: 0 }, e: { c: 9, r: productRows.length + 10 } });
   ws2['!cols'] = [
     { wch: 3 },{ wch: 18 },{ wch: 30 },{ wch: 16 },{ wch: 16 },
-    { wch: 10 },{ wch: 16 },{ wch: 12 },{ wch: 18 },{ wch: 16 },{ wch: 20 },
+    { wch: 10 },{ wch: 16 },{ wch: 12 },{ wch: 18 },{ wch: 20 },
   ];
   ws2['!rows'] = Array(9).fill({ hpt: 15 }).concat([{ hpt: 40 }]).concat(productRows.map(() => ({ hpt: 22 })));
   (wb.SheetNames as string[]).push('상품리스트');
