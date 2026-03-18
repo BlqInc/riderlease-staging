@@ -598,7 +598,7 @@ export const CreditorBatch: React.FC<Props> = ({ contracts }) => {
     const canvas = document.createElement('canvas');
     const img = new Image();
     img.onload = () => {
-      const scale = Math.min(1, 1200 / img.naturalWidth);
+      const scale = Math.min(1, 760 / img.naturalWidth);
       canvas.width = Math.round(img.naturalWidth * scale); canvas.height = Math.round(img.naturalHeight * scale);
       const ctx = canvas.getContext('2d')!;
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
