@@ -44,6 +44,9 @@ const initialFormState: FormState = {
   guarantor_address: null,
   unit_price_a: null,
   unit_price_b: null,
+  distributor_rep_name: null,
+  lessee_home_address: null,
+  unit_supply_price: null,
   status: ContractStatus.ACTIVE,
   is_lessee_contract_signed: false,
   shipping_status: ShippingStatus.PREPARING,
@@ -227,7 +230,7 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
     const isCheckbox = type === 'checkbox';
     const checked = isCheckbox ? (e.target as HTMLInputElement).checked : undefined;
     
-    const numericFields = ['duration_days', 'total_amount', 'daily_deduction', 'settlement_round', 'procurement_cost', 'units_required', 'units_secured', 'contract_initial_deduction', 'unit_price_a', 'unit_price_b'];
+    const numericFields = ['duration_days', 'total_amount', 'daily_deduction', 'settlement_round', 'procurement_cost', 'units_required', 'units_secured', 'contract_initial_deduction', 'unit_price_a', 'unit_price_b', 'unit_supply_price'];
     const isNumeric = numericFields.includes(name);
 
     setFormState(prev => {
@@ -401,6 +404,9 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
             </FormSection>
 
             <FormSection title="총판 정보 (선택)">
+                <FormField label="대표자 성명">
+                  <input type="text" name="distributor_rep_name" value={formState.distributor_rep_name || ''} onChange={handleChange} placeholder="예: 김선민" className={inputClass} />
+                </FormField>
                 <FormField label="대표자 성별">
                     <select name="distributor_gender" value={formState.distributor_gender || ''} onChange={handleChange} className={inputClass}>
                         <option value="">선택</option>
@@ -437,6 +443,9 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
                 </FormField>
                 <FormField label="사업자주소">
                     <input type="text" name="lessee_business_address" value={formState.lessee_business_address || ''} onChange={handleChange} className={inputClass} />
+                </FormField>
+                <FormField label="집주소 (사업장과 다를 경우)" className="md:col-span-2">
+                  <input type="text" name="lessee_home_address" value={formState.lessee_home_address || ''} onChange={handleChange} placeholder="주거지 주소 (사업장과 같으면 비워두세요)" className={inputClass} />
                 </FormField>
                 <FormField label="성별">
                     <select name="lessee_gender" value={formState.lessee_gender || ''} onChange={handleChange} className={inputClass}>
@@ -478,6 +487,9 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
                 </FormField>
                 <FormField label="업무수수료 (B) - 원 (없으면 0)">
                     <input type="number" name="unit_price_b" value={formState.unit_price_b ?? ''} onChange={handleChange} placeholder="예: 0" className={inputClass} />
+                </FormField>
+                <FormField label="1대 공급가 (원, 전체 계약기간 기준)">
+                  <input type="number" name="unit_supply_price" value={formState.unit_supply_price || ''} onChange={handleChange} placeholder="예: 2691357" className={inputClass} />
                 </FormField>
             </FormSection>
 

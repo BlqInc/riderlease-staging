@@ -129,6 +129,7 @@ const ContractDetailModal: React.FC<ContractDetailModalProps> = ({ contract, par
 
                     <DetailSection title="총판 정보">
                         <DetailItem label="총판명" value={contract.distributor_name} />
+                        <DetailItem label="대표자 성명" value={contract.distributor_rep_name} />
                         <DetailItem label="연락처" value={contract.distributor_contact} />
                         <DetailItem label="사업자번호" value={contract.distributor_business_number} />
                         <DetailItem label="사업자주소" value={contract.distributor_address} className="col-span-2"/>
@@ -141,6 +142,7 @@ const ContractDetailModal: React.FC<ContractDetailModalProps> = ({ contract, par
                         <DetailItem label="연락처" value={contract.lessee_contact} />
                         <DetailItem label="사업자번호" value={contract.lessee_business_number} />
                         <DetailItem label="사업자주소" value={contract.lessee_business_address} className="col-span-2"/>
+                        <DetailItem label="집주소" value={contract.lessee_home_address} className="col-span-2" />
                         <DetailItem label="성별" value={contract.lessee_gender} />
                         <DetailItem label="생년월일" value={contract.lessee_ssn_prefix ? `${contract.lessee_ssn_prefix.substring(0,2)}.${contract.lessee_ssn_prefix.substring(2,4)}.${contract.lessee_ssn_prefix.substring(4,6)}` : null} />
                     </DetailSection>

@@ -113,6 +113,9 @@ export interface Contract {
   guarantor_address: string | null;
   unit_price_a: number | null;
   unit_price_b: number | null;
+  distributor_rep_name: string | null;
+  lessee_home_address: string | null;
+  unit_supply_price: number | null;
 }
 
 export interface CalendarEvent {
