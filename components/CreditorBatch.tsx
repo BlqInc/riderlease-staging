@@ -46,6 +46,15 @@ const STYLE_FORMULA = {
   border: BORDER_ALL,
   alignment: { horizontal: 'right', vertical: 'center' },
   font: { sz: 10 },
+  numFmt: '_-* #,##0.00_-;_-* -#,##0.00_-;_-* "-"??_-;_-@_-',
+};
+// 회계 서식 (숫자 입력 셀용)
+const STYLE_INPUT_NUM = {
+  fill: { patternType: 'solid', fgColor: { rgb: 'FFFF00' } },
+  border: BORDER_ALL,
+  alignment: { horizontal: 'right', vertical: 'center', wrapText: false },
+  font: { sz: 10 },
+  numFmt: '_-* #,##0.00_-;_-* -#,##0.00_-;_-* "-"??_-;_-@_-',
 };
 const STYLE_HEADER = {
   fill: { patternType: 'solid', fgColor: { rgb: '1F4E79' } },
@@ -77,7 +86,7 @@ function buildWorkbook(
     '접수일자','공급자 성명','공급자 생년월일','공급자 휴대전화','공급자 회사명',
     '공급자 사업자번호','공급자 회사주소','구매자 성명','구매자 생년월일','구매자 휴대전화',
     '성별(남,여)','구매자 집주소','연대보증인 성명','연대보증인 생년월일','연대보증인 휴대전화',
-    '연대보증인 집주소','상품명','수량(대수)','일출금액',
+    '연대보증인 집주소','상품명','수량','금액',
   ];
   const colCount1 = hdr1.length; // 19
 
@@ -132,15 +141,14 @@ function buildWorkbook(
       ws1[XLSX.utils.encode_cell({ c: ci, r })] = cStr(val, STYLE_INPUT);
     });
 
-    // S: 일출금액 - VLOOKUP으로 상품리스트에서 가져오기
-    // 상품리스트 C열(상품명)에서 Q열 값을 찾아 G열(최종일출금액) 반환
+    // S: 금액 - VLOOKUP으로 상품리스트 G열(최종일출금액) 참조
     const unitA = get(c, edits, 'unit_price_a') || 0;
     const unitB = get(c, edits, 'unit_price_b') || 0;
     const units = Number(get(c, edits, 'units_required') || 1);
     const dailyTotal = (unitA + unitB) * units;
     ws1[XLSX.utils.encode_cell({ c: 18, r })] = cNum(
       dailyTotal,
-      STYLE_FORMULA,
+      { ...STYLE_FORMULA },
       `=VLOOKUP(Q${excelRowNum},상품리스트!$C:$G,5,0)`,
     );
   });
@@ -174,13 +182,13 @@ function buildWorkbook(
     ws2[XLSX.utils.encode_cell({ c: 1, r: i })] = cStr(note, STYLE_NOTE);
   });
 
-  // 헤더 (행 10 = r=9)
+  // 헤더 (행 10 = r=9) — 기준 엑셀과 동일한 이름
   const hdr2 = [
     '총판명', '상품명',
-    '1대가격\n일출금액(A)', '1대가격\n영업수수료(B)',
-    '총대수', '최종 일출금액\n(A+B)×대수',
-    '계약기간\n(일수)', '총렌탈료\n(총매출액)',
-    '1대공급가×총대수\n(공급대금)',
+    '1대가격 1대 일출금액(A)', '1대가격 영업수수료(B)',
+    '251110 추가 총대수', '최종 일출금액(A+B)',
+    '계약기간(일수)', '총렌탈료 총매출액',
+    '1대공급가', '1대공급가*총대수 공급대금',
   ];
   hdr2.forEach((h, ci) => {
     ws2[XLSX.utils.encode_cell({ c: ci + 1, r: 9 })] = cStr(h, STYLE_HEADER);
@@ -214,21 +222,25 @@ function buildWorkbook(
     // 입력 셀 (노란)
     ws2[XLSX.utils.encode_cell({ c: 1, r })] = cStr(get(c, edits, 'distributor_name') || '', STYLE_INPUT);
     ws2[XLSX.utils.encode_cell({ c: 2, r })] = cStr(pName, STYLE_INPUT);
-    ws2[XLSX.utils.encode_cell({ c: 3, r })] = cNum(unitA, STYLE_INPUT);
-    ws2[XLSX.utils.encode_cell({ c: 4, r })] = unitB > 0 ? cNum(unitB, STYLE_INPUT) : cStr('0', STYLE_INPUT);
+    ws2[XLSX.utils.encode_cell({ c: 3, r })] = cNum(unitA, STYLE_INPUT_NUM);
+    ws2[XLSX.utils.encode_cell({ c: 4, r })] = cNum(unitB, STYLE_INPUT_NUM);
     ws2[XLSX.utils.encode_cell({ c: 5, r })] = cNum(units, STYLE_INPUT);
 
     // 수식 셀
     ws2[XLSX.utils.encode_cell({ c: 6, r })] = cNum(dailyTotal, STYLE_FORMULA, `=(D${rowNum}+E${rowNum})*F${rowNum}`);
     ws2[XLSX.utils.encode_cell({ c: 7, r })] = cNum(days, STYLE_INPUT);
     ws2[XLSX.utils.encode_cell({ c: 8, r })] = cNum(dailyTotal * days, STYLE_FORMULA, `=G${rowNum}*H${rowNum}`);
-    ws2[XLSX.utils.encode_cell({ c: 9, r })] = cNum(supplyAmt, STYLE_INPUT);
+
+    // J: 1대공급가 (입력), K: 공급대금 = J*F (수식)
+    const unitSupply = supplyPrice ? Number(supplyPrice) : 0;
+    ws2[XLSX.utils.encode_cell({ c: 9,  r })] = cNum(unitSupply, STYLE_INPUT_NUM);
+    ws2[XLSX.utils.encode_cell({ c: 10, r })] = cNum(supplyAmt, STYLE_FORMULA, `=J${rowNum}*F${rowNum}`);
   });
 
-  ws2['!ref'] = XLSX.utils.encode_range({ s: { c: 0, r: 0 }, e: { c: 9, r: productRows.length + 10 } });
+  ws2['!ref'] = XLSX.utils.encode_range({ s: { c: 0, r: 0 }, e: { c: 10, r: productRows.length + 10 } });
   ws2['!cols'] = [
-    { wch: 3 },{ wch: 18 },{ wch: 30 },{ wch: 14 },{ wch: 14 },
-    { wch: 8 },{ wch: 16 },{ wch: 10 },{ wch: 18 },{ wch: 18 },
+    { wch: 3 },{ wch: 18 },{ wch: 30 },{ wch: 16 },{ wch: 16 },
+    { wch: 10 },{ wch: 16 },{ wch: 12 },{ wch: 18 },{ wch: 16 },{ wch: 20 },
   ];
   ws2['!rows'] = Array(9).fill({ hpt: 15 }).concat([{ hpt: 40 }]).concat(productRows.map(() => ({ hpt: 22 })));
   (wb.SheetNames as string[]).push('상품리스트');
@@ -241,7 +253,7 @@ function buildWorkbook(
   ws3['A1'] = cStr('* 총판관리 시트는 시스템에 등록된 모든 총판 정보입니다.', STYLE_NOTE);
 
   // 헤더 (r=1)
-  const hdr3 = ['총판명','공급자 성명(대표자)','공급자 생년월일','공급자 휴대전화','공급자 사업자번호','공급자 회사주소'];
+  const hdr3 = ['총판명','공급자 성명','공급자 생년월일','공급자 휴대전화','공급자 사업자번호','공급자 회사주소'];
   hdr3.forEach((h, ci) => { ws3[XLSX.utils.encode_cell({ c: ci, r: 1 })] = cStr(h, STYLE_HEADER); });
 
   // 전체 계약에서 고유 총판 목록 (allContracts 기준)
