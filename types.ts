@@ -44,6 +44,7 @@ export interface PriceTier {
   duration_days: number;
   total_amount: number;
   daily_deduction: number;
+  supply_price?: number;
 }
 
 export interface Partner {

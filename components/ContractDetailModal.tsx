@@ -1,10 +1,9 @@
 
 
-import React, { useState } from 'react';
+import React from 'react';
 import { Contract, Partner, DeductionStatus } from '../types';
 import { formatDate, formatCurrency, getDaysDifference } from '../lib/utils';
 import { CloseIcon, EditIcon, TrashIcon, DuplicateIcon } from './icons/IconComponents';
-import { CreditorDocumentModal } from './CreditorDocumentModal';
 
 interface ContractDetailModalProps {
   contract: Contract | null;
@@ -43,7 +42,6 @@ const DeductionStatusBadge: React.FC<{ status: DeductionStatus }> = ({ status })
 };
 
 const ContractDetailModal: React.FC<ContractDetailModalProps> = ({ contract, partner, onClose, onEdit, onDelete, onDuplicate }) => {
-  const [isCreditorDocOpen, setIsCreditorDocOpen] = useState(false);
 
   if (!contract || !partner) return null;
 
@@ -178,10 +176,7 @@ const ContractDetailModal: React.FC<ContractDetailModalProps> = ({ contract, par
                 삭제
             </button>
             <div className="flex space-x-4">
-                <button onClick={() => setIsCreditorDocOpen(true)} className="flex items-center bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded-lg transition-colors">
-                    📄 채권사 서류 생성
-                </button>
-                <button onClick={() => onDuplicate(contract)} className="flex items-center bg-sky-600 hover:bg-sky-700 text-white font-bold py-2 px-4 rounded-lg transition-colors">
+<button onClick={() => onDuplicate(contract)} className="flex items-center bg-sky-600 hover:bg-sky-700 text-white font-bold py-2 px-4 rounded-lg transition-colors">
                     <DuplicateIcon className="w-5 h-5 mr-2" />
                     복제
                 </button>
@@ -195,9 +190,7 @@ const ContractDetailModal: React.FC<ContractDetailModalProps> = ({ contract, par
             </div>
         </footer>
       </div>
-      {isCreditorDocOpen && (
-        <CreditorDocumentModal contract={contract} onClose={() => setIsCreditorDocOpen(false)} />
-      )}
+
     </div>
   );
 };

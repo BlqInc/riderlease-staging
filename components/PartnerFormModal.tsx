@@ -56,8 +56,8 @@ export const PartnerFormModal: React.FC<PartnerFormModalProps> = ({ isOpen, onCl
         const worksheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[worksheetName];
         const json: any[] = utils.sheet_to_json(worksheet, {
-            header: ["model", "storage", "duration_days", "total_amount", "daily_deduction"],
-            range: 1 
+            header: ["model", "storage", "duration_days", "total_amount", "daily_deduction", "supply_price"],
+            range: 1
         });
 
         const newPriceTiers: PriceTier[] = json.map((row: any) => ({
@@ -67,6 +67,7 @@ export const PartnerFormModal: React.FC<PartnerFormModalProps> = ({ isOpen, onCl
             duration_days: Number(row.duration_days || 0),
             total_amount: Number(row.total_amount || 0),
             daily_deduction: Number(row.daily_deduction || 0),
+            ...(row.supply_price ? { supply_price: Number(row.supply_price) } : {}),
         })).filter(tier => tier.model && tier.total_amount > 0);
 
         setPriceList(newPriceTiers);
@@ -89,7 +90,7 @@ export const PartnerFormModal: React.FC<PartnerFormModalProps> = ({ isOpen, onCl
         alert('파트너사/템플릿 이름을 입력해주세요.');
         return;
     }
-    const saveData: Omit<Partner, 'id'> & { id?: string } = {
+    const saveData: Omit<Partner, 'id'> & { id?: string; price_list?: PriceTier[] } = {
       name,
       business_number,
       address,
@@ -156,7 +157,7 @@ export const PartnerFormModal: React.FC<PartnerFormModalProps> = ({ isOpen, onCl
                             </p>
                         )}
                         <p className="text-xs text-slate-500 text-center">
-                           A열부터 기종, 용량, 기간, 총채권액, 일차감 순서여야 합니다.
+                           A열부터 기종, 용량, 기간, 총채권액, 일차감, 공급가(선택) 순서여야 합니다.
                         </p>
                     </div>
                 )}

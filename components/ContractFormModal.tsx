@@ -196,6 +196,7 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
           ...prev,
           total_amount: priceTier.total_amount,
           daily_deduction: priceTier.daily_deduction,
+          ...(priceTier.supply_price != null ? { unit_supply_price: priceTier.supply_price } : {}),
         }));
       }
     } else {
