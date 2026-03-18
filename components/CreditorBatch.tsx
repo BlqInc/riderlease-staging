@@ -32,35 +32,43 @@ const formatProductName = (c: Contract | Partial<Contract>, edits?: Partial<Cont
 const get = (c: Contract, edits: Partial<Contract>, field: keyof Contract): any =>
   (edits as any)[field] !== undefined ? (edits as any)[field] : (c as any)[field];
 
-// ── Excel styles ──────────────────────────────────────────
-const YELLOW = { fill: { patternType: 'solid', fgColor: { rgb: 'FFFF00' } } };
-const HEADER = {
+
+// ── Excel styles (more accurate) ──────────────────────────
+const BORDER_ALL = { top: { style: 'thin', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } } };
+
+const STYLE_INPUT = {
+  fill: { patternType: 'solid', fgColor: { rgb: 'FFFF00' } },
+  border: BORDER_ALL,
+  alignment: { vertical: 'center', wrapText: false },
+  font: { sz: 10 },
+};
+const STYLE_FORMULA = {
+  border: BORDER_ALL,
+  alignment: { horizontal: 'right', vertical: 'center' },
+  font: { sz: 10 },
+};
+const STYLE_HEADER = {
   fill: { patternType: 'solid', fgColor: { rgb: '1F4E79' } },
   font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 10 },
   alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
-  border: { top: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' }, bottom: { style: 'thin' } },
+  border: BORDER_ALL,
 };
-const INPUT = {
-  fill: { patternType: 'solid', fgColor: { rgb: 'FFFF00' } },
-  border: { top: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' }, bottom: { style: 'thin' } },
-  alignment: { vertical: 'center' },
+const STYLE_NOTE = {
+  font: { color: { rgb: 'FF0000' }, sz: 9, italic: true },
 };
-const FORMULA = {
-  border: { top: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' }, bottom: { style: 'thin' } },
-  alignment: { horizontal: 'right', vertical: 'center' },
-  numFmt: '#,##0.00',
-};
-const NOTE = {
-  font: { color: { rgb: 'FF0000' }, sz: 9 },
-  fill: { patternType: 'solid', fgColor: { rgb: 'FFFFFFFF' } },
+const STYLE_TITLE = {
+  font: { bold: true, sz: 11, color: { rgb: '1F4E79' } },
 };
 
-const sc = (v: any, t: string, s: any, f?: string) => ({ v, t, s, ...(f ? { f } : {}) });
-const sn = (v: number, s: any, f?: string) => sc(v, 'n', s, f);
-const ss = (v: string, s: any) => sc(v, 's', s);
+const cStr = (v: string, s: any) => ({ v, t: 's', s });
+const cNum = (v: number, s: any, f?: string) => ({ v, t: 'n', s, ...(f ? { f } : {}) });
 
 // ── Build Excel workbook ──────────────────────────────────
-function buildWorkbook(selected: Contract[], allEdits: Record<string, Partial<Contract>>) {
+function buildWorkbook(
+  selected: Contract[],
+  allEdits: Record<string, Partial<Contract>>,
+  allContracts: Contract[],
+) {
   const wb = { SheetNames: [] as string[], Sheets: {} as Record<string, any> };
 
   // ── Sheet 1: 고객리스트 ──
@@ -71,68 +79,87 @@ function buildWorkbook(selected: Contract[], allEdits: Record<string, Partial<Co
     '성별(남,여)','구매자 집주소','연대보증인 성명','연대보증인 생년월일','연대보증인 휴대전화',
     '연대보증인 집주소','상품명','수량(대수)','일출금액',
   ];
-  const colCount1 = hdr1.length;
+  const colCount1 = hdr1.length; // 19
 
-  // Row 0 (A1): notes
-  ws1['A1'] = ss('* 모든 주소 기재시 전자계약서상 원활한 기재를 위해 엑셀함수 [=len(해당셀)] 기준 43 이하로 기재 요청  * 아래 예시와 동일한 양식으로 기재 요청 ("-" 표기 필수)  * 모든 총판 띄어쓰기 금지', NOTE);
+  // Row 1 (r=0): 안내 메모
+  ws1['A1'] = cStr(
+    '* 모든 주소 기재시 전자계약서상 원활한 기재를 위해 엑셀함수 [=len(해당셀)] 기준 43 이하로 기재 요청  ' +
+    '* 아래 예시와 동일한 양식으로 기재 요청 ("-" 표기 필수)  ' +
+    '* 모든 총판 띄어쓰기 금지',
+    STYLE_NOTE,
+  );
 
-  // Row 1 (2): char limit hints
-  ws1['G2'] = ss('28', { font: { sz: 8, color: { rgb: '888888' } } });
-  ws1['L2'] = ss('30', { font: { sz: 8, color: { rgb: '888888' } } });
-  ws1['P2'] = ss('24', { font: { sz: 8, color: { rgb: '888888' } } });
+  // Row 2 (r=1): 글자수 제한 힌트
+  ws1['G2'] = cStr('(28자 이내)', { font: { sz: 8, color: { rgb: 'FF0000' } } });
+  ws1['L2'] = cStr('(30자 이내)', { font: { sz: 8, color: { rgb: 'FF0000' } } });
+  ws1['P2'] = cStr('(24자 이내)', { font: { sz: 8, color: { rgb: 'FF0000' } } });
 
-  // Row 2 (3): headers
+  // Row 3 (r=2): 헤더
   hdr1.forEach((h, ci) => {
-    const addr = XLSX.utils.encode_cell({ c: ci, r: 2 });
-    ws1[addr] = ss(h, HEADER);
+    ws1[XLSX.utils.encode_cell({ c: ci, r: 2 })] = cStr(h, STYLE_HEADER);
   });
 
-  // Data rows start at row 3 (Excel row 4)
+  // 데이터 행 (row 4~ = r=3~)
   selected.forEach((c, ri) => {
     const edits = allEdits[c.id] || {};
+    const r = ri + 3; // 0-indexed excel row
+    const excelRowNum = r + 1; // 1-based Excel row number
+
     const homeAddr = get(c, edits, 'lessee_home_address') || get(c, edits, 'lessee_business_address') || '';
-    const dailyTotal = ((get(c, edits, 'unit_price_a') || 0) + (get(c, edits, 'unit_price_b') || 0)) * (get(c, edits, 'units_required') || 1);
-    const row = [
-      get(c, edits, 'contract_date') || '',
-      get(c, edits, 'distributor_rep_name') || get(c, edits, 'distributor_name') || '',
-      ssnToDate(get(c, edits, 'distributor_ssn_prefix')),
-      get(c, edits, 'distributor_contact') || '',
-      get(c, edits, 'distributor_name') || '',
-      get(c, edits, 'distributor_business_number') || '',
-      get(c, edits, 'distributor_address') || '',
-      get(c, edits, 'lessee_name') || '',
-      ssnToDate(get(c, edits, 'lessee_ssn_prefix')),
-      get(c, edits, 'lessee_contact') || '',
-      get(c, edits, 'lessee_gender') || '',
-      homeAddr,
-      get(c, edits, 'guarantor_name') || '',
-      ssnToDate(get(c, edits, 'guarantor_ssn_prefix')),
-      get(c, edits, 'guarantor_phone') || '',
-      get(c, edits, 'guarantor_address') || '',
-      formatProductName(c, edits),
-      get(c, edits, 'units_required') || 1,
-      dailyTotal,
+
+    // 열 A~R: 입력 셀 (노란색)
+    const inputCols: string[] = [
+      get(c, edits, 'contract_date') || '',          // A: 접수일자
+      get(c, edits, 'distributor_rep_name') || '',   // B: 공급자 성명 (대표자명만, fallback 없음)
+      ssnToDate(get(c, edits, 'distributor_ssn_prefix')), // C: 공급자 생년월일
+      get(c, edits, 'distributor_contact') || '',    // D: 공급자 휴대전화
+      get(c, edits, 'distributor_name') || '',       // E: 공급자 회사명
+      get(c, edits, 'distributor_business_number') || '', // F: 공급자 사업자번호
+      get(c, edits, 'distributor_address') || '',    // G: 공급자 회사주소
+      get(c, edits, 'lessee_name') || '',            // H: 구매자 성명
+      ssnToDate(get(c, edits, 'lessee_ssn_prefix')), // I: 구매자 생년월일
+      get(c, edits, 'lessee_contact') || '',         // J: 구매자 휴대전화
+      get(c, edits, 'lessee_gender') || '',          // K: 성별
+      homeAddr,                                       // L: 구매자 집주소
+      get(c, edits, 'guarantor_name') || '',         // M: 연대보증인 성명
+      ssnToDate(get(c, edits, 'guarantor_ssn_prefix')), // N: 연대보증인 생년월일
+      get(c, edits, 'guarantor_phone') || '',        // O: 연대보증인 휴대전화
+      get(c, edits, 'guarantor_address') || '',      // P: 연대보증인 집주소
+      formatProductName(c, edits),                   // Q: 상품명
+      String(get(c, edits, 'units_required') || 1), // R: 수량
     ];
-    row.forEach((val, ci) => {
-      const addr = XLSX.utils.encode_cell({ c: ci, r: ri + 3 });
-      ws1[addr] = typeof val === 'number' ? sn(val, INPUT) : ss(String(val), INPUT);
+    inputCols.forEach((val, ci) => {
+      ws1[XLSX.utils.encode_cell({ c: ci, r })] = cStr(val, STYLE_INPUT);
     });
+
+    // S: 일출금액 - VLOOKUP으로 상품리스트에서 가져오기
+    // 상품리스트 C열(상품명)에서 Q열 값을 찾아 G열(최종일출금액) 반환
+    const unitA = get(c, edits, 'unit_price_a') || 0;
+    const unitB = get(c, edits, 'unit_price_b') || 0;
+    const units = Number(get(c, edits, 'units_required') || 1);
+    const dailyTotal = (unitA + unitB) * units;
+    ws1[XLSX.utils.encode_cell({ c: 18, r })] = cNum(
+      dailyTotal,
+      STYLE_FORMULA,
+      `=VLOOKUP(Q${excelRowNum},상품리스트!$C:$G,5,0)`,
+    );
   });
 
-  const maxR1 = selected.length + 3;
-  ws1['!ref'] = XLSX.utils.encode_range({ s: { c: 0, r: 0 }, e: { c: colCount1 - 1, r: maxR1 } });
+  ws1['!ref'] = XLSX.utils.encode_range({ s: { c: 0, r: 0 }, e: { c: colCount1 - 1, r: selected.length + 3 } });
   ws1['!cols'] = [
-    { wch: 12 },{ wch: 10 },{ wch: 10 },{ wch: 14 },{ wch: 16 },
-    { wch: 14 },{ wch: 28 },{ wch: 10 },{ wch: 10 },{ wch: 14 },
-    { wch: 8 }, { wch: 30 },{ wch: 10 },{ wch: 10 },{ wch: 14 },
-    { wch: 24 },{ wch: 30 },{ wch: 8 }, { wch: 12 },
+    { wch: 12 },{ wch: 12 },{ wch: 12 },{ wch: 14 },{ wch: 18 },
+    { wch: 14 },{ wch: 28 },{ wch: 12 },{ wch: 12 },{ wch: 14 },
+    { wch: 8 }, { wch: 30 },{ wch: 12 },{ wch: 12 },{ wch: 14 },
+    { wch: 24 },{ wch: 32 },{ wch: 8 }, { wch: 14 },
   ];
-  ws1['!rows'] = [{ hpt: 30 }, { hpt: 14 }, { hpt: 30 }];
+  ws1['!rows'] = [{ hpt: 36 }, { hpt: 14 }, { hpt: 40 }];
   (wb.SheetNames as string[]).push('고객리스트');
   (wb.Sheets as any)['고객리스트'] = ws1;
 
   // ── Sheet 2: 상품리스트 ──
   const ws2: Record<string, any> = {};
+
+  // 안내 노트 (B열, 행 1~8)
   const notes2 = [
     '* 노란색 칸만 기재',
     '* 상품명 공백없이 작성 + (총판명),(총판명(B)) 필수',
@@ -141,131 +168,164 @@ function buildWorkbook(selected: Contract[], allEdits: Record<string, Partial<Co
     '* 동일총판 상품 중 일지급액 다르면 상품명 뒤에 (A),(B) 필수 (ex. 아이폰프로256(린몬스터)(B))',
     '* 영업수수료 없는 경우 0원 표기 필수',
     '* 숫자 서식 : 회계+소수점2자리 / 소수점 이하는 0원이어야 함',
-    '* 25110 수정 : 대수 추가시 자동 계산',
-    '',
+    '* 대수 추가시 자동 계산',
   ];
   notes2.forEach((note, i) => {
-    ws2[XLSX.utils.encode_cell({ c: 1, r: i })] = ss(note, NOTE);
+    ws2[XLSX.utils.encode_cell({ c: 1, r: i })] = cStr(note, STYLE_NOTE);
   });
 
-  // Header row (row 9, index 9)
+  // 헤더 (행 10 = r=9)
   const hdr2 = [
-    '총판명','상품명','1대가격\n일출금액(A)','1대가격\n영업수수료(B)',
-    '총대수','최종 일출금액\n(A+B)','계약기간\n(일수)','=총렌탈료\n총매출액','1대공급가×총대수\n공급대금',
+    '총판명', '상품명',
+    '1대가격\n일출금액(A)', '1대가격\n영업수수료(B)',
+    '총대수', '최종 일출금액\n(A+B)×대수',
+    '계약기간\n(일수)', '총렌탈료\n(총매출액)',
+    '1대공급가×총대수\n(공급대금)',
   ];
   hdr2.forEach((h, ci) => {
-    ws2[XLSX.utils.encode_cell({ c: ci + 1, r: 9 })] = ss(h, HEADER);
+    ws2[XLSX.utils.encode_cell({ c: ci + 1, r: 9 })] = cStr(h, STYLE_HEADER);
   });
 
-  // Data rows start at row 10 (index 10)
-  selected.forEach((c, ri) => {
+  // 데이터 (행 11~ = r=10~)
+  // 동일 상품명 중복 제거 (상품리스트는 상품 단위)
+  const productSeen = new Set<string>();
+  const productRows: Array<{ c: Contract; edits: Partial<Contract> }> = [];
+  selected.forEach(c => {
     const edits = allEdits[c.id] || {};
+    const pName = formatProductName(c, edits);
+    if (!productSeen.has(pName)) {
+      productSeen.add(pName);
+      productRows.push({ c, edits });
+    }
+  });
+
+  productRows.forEach(({ c, edits }, ri) => {
+    const r = ri + 10;
+    const rowNum = r + 1;
     const unitA = get(c, edits, 'unit_price_a') || 0;
     const unitB = get(c, edits, 'unit_price_b') || 0;
-    const units = get(c, edits, 'units_required') || 1;
-    const days = get(c, edits, 'duration_days') || 180;
+    const units = Number(get(c, edits, 'units_required') || 1);
+    const days = Number(get(c, edits, 'duration_days') || 180);
     const dailyTotal = (unitA + unitB) * units;
     const supplyPrice = get(c, edits, 'unit_supply_price');
-    const supplyAmt = supplyPrice ? supplyPrice * units : 0;
+    const supplyAmt = supplyPrice ? Number(supplyPrice) * units : 0;
     const pName = formatProductName(c, edits);
 
-    const excelRow = ri + 10; // 0-indexed row
-    const colB = 1, colC = 2, colD = 3, colE = 4, colF = 5, colG = 6, colH = 7, colI = 8, colJ = 9;
+    // 입력 셀 (노란)
+    ws2[XLSX.utils.encode_cell({ c: 1, r })] = cStr(get(c, edits, 'distributor_name') || '', STYLE_INPUT);
+    ws2[XLSX.utils.encode_cell({ c: 2, r })] = cStr(pName, STYLE_INPUT);
+    ws2[XLSX.utils.encode_cell({ c: 3, r })] = cNum(unitA, STYLE_INPUT);
+    ws2[XLSX.utils.encode_cell({ c: 4, r })] = unitB > 0 ? cNum(unitB, STYLE_INPUT) : cStr('0', STYLE_INPUT);
+    ws2[XLSX.utils.encode_cell({ c: 5, r })] = cNum(units, STYLE_INPUT);
 
-    // Input cells (yellow)
-    ws2[XLSX.utils.encode_cell({ c: colB, r: excelRow })] = ss(c.distributor_name || '', INPUT);
-    ws2[XLSX.utils.encode_cell({ c: colC, r: excelRow })] = ss(pName, INPUT);
-    ws2[XLSX.utils.encode_cell({ c: colD, r: excelRow })] = sn(unitA, INPUT);
-    ws2[XLSX.utils.encode_cell({ c: colE, r: excelRow })] = unitB > 0 ? sn(unitB, INPUT) : ss('-', INPUT);
-    ws2[XLSX.utils.encode_cell({ c: colF, r: excelRow })] = sn(units, INPUT);
-
-    // Formula cells
-    const rowNum = excelRow + 1; // Excel row number (1-based)
-    ws2[XLSX.utils.encode_cell({ c: colG, r: excelRow })] = sn(dailyTotal, FORMULA, `=(D${rowNum}+E${rowNum})*F${rowNum}`);
-    ws2[XLSX.utils.encode_cell({ c: colH, r: excelRow })] = sn(days, FORMULA);
-    ws2[XLSX.utils.encode_cell({ c: colI, r: excelRow })] = sn(dailyTotal * days, FORMULA, `=G${rowNum}*H${rowNum}`);
-    ws2[XLSX.utils.encode_cell({ c: colJ, r: excelRow })] = sn(supplyAmt, FORMULA);
+    // 수식 셀
+    ws2[XLSX.utils.encode_cell({ c: 6, r })] = cNum(dailyTotal, STYLE_FORMULA, `=(D${rowNum}+E${rowNum})*F${rowNum}`);
+    ws2[XLSX.utils.encode_cell({ c: 7, r })] = cNum(days, STYLE_INPUT);
+    ws2[XLSX.utils.encode_cell({ c: 8, r })] = cNum(dailyTotal * days, STYLE_FORMULA, `=G${rowNum}*H${rowNum}`);
+    ws2[XLSX.utils.encode_cell({ c: 9, r })] = cNum(supplyAmt, STYLE_INPUT);
   });
 
-  const maxR2 = selected.length + 10;
-  ws2['!ref'] = XLSX.utils.encode_range({ s: { c: 0, r: 0 }, e: { c: 9, r: maxR2 } });
-  ws2['!cols'] = [{ wch: 3 },{ wch: 16 },{ wch: 28 },{ wch: 14 },{ wch: 14 },{ wch: 8 },{ wch: 14 },{ wch: 10 },{ wch: 16 },{ wch: 16 }];
-  ws2['!rows'] = Array(10).fill({ hpt: 15 }).concat(selected.map(() => ({ hpt: 20 })));
+  ws2['!ref'] = XLSX.utils.encode_range({ s: { c: 0, r: 0 }, e: { c: 9, r: productRows.length + 10 } });
+  ws2['!cols'] = [
+    { wch: 3 },{ wch: 18 },{ wch: 30 },{ wch: 14 },{ wch: 14 },
+    { wch: 8 },{ wch: 16 },{ wch: 10 },{ wch: 18 },{ wch: 18 },
+  ];
+  ws2['!rows'] = Array(9).fill({ hpt: 15 }).concat([{ hpt: 40 }]).concat(productRows.map(() => ({ hpt: 22 })));
   (wb.SheetNames as string[]).push('상품리스트');
   (wb.Sheets as any)['상품리스트'] = ws2;
 
-  // ── Sheet 3: 총판관리 ──
+  // ── Sheet 3: 총판관리 (전체 계약 기준 모든 총판) ──
   const ws3: Record<string, any> = {};
-  const hdr3 = ['총판명','공급자 성명','공급자 생년월일','공급자 휴대전화','공급자 사업자번호','공급자 회사주소'];
-  hdr3.forEach((h, ci) => { ws3[XLSX.utils.encode_cell({ c: ci, r: 0 })] = ss(h, HEADER); });
 
-  // Unique distributors from all contracts
-  const seen = new Set<string>();
+  // 안내
+  ws3['A1'] = cStr('* 총판관리 시트는 시스템에 등록된 모든 총판 정보입니다.', STYLE_NOTE);
+
+  // 헤더 (r=1)
+  const hdr3 = ['총판명','공급자 성명(대표자)','공급자 생년월일','공급자 휴대전화','공급자 사업자번호','공급자 회사주소'];
+  hdr3.forEach((h, ci) => { ws3[XLSX.utils.encode_cell({ c: ci, r: 1 })] = cStr(h, STYLE_HEADER); });
+
+  // 전체 계약에서 고유 총판 목록 (allContracts 기준)
+  const distSeen = new Set<string>();
   const distRows: Contract[] = [];
-  selected.forEach(c => {
+  allContracts.forEach(c => {
     const key = c.distributor_name || '';
-    if (key && !seen.has(key)) { seen.add(key); distRows.push(c); }
+    if (key && !distSeen.has(key)) { distSeen.add(key); distRows.push(c); }
   });
+
   distRows.forEach((c, ri) => {
     const edits = allEdits[c.id] || {};
     const row3 = [
       get(c, edits, 'distributor_name') || '',
-      get(c, edits, 'distributor_rep_name') || '',
+      get(c, edits, 'distributor_rep_name') || '',          // 공급자 성명 = 대표자 성명
       ssnToDate(get(c, edits, 'distributor_ssn_prefix')),
       get(c, edits, 'distributor_contact') || '',
       get(c, edits, 'distributor_business_number') || '',
       get(c, edits, 'distributor_address') || '',
     ];
     row3.forEach((val, ci) => {
-      ws3[XLSX.utils.encode_cell({ c: ci, r: ri + 1 })] = ss(String(val), INPUT);
+      ws3[XLSX.utils.encode_cell({ c: ci, r: ri + 2 })] = cStr(String(val), STYLE_INPUT);
     });
   });
-  ws3['!ref'] = XLSX.utils.encode_range({ s: { c: 0, r: 0 }, e: { c: 5, r: distRows.length + 1 } });
-  ws3['!cols'] = [{ wch: 20 },{ wch: 12 },{ wch: 12 },{ wch: 14 },{ wch: 16 },{ wch: 35 }];
+
+  ws3['!ref'] = XLSX.utils.encode_range({ s: { c: 0, r: 0 }, e: { c: 5, r: distRows.length + 2 } });
+  ws3['!cols'] = [{ wch: 22 },{ wch: 14 },{ wch: 12 },{ wch: 16 },{ wch: 16 },{ wch: 38 }];
+  ws3['!rows'] = [{ hpt: 16 }, { hpt: 36 }];
   (wb.SheetNames as string[]).push('총판관리');
   (wb.Sheets as any)['총판관리'] = ws3;
 
   // ── Sheet 4: 접수가이드 ──
   const ws4: Record<string, any> = {};
-  const guide = [
-    ['고객리스트 탭'],
-    ['* 모든 주소 기재시 전자계약서상 원활한 기재를 위해 엑셀함수 [=len(해당셀)] 기준 43 이하로 기재 요청'],
-    ['* 아래 예시와 동일한 양식으로 기재 요청 ("-" 표기 필수)'],
-    ['* 모든 총판 띄어쓰기 금지 / 동일 총판인데 대표자 다를 경우 총판명 뒤에 공백없이 (B) 기재 필수'],
-    ['- 251024 추가'],
-    ['* 행 1개 = 계약서 1개'],
-    ['* 라이더별, 상품별 전부 구분하여 행 기재해야 함. (상품등록조건 확인 필수)'],
-    [''],
-    ['상품리스트 탭'],
-    ['* 노란색 칸만 기재'],
-    ['* 상품명 공백없이 작성 + (총판명),(총판명(B)) 필수'],
-    ['* 특수상황에만 "_" 사용 (ex.폴드6_512)'],
-    ['* 소수점 이하 없이 기재'],
-    ['* 동일총판 상품 중 일지급액 다르면 상품명 뒤에 (A),(B) 필수'],
-    ['* 영업수수료 없는 경우 0원 표기 필수'],
-    ['* 숫자 서식 : 회계+소수점2자리 / 소수점 이하는 0원이어야 함'],
-    [''],
-    ['접수양식'],
-    ['* 다량접수시 총판 구분 없이 엑셀 합쳐서 저장 및 발송'],
-    ['* 접수건 파일명 양식'],
-    ['', 'ex. 상품구매 및 이용계약서 251024_생각효성,메가_10대'],
-    ['', '-> 엑셀파일 내용 보면서 구분 가능할 정도로만 간단하게 총판명 줄여서 기재'],
-    ['', '-> 계약건수 아닌 총 대수로 기재'],
-    ['* 접수서류 파일명 양식'],
-    ['', 'ex1. 총판(=사업자등록증상 총판명)'],
-    ['', '메가라이더스_사업자등록증.jpg'],
-    ['', 'ex2. 총판대표'],
-    ['', '메가라이더스_대표자_정혜미_신분증.jpg'],
-    ['', 'ex3. 라이더'],
-    ['', '메가라이더스_라이더_권혁규_신분증.jpg'],
+
+  const guideData: Array<{ text: string; indent?: boolean; title?: boolean }> = [
+    { text: '📋 접수가이드', title: true },
+    { text: '' },
+    { text: '[고객리스트 탭]', title: true },
+    { text: '* 모든 주소 기재시 전자계약서상 원활한 기재를 위해 엑셀함수 [=len(해당셀)] 기준 43 이하로 기재 요청' },
+    { text: '* 아래 예시와 동일한 양식으로 기재 요청 ("-" 표기 필수)' },
+    { text: '* 모든 총판 띄어쓰기 금지' },
+    { text: '* 동일 총판인데 대표자 다를 경우 총판명 뒤에 공백없이 (B) 기재 필수' },
+    { text: '* 행 1개 = 계약서 1개' },
+    { text: '* 라이더별, 상품별 전부 구분하여 행 기재해야 함. (상품등록조건 확인 필수)' },
+    { text: '' },
+    { text: '[상품리스트 탭]', title: true },
+    { text: '* 노란색 칸만 기재' },
+    { text: '* 상품명 공백없이 작성 + (총판명),(총판명(B)) 필수' },
+    { text: '* 특수상황에만 "_" 사용 (ex.폴드6_512)' },
+    { text: '* 소수점 이하 없이 기재' },
+    { text: '* 동일총판 상품 중 일지급액 다르면 상품명 뒤에 (A),(B) 필수 (ex. 아이폰프로256(린몬스터)(B))' },
+    { text: '* 영업수수료 없는 경우 0원 표기 필수' },
+    { text: '* 숫자 서식 : 회계+소수점2자리 / 소수점 이하는 0원이어야 함' },
+    { text: '' },
+    { text: '[접수양식]', title: true },
+    { text: '* 다량접수시 총판 구분 없이 엑셀 합쳐서 저장 및 발송' },
+    { text: '' },
+    { text: '▶ 접수건 파일명 양식', title: true },
+    { text: 'ex. 상품구매 및 이용계약서 251024_생각효성,메가_10대', indent: true },
+    { text: '→ 엑셀파일 내용 보면서 구분 가능할 정도로만 간단하게 총판명 줄여서 기재', indent: true },
+    { text: '→ 계약건수 아닌 총 대수로 기재', indent: true },
+    { text: '' },
+    { text: '▶ 접수서류 파일명 양식', title: true },
+    { text: 'ex1. 총판(=사업자등록증상 총판명)', indent: true },
+    { text: '메가라이더스_사업자등록증.jpg', indent: true },
+    { text: 'ex2. 총판대표', indent: true },
+    { text: '메가라이더스_대표자_정혜미_신분증.jpg', indent: true },
+    { text: 'ex3. 라이더', indent: true },
+    { text: '메가라이더스_라이더_권혁규_신분증.jpg', indent: true },
+    { text: '' },
+    { text: '[총판관리 탭]', title: true },
+    { text: '* 시스템에 등록된 전체 총판 목록이 자동으로 채워집니다.' },
+    { text: '* 총판별 대표자 정보(성명, 생년월일, 연락처, 사업자번호, 주소)를 확인하세요.' },
   ];
-  guide.forEach((row, ri) => {
-    row.forEach((val, ci) => {
-      if (val) ws4[XLSX.utils.encode_cell({ c: ci, r: ri })] = ss(val, NOTE);
-    });
+
+  guideData.forEach((item, ri) => {
+    if (!item.text) return;
+    const col = item.indent ? 1 : 0;
+    const style = item.title ? STYLE_TITLE : STYLE_NOTE;
+    ws4[XLSX.utils.encode_cell({ c: col, r: ri })] = cStr(item.text, style);
   });
-  ws4['!ref'] = XLSX.utils.encode_range({ s: { c: 0, r: 0 }, e: { c: 1, r: guide.length } });
-  ws4['!cols'] = [{ wch: 70 },{ wch: 60 }];
+
+  ws4['!ref'] = XLSX.utils.encode_range({ s: { c: 0, r: 0 }, e: { c: 1, r: guideData.length } });
+  ws4['!cols'] = [{ wch: 75 }, { wch: 65 }];
   (wb.SheetNames as string[]).push('접수가이드');
   (wb.Sheets as any)['접수가이드'] = ws4;
 
@@ -438,8 +498,7 @@ export const CreditorBatch: React.FC<Props> = ({ contracts }) => {
 
   const generateExcel = () => {
     if (selectedContracts.length === 0) return;
-    const mergedContracts = selectedContracts.map(c => ({ ...c, ...(pendingEdits[c.id] || {}) } as Contract));
-    const wb = buildWorkbook(mergedContracts, {});
+    const wb = buildWorkbook(selectedContracts, pendingEdits, contracts);
     const today = new Date();
     const dateStr = `${String(today.getFullYear()).substring(2)}${String(today.getMonth()+1).padStart(2,'0')}${String(today.getDate()).padStart(2,'0')}`;
     const distNames = [...new Set(mergedContracts.map(c => c.distributor_name || '').filter(Boolean))].slice(0, 3).join(',');
@@ -557,9 +616,10 @@ export const CreditorBatch: React.FC<Props> = ({ contracts }) => {
                 <thead>
                   <tr className="bg-slate-700 text-slate-300">
                     <th className="p-2 text-left whitespace-nowrap">#</th>
-                    <th className="p-2 text-left whitespace-nowrap">공급자 성명</th>
+                    <th className="p-2 text-left whitespace-nowrap">공급자 성명<br/><span className="text-yellow-400 font-normal">(대표자명)</span></th>
                     <th className="p-2 text-left whitespace-nowrap">공급자 생년월일</th>
-                    <th className="p-2 text-left whitespace-nowrap">구매자(라이더)</th>
+                    <th className="p-2 text-left whitespace-nowrap">구매자 성명<br/><span className="text-yellow-400 font-normal">(라이더)</span></th>
+                    <th className="p-2 text-left whitespace-nowrap">구매자 연락처</th>
                     <th className="p-2 text-left whitespace-nowrap">라이더 생년월일</th>
                     <th className="p-2 text-left whitespace-nowrap">성별</th>
                     <th className="p-2 text-left whitespace-nowrap">라이더 집주소</th>
@@ -583,7 +643,8 @@ export const CreditorBatch: React.FC<Props> = ({ contracts }) => {
                         <td className="p-2 text-slate-400 font-mono whitespace-nowrap">#{c.contract_number}<br/><span className="text-slate-500">{c.lessee_name}</span></td>
                         <td className="p-2"><EditCell value={getVal(c,'distributor_rep_name')} field="distributor_rep_name" placeholder="대표자명" onChange={(f,v)=>handleEdit(c.id,f,v)} onSave={()=>saveContractEdits(c.id)} /></td>
                         <td className="p-2"><EditCell value={getVal(c,'distributor_ssn_prefix')} field="distributor_ssn_prefix" placeholder="YYMMDD" onChange={(f,v)=>handleEdit(c.id,f,v)} onSave={()=>saveContractEdits(c.id)} /></td>
-                        <td className="p-2 text-white whitespace-nowrap">{c.lessee_name}</td>
+                        <td className="p-2"><EditCell value={getVal(c,'lessee_name')} field="lessee_name" placeholder="라이더명" onChange={(f,v)=>handleEdit(c.id,f,v)} onSave={()=>saveContractEdits(c.id)} /></td>
+                        <td className="p-2"><EditCell value={getVal(c,'lessee_contact')} field="lessee_contact" placeholder="010-0000-0000" onChange={(f,v)=>handleEdit(c.id,f,v)} onSave={()=>saveContractEdits(c.id)} /></td>
                         <td className="p-2"><EditCell value={getVal(c,'lessee_ssn_prefix')} field="lessee_ssn_prefix" placeholder="YYMMDD" onChange={(f,v)=>handleEdit(c.id,f,v)} onSave={()=>saveContractEdits(c.id)} /></td>
                         <td className="p-2"><EditCell value={getVal(c,'lessee_gender')} field="lessee_gender" options={['남','여']} onChange={(f,v)=>handleEdit(c.id,f,v)} onSave={()=>saveContractEdits(c.id)} /></td>
                         <td className="p-2"><EditCell value={getVal(c,'lessee_home_address') || getVal(c,'lessee_business_address')} field="lessee_home_address" placeholder="집주소" onChange={(f,v)=>handleEdit(c.id,f,v)} onSave={()=>saveContractEdits(c.id)} /></td>
