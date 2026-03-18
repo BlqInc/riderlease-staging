@@ -480,10 +480,15 @@ export const CreditorBatch: React.FC<Props> = ({ contracts }) => {
 
   const saveContractEdits = async (contractId: string) => {
     const edits = pendingEdits[contractId];
-    if (!edits || Object.keys(edits).length === 0 || !supabase) return;
+    if (!edits || !supabase) return;
+    // 빈 문자열은 저장하지 않음 (실수로 필드 지워도 원본 유지)
+    const safeEdits = Object.fromEntries(
+      Object.entries(edits).filter(([, v]) => v !== '' && v !== undefined)
+    );
+    if (Object.keys(safeEdits).length === 0) return;
     setSavingIds(prev => new Set(prev).add(contractId));
     try {
-      await supabase.from('contracts').update(edits as any).eq('id', contractId);
+      await supabase.from('contracts').update(safeEdits as any).eq('id', contractId);
     } catch (e) {
       console.error('Save error:', e);
     } finally {
@@ -501,8 +506,8 @@ export const CreditorBatch: React.FC<Props> = ({ contracts }) => {
     const wb = buildWorkbook(selectedContracts, pendingEdits, contracts);
     const today = new Date();
     const dateStr = `${String(today.getFullYear()).substring(2)}${String(today.getMonth()+1).padStart(2,'0')}${String(today.getDate()).padStart(2,'0')}`;
-    const distNames = [...new Set(mergedContracts.map(c => c.distributor_name || '').filter(Boolean))].slice(0, 3).join(',');
-    const totalUnits = mergedContracts.reduce((s, c) => s + (c.units_required || 1), 0);
+    const distNames = [...new Set(selectedContracts.map(c => (pendingEdits[c.id]?.distributor_name ?? c.distributor_name) || '').filter(Boolean))].slice(0, 3).join(',');
+    const totalUnits = selectedContracts.reduce((s, c) => s + ((pendingEdits[c.id]?.units_required ?? c.units_required) || 1), 0);
     XLSX.writeFile(wb, `상품구매및이용계약서${dateStr}_${distNames}_총${totalUnits}대.xlsx`);
   };
 
