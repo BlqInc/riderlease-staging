@@ -46,13 +46,18 @@ const STYLE_FORMULA = {
   border: BORDER_ALL,
   alignment: { horizontal: 'right', vertical: 'center' },
   font: { sz: 10 },
-  numFmt: '_-* #,##0.00_-;_-* -#,##0.00_-;_-* "-"??_-;_-@_-',
 };
-// 회계 서식 (숫자 입력 셀용)
+// 숫자 입력 셀 (노란, 회계 서식 없음)
 const STYLE_INPUT_NUM = {
   fill: { patternType: 'solid', fgColor: { rgb: 'FFFF00' } },
   border: BORDER_ALL,
   alignment: { horizontal: 'right', vertical: 'center', wrapText: false },
+  font: { sz: 10 },
+};
+// 회계 서식 (고객리스트 금액 열 전용)
+const STYLE_ACCOUNTING = {
+  border: BORDER_ALL,
+  alignment: { horizontal: 'right', vertical: 'center' },
   font: { sz: 10 },
   numFmt: '_-* #,##0.00_-;_-* -#,##0.00_-;_-* "-"??_-;_-@_-',
 };
@@ -148,7 +153,7 @@ function buildWorkbook(
     const dailyTotal = (unitA + unitB) * units;
     ws1[XLSX.utils.encode_cell({ c: 18, r })] = cNum(
       dailyTotal,
-      { ...STYLE_FORMULA },
+      STYLE_ACCOUNTING,
       `=VLOOKUP(Q${excelRowNum},상품리스트!$C:$G,5,0)`,
     );
   });
@@ -185,10 +190,10 @@ function buildWorkbook(
   // 헤더 (행 10 = r=9) — 기준 엑셀과 동일한 이름
   const hdr2 = [
     '총판명', '상품명',
-    '1대가격 1대 일출금액(A)', '1대가격 영업수수료(B)',
-    '251110 추가 총대수', '최종 일출금액(A+B)',
-    '계약기간(일수)', '총렌탈료 총매출액',
-    '1대공급가', '1대공급가*총대수 공급대금',
+    '1대 일출금액(A)', '영업수수료(B)',
+    '총대수', '최종 일출금액(A+B)',
+    '계약기간(일수)', '총매출액',
+    '1대공급가', '공급대금',
   ];
   hdr2.forEach((h, ci) => {
     ws2[XLSX.utils.encode_cell({ c: ci + 1, r: 9 })] = cStr(h, STYLE_HEADER);
