@@ -33,63 +33,82 @@ const get = (c: Contract, edits: Partial<Contract>, field: keyof Contract): any 
   (edits as any)[field] !== undefined ? (edits as any)[field] : (c as any)[field];
 
 
-// ── Excel styles (more accurate) ──────────────────────────
-const BORDER_ALL = { top: { style: 'thin', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } } };
+// ── Excel styles ───────────────────────────────────────────
+const BORDER_ALL = {
+  top:    { style: 'thin', color: { rgb: '000000' } },
+  left:   { style: 'thin', color: { rgb: '000000' } },
+  right:  { style: 'thin', color: { rgb: '000000' } },
+  bottom: { style: 'thin', color: { rgb: '000000' } },
+};
+const ACC_FMT = '_-* #,##0.00_-;_-* -#,##0.00_-;_-* "-"??_-;_-@_-';
 
+// ── 헤더 스타일 (원본 색상 기준) ─────────────────────────
+const makeHdr = (rgb: string) => ({
+  fill: { patternType: 'solid', fgColor: { rgb } },
+  border: BORDER_ALL,
+  font: { bold: true, sz: 10, color: { rgb: '000000' } },
+  alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+});
+// 고객리스트 헤더 색상
+const HDR_SUPPLIER = makeHdr('DCEAF7'); // 공급자·연대보증인 (연파랑)
+const HDR_BUYER    = makeHdr('D9F2D0'); // 구매자 (연초록)
+const HDR_YELLOW   = makeHdr('FFFF00'); // 성별, 상품명, 수량, 일출금액
+// 상품리스트 헤더 색상
+const HDR_FORMULA  = makeHdr('F0F6F9'); // 수식열 (아주 연한 파랑)
+const HDR_SUPPLY   = makeHdr('83CBEB'); // 공급대금·총판관리 (하늘)
+
+// ── 데이터 셀 스타일 ─────────────────────────────────────
+// 흰 배경 텍스트 (고객리스트, 총판관리 데이터)
+const STYLE_DATA = {
+  border: BORDER_ALL,
+  alignment: { vertical: 'center', wrapText: false },
+  font: { sz: 10 },
+};
+// 흰 배경 숫자 (정렬 우측)
+const STYLE_DATA_NUM = {
+  border: BORDER_ALL,
+  alignment: { horizontal: 'right', vertical: 'center' },
+  font: { sz: 10 },
+};
+// 흰 배경 회계 서식 (고객리스트 일출금액, 상품리스트 G·H·I·J)
+const STYLE_DATA_ACC = {
+  border: BORDER_ALL,
+  alignment: { horizontal: 'right', vertical: 'center' },
+  font: { sz: 10 },
+  numFmt: ACC_FMT,
+};
+// 노란 배경 입력 텍스트 (상품리스트 B·C)
 const STYLE_INPUT = {
   fill: { patternType: 'solid', fgColor: { rgb: 'FFFF00' } },
   border: BORDER_ALL,
   alignment: { vertical: 'center', wrapText: false },
   font: { sz: 10 },
 };
-const STYLE_FORMULA = {
-  border: BORDER_ALL,
-  alignment: { horizontal: 'right', vertical: 'center' },
-  font: { sz: 10 },
-};
-// 숫자 입력 셀 (노란, 회계 서식 없음 — 정수)
+// 노란 배경 정수 (상품리스트 F)
 const STYLE_INPUT_NUM = {
   fill: { patternType: 'solid', fgColor: { rgb: 'FFFF00' } },
   border: BORDER_ALL,
-  alignment: { horizontal: 'right', vertical: 'center', wrapText: false },
+  alignment: { horizontal: 'right', vertical: 'center' },
   font: { sz: 10 },
 };
-const ACC_FMT = '_-* #,##0.00_-;_-* -#,##0.00_-;_-* "-"??_-;_-@_-';
-// 회계 서식 — 노란 입력셀 (D, E, J 등)
+// 노란 배경 회계 (상품리스트 D·E)
 const STYLE_INPUT_ACC = {
   fill: { patternType: 'solid', fgColor: { rgb: 'FFFF00' } },
   border: BORDER_ALL,
-  alignment: { horizontal: 'right', vertical: 'center', wrapText: false },
+  alignment: { horizontal: 'right', vertical: 'center' },
   font: { sz: 10 },
   numFmt: ACC_FMT,
 };
-// 회계 서식 — 수식셀 (G, I: 흰 배경)
+// 흰 배경 수식 + 회계 (상품리스트 G·I)
 const STYLE_FORMULA_ACC = {
-  fill: { patternType: 'solid', fgColor: { rgb: 'FFFFFF' } },
   border: BORDER_ALL,
   alignment: { horizontal: 'right', vertical: 'center' },
   font: { sz: 10 },
   numFmt: ACC_FMT,
 };
-// 회계 서식 (고객리스트 일출금액 열 전용)
-const STYLE_ACCOUNTING = {
-  border: BORDER_ALL,
-  alignment: { horizontal: 'right', vertical: 'center' },
-  font: { sz: 10 },
-  numFmt: ACC_FMT,
-};
-const STYLE_HEADER = {
-  fill: { patternType: 'solid', fgColor: { rgb: '1F4E79' } },
-  font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 10 },
-  alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
-  border: BORDER_ALL,
-};
-const STYLE_NOTE = {
-  font: { color: { rgb: 'FF0000' }, sz: 9, italic: true },
-};
-const STYLE_TITLE = {
-  font: { bold: true, sz: 11, color: { rgb: '1F4E79' } },
-};
+
+const STYLE_NOTE  = { font: { color: { rgb: 'FF0000' }, sz: 9, italic: true } };
+const STYLE_TITLE = { font: { bold: true, sz: 11, color: { rgb: '1F4E79' } } };
 
 const cStr = (v: string, s: any) => ({ v, t: 's', s });
 const cNum = (v: number, s: any, f?: string) => ({ v, t: 'n', s, ...(f ? { f } : {}) });
@@ -125,9 +144,16 @@ function buildWorkbook(
   ws1['L2'] = cStr('(30자 이내)', { font: { sz: 8, color: { rgb: 'FF0000' } } });
   ws1['P2'] = cStr('(24자 이내)', { font: { sz: 8, color: { rgb: 'FF0000' } } });
 
-  // Row 3 (r=2): 헤더
+  // Row 3 (r=2): 헤더 — 열 그룹별 색상
+  // A-G: 공급자(연파랑), H-L: 구매자(연초록, K=노랑), M-P: 연대보증인(연파랑), Q-S: 상품(노랑)
+  const hdr1Styles = [
+    HDR_SUPPLIER, HDR_SUPPLIER, HDR_SUPPLIER, HDR_SUPPLIER, HDR_SUPPLIER, HDR_SUPPLIER, HDR_SUPPLIER, // A~G
+    HDR_BUYER,    HDR_BUYER,    HDR_BUYER,    HDR_YELLOW,   HDR_BUYER,   // H~L
+    HDR_SUPPLIER, HDR_SUPPLIER, HDR_SUPPLIER, HDR_SUPPLIER, // M~P
+    HDR_YELLOW,   HDR_YELLOW,   HDR_YELLOW,  // Q~S
+  ];
   hdr1.forEach((h, ci) => {
-    ws1[XLSX.utils.encode_cell({ c: ci, r: 2 })] = cStr(h, STYLE_HEADER);
+    ws1[XLSX.utils.encode_cell({ c: ci, r: 2 })] = cStr(h, hdr1Styles[ci]);
   });
 
   // 데이터 행 (row 4~ = r=3~)
@@ -159,18 +185,19 @@ function buildWorkbook(
       formatProductName(c, edits),                   // Q: 상품명
       String(get(c, edits, 'units_required') || 1), // R: 수량
     ];
+    // 고객리스트 데이터 셀: 원본과 동일하게 흰 배경(배경색 없음)
     inputCols.forEach((val, ci) => {
-      ws1[XLSX.utils.encode_cell({ c: ci, r })] = cStr(val, STYLE_INPUT);
+      ws1[XLSX.utils.encode_cell({ c: ci, r })] = cStr(val, STYLE_DATA);
     });
 
-    // S: 금액 - VLOOKUP으로 상품리스트 G열(최종일출금액) 참조
+    // S: 일출금액 - VLOOKUP, 회계 서식
     const unitA = get(c, edits, 'unit_price_a') || 0;
     const unitB = get(c, edits, 'unit_price_b') || 0;
     const units = Number(get(c, edits, 'units_required') || 1);
     const dailyTotal = (unitA + unitB) * units;
     ws1[XLSX.utils.encode_cell({ c: 18, r })] = cNum(
       dailyTotal,
-      STYLE_ACCOUNTING,
+      STYLE_DATA_ACC,
       `=VLOOKUP(Q${excelRowNum},상품리스트!$C:$G,5,0)`,
     );
   });
@@ -212,8 +239,10 @@ function buildWorkbook(
     '계약기간(일수)', '총매출액',
     '공급대금',
   ];
+  // B-F: 노랑(입력), G-I: 아주연한파랑(수식), J: 하늘(공급대금)
+  const hdr2Styles = [HDR_YELLOW, HDR_YELLOW, HDR_YELLOW, HDR_YELLOW, HDR_YELLOW, HDR_FORMULA, HDR_FORMULA, HDR_FORMULA, HDR_SUPPLY];
   hdr2.forEach((h, ci) => {
-    ws2[XLSX.utils.encode_cell({ c: ci + 1, r: 9 })] = cStr(h, STYLE_HEADER);
+    ws2[XLSX.utils.encode_cell({ c: ci + 1, r: 9 })] = cStr(h, hdr2Styles[ci]);
   });
 
   // 데이터 (행 11~ = r=10~)
@@ -249,12 +278,12 @@ function buildWorkbook(
     ws2[XLSX.utils.encode_cell({ c: 5, r })] = cNum(units, STYLE_INPUT_NUM);                                  // F: 총대수 — 정수
 
     // 수식 셀
-    ws2[XLSX.utils.encode_cell({ c: 6, r })] = cNum(dailyTotal, STYLE_FORMULA_ACC, `=(D${rowNum}+E${rowNum})*F${rowNum}`); // G: 최종 일출금액 — 회계
-    ws2[XLSX.utils.encode_cell({ c: 7, r })] = cNum(days, STYLE_INPUT_NUM);                                   // H: 계약기간 — 정수
-    ws2[XLSX.utils.encode_cell({ c: 8, r })] = cNum(dailyTotal * days, STYLE_FORMULA_ACC, `=G${rowNum}*H${rowNum}`); // I: 총매출액 — 회계
+    ws2[XLSX.utils.encode_cell({ c: 6, r })] = cNum(dailyTotal, STYLE_FORMULA_ACC, `=(D${rowNum}+E${rowNum})*F${rowNum}`); // G: 최종 일출금액 (수식, 회계)
+    ws2[XLSX.utils.encode_cell({ c: 7, r })] = cNum(days, STYLE_DATA_NUM);                                    // H: 계약기간 (흰색)
+    ws2[XLSX.utils.encode_cell({ c: 8, r })] = cNum(dailyTotal * days, STYLE_FORMULA_ACC, `=G${rowNum}*H${rowNum}`); // I: 총매출액 (수식, 회계)
 
-    // J: 공급대금 (입력, 회계)
-    ws2[XLSX.utils.encode_cell({ c: 9, r })] = cNum(supplyAmt, STYLE_INPUT_ACC);
+    // J: 공급대금 (흰색, 회계) — 원본 데이터셀 배경없음
+    ws2[XLSX.utils.encode_cell({ c: 9, r })] = cNum(supplyAmt, STYLE_DATA_ACC);
   });
 
   ws2['!ref'] = XLSX.utils.encode_range({ s: { c: 0, r: 0 }, e: { c: 9, r: productRows.length + 10 } });
@@ -274,7 +303,7 @@ function buildWorkbook(
 
   // 헤더 (r=1)
   const hdr3 = ['총판명','공급자 성명','공급자 생년월일','공급자 휴대전화','공급자 사업자번호','공급자 회사주소'];
-  hdr3.forEach((h, ci) => { ws3[XLSX.utils.encode_cell({ c: ci, r: 1 })] = cStr(h, STYLE_HEADER); });
+  hdr3.forEach((h, ci) => { ws3[XLSX.utils.encode_cell({ c: ci, r: 1 })] = cStr(h, HDR_SUPPLY); }); // 83CBEB
 
   // 전체 계약에서 고유 총판 목록 (allContracts 기준)
   const distSeen = new Set<string>();
@@ -295,7 +324,7 @@ function buildWorkbook(
       get(c, edits, 'distributor_address') || '',
     ];
     row3.forEach((val, ci) => {
-      ws3[XLSX.utils.encode_cell({ c: ci, r: ri + 2 })] = cStr(String(val), STYLE_INPUT);
+      ws3[XLSX.utils.encode_cell({ c: ci, r: ri + 2 })] = cStr(String(val), STYLE_DATA);
     });
   });
 
@@ -349,10 +378,14 @@ function buildWorkbook(
     { text: '* 총판별 대표자 정보(성명, 생년월일, 연락처, 사업자번호, 주소)를 확인하세요.' },
   ];
 
+  const STYLE_GUIDE_TITLE = {
+    fill: { patternType: 'solid', fgColor: { rgb: 'FFFF00' } },
+    font: { bold: true, sz: 11 },
+  };
   guideData.forEach((item, ri) => {
     if (!item.text) return;
     const col = item.indent ? 1 : 0;
-    const style = item.title ? STYLE_TITLE : STYLE_NOTE;
+    const style = item.title ? STYLE_GUIDE_TITLE : STYLE_NOTE;
     ws4[XLSX.utils.encode_cell({ c: col, r: ri })] = cStr(item.text, style);
   });
 
