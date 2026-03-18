@@ -1,9 +1,10 @@
 
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Contract, Partner, DeductionStatus } from '../types';
 import { formatDate, formatCurrency, getDaysDifference } from '../lib/utils';
 import { CloseIcon, EditIcon, TrashIcon, DuplicateIcon } from './icons/IconComponents';
+import { CreditorDocumentModal } from './CreditorDocumentModal';
 
 interface ContractDetailModalProps {
   contract: Contract | null;
@@ -42,6 +43,8 @@ const DeductionStatusBadge: React.FC<{ status: DeductionStatus }> = ({ status })
 };
 
 const ContractDetailModal: React.FC<ContractDetailModalProps> = ({ contract, partner, onClose, onEdit, onDelete, onDuplicate }) => {
+  const [isCreditorDocOpen, setIsCreditorDocOpen] = useState(false);
+
   if (!contract || !partner) return null;
 
   const totalPaid = (contract.daily_deductions || [])
@@ -129,6 +132,8 @@ const ContractDetailModal: React.FC<ContractDetailModalProps> = ({ contract, par
                         <DetailItem label="연락처" value={contract.distributor_contact} />
                         <DetailItem label="사업자번호" value={contract.distributor_business_number} />
                         <DetailItem label="사업자주소" value={contract.distributor_address} className="col-span-2"/>
+                        <DetailItem label="대표자 성별" value={contract.distributor_gender} />
+                        <DetailItem label="대표자 생년월일" value={contract.distributor_ssn_prefix ? `${contract.distributor_ssn_prefix.substring(0,2)}.${contract.distributor_ssn_prefix.substring(2,4)}.${contract.distributor_ssn_prefix.substring(4,6)}` : null} />
                     </DetailSection>
 
                     <DetailSection title="계약자 정보">
@@ -136,6 +141,16 @@ const ContractDetailModal: React.FC<ContractDetailModalProps> = ({ contract, par
                         <DetailItem label="연락처" value={contract.lessee_contact} />
                         <DetailItem label="사업자번호" value={contract.lessee_business_number} />
                         <DetailItem label="사업자주소" value={contract.lessee_business_address} className="col-span-2"/>
+                        <DetailItem label="성별" value={contract.lessee_gender} />
+                        <DetailItem label="생년월일" value={contract.lessee_ssn_prefix ? `${contract.lessee_ssn_prefix.substring(0,2)}.${contract.lessee_ssn_prefix.substring(2,4)}.${contract.lessee_ssn_prefix.substring(4,6)}` : null} />
+                    </DetailSection>
+
+                    <DetailSection title="연대보증인 정보">
+                        <DetailItem label="이름" value={contract.guarantor_name} />
+                        <DetailItem label="성별" value={contract.guarantor_gender} />
+                        <DetailItem label="생년월일" value={contract.guarantor_ssn_prefix ? `${contract.guarantor_ssn_prefix.substring(0,2)}.${contract.guarantor_ssn_prefix.substring(2,4)}.${contract.guarantor_ssn_prefix.substring(4,6)}` : null} />
+                        <DetailItem label="연락처" value={contract.guarantor_phone} />
+                        <DetailItem label="주소" value={contract.guarantor_address} className="col-span-2" />
                     </DetailSection>
                 </div>
                  <div>
@@ -161,6 +176,9 @@ const ContractDetailModal: React.FC<ContractDetailModalProps> = ({ contract, par
                 삭제
             </button>
             <div className="flex space-x-4">
+                <button onClick={() => setIsCreditorDocOpen(true)} className="flex items-center bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded-lg transition-colors">
+                    📄 채권사 서류 생성
+                </button>
                 <button onClick={() => onDuplicate(contract)} className="flex items-center bg-sky-600 hover:bg-sky-700 text-white font-bold py-2 px-4 rounded-lg transition-colors">
                     <DuplicateIcon className="w-5 h-5 mr-2" />
                     복제
@@ -175,6 +193,9 @@ const ContractDetailModal: React.FC<ContractDetailModalProps> = ({ contract, par
             </div>
         </footer>
       </div>
+      {isCreditorDocOpen && (
+        <CreditorDocumentModal contract={contract} onClose={() => setIsCreditorDocOpen(false)} />
+      )}
     </div>
   );
 };

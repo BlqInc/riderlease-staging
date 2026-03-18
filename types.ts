@@ -102,6 +102,17 @@ export interface Contract {
   settlement_request_date: string | null;
   settlement_document_url: string | null;
   contract_initial_deduction: number | null;
+  distributor_gender: string | null;
+  distributor_ssn_prefix: string | null;
+  lessee_gender: string | null;
+  lessee_ssn_prefix: string | null;
+  guarantor_name: string | null;
+  guarantor_gender: string | null;
+  guarantor_ssn_prefix: string | null;
+  guarantor_phone: string | null;
+  guarantor_address: string | null;
+  unit_price_a: number | null;
+  unit_price_b: number | null;
 }
 
 export interface CalendarEvent {
