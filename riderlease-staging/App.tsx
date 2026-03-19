@@ -10,6 +10,7 @@ import { DeductionManagement } from './components/DeductionManagement';
 import { ShippingManagement } from './components/ShippingManagement';
 import { SettlementManagement } from './components/SettlementManagement';
 import { CreditorSettlementData } from './components/CreditorSettlementData';
+import { CreditorBatch } from './components/CreditorBatch';
 import { PartnersManagement } from './components/PartnersManagement';
 import { Calendar } from './components/Calendar';
 import { DatabaseManagement } from './components/DatabaseManagement';
@@ -203,6 +204,7 @@ const App: React.FC = () => {
               {currentView === 'shippingManagement' && <ShippingManagement contracts={contracts} partners={partners} onSelectContract={()=>{}} />}
               {currentView === 'settlementManagement' && <SettlementManagement contracts={contracts} partners={partners} onSelectContract={()=>{}} onRequestSettlement={()=>{}} onCompleteSettlement={()=>{}} onUpdatePrerequisites={()=>{}} onBulkRequestSettlement={()=>{}} onBulkCompleteSettlement={()=>{}} />}
               {currentView === 'creditorSettlementData' && <CreditorSettlementData contracts={contracts} />}
+              {currentView === 'creditorBatch' && <CreditorBatch contracts={contracts} />}
               {currentView === 'greenwichSettlement' && <GreenwichSettlement contracts={contracts} settlements={greenwichSettlements} onSave={()=>{}} onDelete={()=>{}} />}
               {currentView === 'privacyMasking' && <PrivacyMasking />}
               {currentView === 'partners' && <PartnersManagement partners={partners} onSelectPartner={()=>{}} onAddPartner={() => {}} onAddTemplate={() => {}} />}
