@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import XLSX from 'xlsx-js-style';
+import JSZip from 'jszip';
 import { Contract } from '../types';
 import { CloseIcon } from './icons/IconComponents';
 import { supabase } from '../lib/supabaseClient';
@@ -509,7 +510,44 @@ const EditCell: React.FC<{
 };
 
 // ── Doc types for masking ─────────────────────────────────
-const DOC_TYPES = ['신분증', '주민등록표', '사업자등록증'] as const;
+interface DocSlot {
+  key: string;       // 내부 키 (상태 저장용)
+  label: string;     // UI 표시명
+  fileName: (c: Contract, edits: Partial<Contract>) => string; // 다운로드 파일명 (확장자 제외)
+}
+
+const getDocSlots = (
+  sameParty: boolean,
+  c: Contract,
+  edits: Partial<Contract>,
+): DocSlot[] => {
+  const dist = (edits.distributor_name ?? c.distributor_name) || '총판';
+  const rep  = (edits.distributor_rep_name ?? c.distributor_rep_name) || '공급자';
+  const lessee = (edits.lessee_name ?? c.lessee_name) || '구매자';
+  const guarantor = (edits.guarantor_name ?? c.guarantor_name) || '보증인';
+
+  if (sameParty) {
+    return [
+      { key: 'biz_reg',       label: '사업자등록증',          fileName: () => `${dist}_사업자등록증` },
+      { key: 'rep_id',        label: '대표자(공급자) 신분증',  fileName: () => `${dist}_대표자_${rep}_신분증` },
+      { key: 'rep_cert',      label: '대표자(공급자) 등본',    fileName: () => `${dist}_대표자_${rep}_등본` },
+      { key: 'biz_cert_orig', label: '사업자등록증명 원본',    fileName: () => `${dist}_사업자등록증명_원본` },
+      { key: 'biz_cert_blq',  label: '사업자등록증명 비엘큐용', fileName: () => `${dist}_사업자등록증명_비엘큐용` },
+      { key: 'guar_id',       label: '보증인(구매자) 신분증',  fileName: () => `${dist}_보증인_${guarantor}_신분증` },
+      { key: 'guar_cert',     label: '보증인(구매자) 등본',    fileName: () => `${dist}_보증인_${guarantor}_등본` },
+    ];
+  } else {
+    return [
+      { key: 'biz_reg',       label: '사업자등록증',           fileName: () => `${dist}_사업자등록증` },
+      { key: 'biz_cert_orig', label: '사업자등록증명 원본',     fileName: () => `${dist}_사업자등록증명_원본` },
+      { key: 'biz_cert_blq',  label: '사업자등록증명 비엘큐용', fileName: () => `${dist}_사업자등록증명_비엘큐용` },
+      { key: 'rider_id',      label: '라이더(구매자) 신분증',   fileName: () => `${dist}_라이더_${lessee}_신분증` },
+      { key: 'rider_cert',    label: '라이더(구매자) 등본',     fileName: () => `${dist}_라이더_${lessee}_등본` },
+      { key: 'guar_id',       label: '보증인(공급자) 신분증',   fileName: () => `${dist}_보증인_${guarantor}_신분증` },
+      { key: 'guar_cert',     label: '보증인(공급자) 등본',     fileName: () => `${dist}_보증인_${guarantor}_등본` },
+    ];
+  }
+};
 
 interface ContractDoc { file: File; url: string; masks: Rect[]; }
 
@@ -522,6 +560,10 @@ export const CreditorBatch: React.FC<Props> = ({ contracts }) => {
   const [contractDocs, setContractDocs] = useState<Record<string, Partial<Record<string, ContractDoc>>>>({});
   const [maskingSession, setMaskingSession] = useState<MaskingSession | null>(null);
   const [mainTab, setMainTab] = useState<'excel' | 'mask'>('excel');
+  // 공급자=구매자 동일 여부 (계약별 토글, 기본값 false = 다른 경우)
+  const [samePartyMap, setSamePartyMap] = useState<Record<string, boolean>>({});
+  // 체크박스 선택 (ZIP 다운로드용): { contractId: Set<docKey> }
+  const [checkedDocs, setCheckedDocs] = useState<Record<string, Set<string>>>({});
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
@@ -577,14 +619,14 @@ export const CreditorBatch: React.FC<Props> = ({ contracts }) => {
   };
 
   // Masking helpers
-  const handleDocUpload = (contractId: string, docType: string, file: File) => {
+  const handleDocUpload = (contractId: string, docKey: string, file: File) => {
     const url = URL.createObjectURL(file);
-    setContractDocs(prev => ({ ...prev, [contractId]: { ...(prev[contractId] || {}), [docType]: { file, url, masks: [] } } }));
+    setContractDocs(prev => ({ ...prev, [contractId]: { ...(prev[contractId] || {}), [docKey]: { file, url, masks: [] } } }));
   };
 
-  const openMasking = (contractId: string, docType: string) => {
-    const doc = contractDocs[contractId]?.[docType]; if (!doc) return;
-    setMaskingSession({ contractId, docType, file: doc.file, url: doc.url, masks: doc.masks });
+  const openMasking = (contractId: string, docKey: string) => {
+    const doc = contractDocs[contractId]?.[docKey]; if (!doc) return;
+    setMaskingSession({ contractId, docType: docKey, file: doc.file, url: doc.url, masks: doc.masks });
   };
 
   const saveMasks = (masks: Rect[]) => {
@@ -593,26 +635,77 @@ export const CreditorBatch: React.FC<Props> = ({ contracts }) => {
     setContractDocs(prev => ({ ...prev, [contractId]: { ...(prev[contractId] || {}), [docType]: { ...prev[contractId]![docType]!, masks } } }));
   };
 
-  const downloadMasked = (contractId: string, docType: string) => {
-    const doc = contractDocs[contractId]?.[docType]; if (!doc) return;
-    const canvas = document.createElement('canvas');
-    const img = new Image();
-    img.onload = () => {
-      const scale = Math.min(1, 760 / img.naturalWidth);
-      canvas.width = Math.round(img.naturalWidth * scale); canvas.height = Math.round(img.naturalHeight * scale);
-      const ctx = canvas.getContext('2d')!;
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = 'black';
-      doc.masks.forEach(m => ctx.fillRect(m.x, m.y, m.w, m.h));
-      canvas.toBlob(blob => {
-        if (!blob) return;
-        const url = URL.createObjectURL(blob); const a = document.createElement('a');
-        const c = contracts.find(x => x.id === contractId);
-        a.href = url; a.download = `마스킹_${c?.lessee_name || ''}_${docType}.png`;
-        a.click(); URL.revokeObjectURL(url);
-      }, 'image/png');
-    };
-    img.src = doc.url;
+  const renderMaskedCanvas = (doc: ContractDoc): Promise<Blob> =>
+    new Promise(resolve => {
+      const canvas = document.createElement('canvas');
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, 760 / img.naturalWidth);
+        canvas.width = Math.round(img.naturalWidth * scale);
+        canvas.height = Math.round(img.naturalHeight * scale);
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = 'black';
+        doc.masks.forEach(m => ctx.fillRect(m.x, m.y, m.w, m.h));
+        canvas.toBlob(blob => resolve(blob!), 'image/png');
+      };
+      img.src = doc.url;
+    });
+
+  const downloadMasked = (contractId: string, docKey: string, slot: DocSlot) => {
+    const doc = contractDocs[contractId]?.[docKey]; if (!doc) return;
+    const c = contracts.find(x => x.id === contractId)!;
+    renderMaskedCanvas(doc).then(blob => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${slot.fileName(c, pendingEdits[contractId] || {})}.png`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+  };
+
+  // 체크박스 토글
+  const toggleDocCheck = (contractId: string, docKey: string) => {
+    setCheckedDocs(prev => {
+      const set = new Set(prev[contractId] || []);
+      set.has(docKey) ? set.delete(docKey) : set.add(docKey);
+      return { ...prev, [contractId]: set };
+    });
+  };
+
+  const toggleAllDocs = (contractId: string, slots: DocSlot[]) => {
+    const currentSet = checkedDocs[contractId] || new Set();
+    const allKeys = slots.map(s => s.key);
+    const allUploaded = allKeys.filter(k => contractDocs[contractId]?.[k]);
+    const allChecked = allUploaded.every(k => currentSet.has(k));
+    setCheckedDocs(prev => ({
+      ...prev,
+      [contractId]: allChecked ? new Set() : new Set(allUploaded),
+    }));
+  };
+
+  // ZIP 일괄 다운로드
+  const downloadZip = async (contractId: string, slots: DocSlot[]) => {
+    const c = contracts.find(x => x.id === contractId)!;
+    const edits = pendingEdits[contractId] || {};
+    const checked = checkedDocs[contractId] || new Set();
+    const targets = slots.filter(s => checked.has(s.key) && contractDocs[contractId]?.[s.key]);
+    if (!targets.length) return;
+    const zip = new JSZip();
+    await Promise.all(targets.map(async slot => {
+      const doc = contractDocs[contractId]![slot.key]!;
+      const blob = await renderMaskedCanvas(doc);
+      zip.file(`${slot.fileName(c, edits)}.png`, blob);
+    }));
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(zipBlob);
+    const a = document.createElement('a');
+    const distName = (edits.distributor_name ?? c.distributor_name) || '총판';
+    a.href = url;
+    a.download = `${distName}_마스킹서류.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const tabCls = (t: 'excel' | 'mask') =>
@@ -750,44 +843,101 @@ export const CreditorBatch: React.FC<Props> = ({ contracts }) => {
           {selectedContracts.length === 0 ? (
             <div className="text-center py-12 text-slate-500"><p className="text-3xl mb-3">📋</p><p>위에서 계약건을 선택하세요</p></div>
           ) : (
-            selectedContracts.map(c => (
-              <div key={c.id} className="bg-slate-800 rounded-xl p-4">
-                <div className="mb-3">
-                  <span className="text-slate-400 text-xs">#{c.contract_number}</span>
-                  <span className="text-white font-bold ml-2">{c.lessee_name}</span>
-                  <span className="text-slate-400 text-sm ml-2">· {c.distributor_name} · {c.device_name}</span>
+            selectedContracts.map(c => {
+              const sameParty = samePartyMap[c.id] ?? false;
+              const slots = getDocSlots(sameParty, c, pendingEdits[c.id] || {});
+              const checked = checkedDocs[c.id] || new Set<string>();
+              const uploadedKeys = slots.map(s => s.key).filter(k => contractDocs[c.id]?.[k]);
+              const checkedUploaded = uploadedKeys.filter(k => checked.has(k));
+              const allChecked = uploadedKeys.length > 0 && checkedUploaded.length === uploadedKeys.length;
+
+              return (
+                <div key={c.id} className="bg-slate-800 rounded-xl p-4">
+                  {/* 계약 헤더 */}
+                  <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+                    <div>
+                      <span className="text-slate-400 text-xs">#{c.contract_number}</span>
+                      <span className="text-white font-bold ml-2">{c.lessee_name}</span>
+                      <span className="text-slate-400 text-sm ml-2">· {c.distributor_name} · {c.device_name}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {/* 공급자=구매자 토글 */}
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <span className="text-slate-400 text-xs">공급자=구매자</span>
+                        <button
+                          onClick={() => setSamePartyMap(prev => ({ ...prev, [c.id]: !sameParty }))}
+                          className={`relative w-10 h-5 rounded-full transition-colors ${sameParty ? 'bg-indigo-600' : 'bg-slate-600'}`}
+                        >
+                          <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${sameParty ? 'translate-x-5' : 'translate-x-0'}`} />
+                        </button>
+                        <span className={`text-xs font-bold ${sameParty ? 'text-indigo-400' : 'text-slate-400'}`}>
+                          {sameParty ? '동일' : '다름'}
+                        </span>
+                      </label>
+                      {/* 전체선택 */}
+                      {uploadedKeys.length > 0 && (
+                        <label className="flex items-center gap-1 cursor-pointer">
+                          <input type="checkbox" checked={allChecked}
+                            onChange={() => toggleAllDocs(c.id, slots)}
+                            className="h-3.5 w-3.5 rounded border-slate-500 bg-slate-700 text-indigo-600" />
+                          <span className="text-slate-400 text-xs">전체선택</span>
+                        </label>
+                      )}
+                      {/* ZIP 다운로드 */}
+                      <button
+                        onClick={() => downloadZip(c.id, slots)}
+                        disabled={checkedUploaded.length === 0}
+                        className="bg-green-600 hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold py-1 px-3 rounded transition-colors"
+                      >
+                        📦 ZIP 다운 ({checkedUploaded.length})
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 서류 슬롯 그리드 */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                    {slots.map(slot => {
+                      const doc = contractDocs[c.id]?.[slot.key];
+                      const isChecked = checked.has(slot.key);
+                      return (
+                        <div key={slot.key} className={`bg-slate-700 rounded-lg p-3 space-y-2 border transition-colors ${isChecked ? 'border-indigo-500' : 'border-transparent'}`}>
+                          <div className="flex items-center gap-1.5">
+                            {doc && (
+                              <input type="checkbox" checked={isChecked}
+                                onChange={() => toggleDocCheck(c.id, slot.key)}
+                                className="h-3.5 w-3.5 rounded border-slate-500 bg-slate-600 text-indigo-600 shrink-0" />
+                            )}
+                            <p className="text-slate-300 text-xs font-bold leading-tight">{slot.label}</p>
+                          </div>
+                          {doc ? (
+                            <>
+                              <p className="text-slate-400 text-xs truncate">{doc.file.name}</p>
+                              {doc.masks.length > 0
+                                ? <p className="text-yellow-400 text-xs">{doc.masks.length}개 마스킹됨</p>
+                                : <p className="text-slate-500 text-xs">마스킹 없음</p>
+                              }
+                              <div className="flex gap-1">
+                                <button onClick={() => openMasking(c.id, slot.key)} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs py-1 rounded transition-colors">편집</button>
+                                <button onClick={() => downloadMasked(c.id, slot.key, slot)} className="bg-green-600 hover:bg-green-700 text-white text-xs py-1 px-2 rounded transition-colors">⬇</button>
+                              </div>
+                            </>
+                          ) : (
+                            <label className="block cursor-pointer">
+                              <div className="border-2 border-dashed border-slate-600 hover:border-indigo-500 rounded-lg p-3 text-center transition-colors">
+                                <p className="text-slate-500 text-xs">클릭하여 업로드</p>
+                              </div>
+                              <input type="file" accept="image/*"
+                                onChange={e => { const f = e.target.files?.[0]; if (f) handleDocUpload(c.id, slot.key, f); e.target.value = ''; }}
+                                className="hidden" />
+                            </label>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-                <div className="grid grid-cols-3 gap-3">
-                  {DOC_TYPES.map(docType => {
-                    const doc = contractDocs[c.id]?.[docType];
-                    return (
-                      <div key={docType} className="bg-slate-700 rounded-lg p-3 space-y-2">
-                        <p className="text-slate-300 text-xs font-bold">{docType}</p>
-                        {doc ? (
-                          <>
-                            <p className="text-slate-400 text-xs truncate">{doc.file.name}</p>
-                            {doc.masks.length > 0 && <p className="text-yellow-400 text-xs">{doc.masks.length}개 마스킹됨</p>}
-                            <div className="flex gap-1">
-                              <button onClick={() => openMasking(c.id, docType)} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs py-1 rounded transition-colors">마스킹 편집</button>
-                              <button onClick={() => downloadMasked(c.id, docType)} className="bg-green-600 hover:bg-green-700 text-white text-xs py-1 px-2 rounded transition-colors">⬇</button>
-                            </div>
-                          </>
-                        ) : (
-                          <label className="block cursor-pointer">
-                            <div className="border-2 border-dashed border-slate-600 hover:border-indigo-500 rounded-lg p-4 text-center transition-colors">
-                              <p className="text-slate-500 text-xs">클릭하여 업로드</p>
-                            </div>
-                            <input type="file" accept="image/*"
-                              onChange={e => { const f = e.target.files?.[0]; if (f) handleDocUpload(c.id, docType, f); e.target.value = ''; }}
-                              className="hidden" />
-                          </label>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       )}
