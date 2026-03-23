@@ -919,6 +919,12 @@ export const CreditorBatch: React.FC<Props> = ({ contracts }) => {
                               <div className="flex gap-1">
                                 <button onClick={() => openMasking(c.id, slot.key)} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs py-1 rounded transition-colors">편집</button>
                                 <button onClick={() => downloadMasked(c.id, slot.key, slot)} className="bg-green-600 hover:bg-green-700 text-white text-xs py-1 px-2 rounded transition-colors">⬇</button>
+                                <label className="bg-slate-600 hover:bg-slate-500 text-white text-xs py-1 px-2 rounded transition-colors cursor-pointer">
+                                  ↻
+                                  <input type="file" accept="image/*"
+                                    onChange={e => { const f = e.target.files?.[0]; if (f) handleDocUpload(c.id, slot.key, f); e.target.value = ''; }}
+                                    className="hidden" />
+                                </label>
                               </div>
                             </>
                           ) : (
