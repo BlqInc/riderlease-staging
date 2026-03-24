@@ -16,6 +16,7 @@ import { Calendar } from './components/Calendar';
 import { DatabaseManagement } from './components/DatabaseManagement';
 import { GreenwichSettlement } from './components/GreenwichSettlement';
 import { PrivacyMasking } from './components/PrivacyMasking';
+import { CollectionManagement } from './components/CollectionManagement';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 import { ContractFormModal } from './ContractFormModal';
@@ -200,6 +201,7 @@ const App: React.FC = () => {
             <>
               {currentView === 'dashboard' && <Dashboard contracts={contracts} partners={partners} />}
               {currentView === 'contractManagement' && <ContractManagement contracts={contracts} partners={partners} onSelectContract={()=>{}} onAddContract={() => {}} onImportContracts={async () => {}} />}
+              {currentView === 'collectionManagement' && <CollectionManagement contracts={contracts} partners={partners} />}
               {currentView === 'deductionManagement' && <DeductionManagement contracts={contracts} partners={partners} onAddPayment={handleAddPayment} onSettleDeduction={handleSettleDeduction} onCancelDeduction={handleCancelDeduction} onToggleLawsuit={handleToggleLawsuit} onBulkSettleDeductions={handleBulkSettleDeductions} />}
               {currentView === 'shippingManagement' && <ShippingManagement contracts={contracts} partners={partners} onSelectContract={()=>{}} />}
               {currentView === 'settlementManagement' && <SettlementManagement contracts={contracts} partners={partners} onSelectContract={()=>{}} onRequestSettlement={()=>{}} onCompleteSettlement={()=>{}} onUpdatePrerequisites={()=>{}} onBulkRequestSettlement={()=>{}} onBulkCompleteSettlement={()=>{}} />}

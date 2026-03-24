@@ -1,0 +1,62 @@
+import { Contract, DeductionStatus } from '../types';
+
+export type RiskLevel = '정상' | '주의' | '위험' | '소송중';
+
+export function classifyRisk(paymentRate: number, isLawsuit: boolean | null): RiskLevel {
+  if (isLawsuit) return '소송중';
+  if (paymentRate >= 80) return '정상';
+  if (paymentRate >= 50) return '주의';
+  return '위험';
+}
+
+export function computePaymentStats(contract: Contract) {
+  const deductions = contract.daily_deductions || [];
+  const totalPaid = deductions
+    .filter(d => d.status === DeductionStatus.PAID)
+    .reduce((sum, d) => sum + (Number(d.paid_amount) || Number(d.amount) || 0), 0);
+  const totalAmount = Number(contract.total_amount) || 0;
+  const paymentRate = totalAmount > 0 ? (totalPaid / totalAmount) * 100 : 0;
+  const balance = totalAmount - totalPaid;
+
+  const today = new Date().toISOString().slice(0, 10);
+  const overdueDeductions = deductions.filter(
+    d => d.date <= today && d.status !== DeductionStatus.PAID
+  );
+  const overdueDays = overdueDeductions.length > 0
+    ? Math.max(0, Math.floor((Date.now() - new Date(overdueDeductions[0].date).getTime()) / (1000 * 3600 * 24)))
+    : 0;
+
+  const paidDates = deductions
+    .filter(d => d.status === DeductionStatus.PAID)
+    .map(d => d.date)
+    .sort();
+  const lastPaymentDate = paidDates.length > 0 ? paidDates[paidDates.length - 1] : null;
+
+  return { totalPaid, totalAmount, paymentRate, balance, overdueDays, lastPaymentDate, overdueCount: overdueDeductions.length };
+}
+
+export function computeDistributorRisk(contracts: Contract[], distributorName: string) {
+  const filtered = contracts.filter(c => c.distributor_name?.trim() === distributorName.trim());
+  if (filtered.length === 0) return null;
+  const totalAmount = filtered.reduce((s, c) => s + (Number(c.total_amount) || 0), 0);
+  const totalPaid = filtered.reduce((s, c) => s + computePaymentStats(c).totalPaid, 0);
+  const rate = totalAmount > 0 ? (totalPaid / totalAmount) * 100 : 0;
+  const lawsuitCount = filtered.filter(c => c.is_lawsuit).length;
+  return { name: distributorName, rate, contractCount: filtered.length, lawsuitCount };
+}
+
+export function computeLesseeRisk(contracts: Contract[], lesseeName: string) {
+  const filtered = contracts.filter(c => c.lessee_name?.trim() === lesseeName.trim());
+  if (filtered.length === 0) return null;
+  const totalAmount = filtered.reduce((s, c) => s + (Number(c.total_amount) || 0), 0);
+  const totalPaid = filtered.reduce((s, c) => s + computePaymentStats(c).totalPaid, 0);
+  const rate = totalAmount > 0 ? (totalPaid / totalAmount) * 100 : 0;
+  return { name: lesseeName, rate, contractCount: filtered.length };
+}
+
+export const riskColors: Record<RiskLevel, string> = {
+  '정상': 'bg-green-500/20 text-green-300',
+  '주의': 'bg-yellow-500/20 text-yellow-300',
+  '위험': 'bg-red-500/20 text-red-300',
+  '소송중': 'bg-purple-500/20 text-purple-300 border border-purple-500/50',
+};

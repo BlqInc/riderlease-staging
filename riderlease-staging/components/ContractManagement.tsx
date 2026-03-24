@@ -3,6 +3,7 @@ import { Contract, ContractStatus, Partner, DeductionStatus, SettlementStatus, S
 import { formatDate, formatCurrency } from '../lib/utils';
 import { PlusIcon, ChevronDownIcon, DuplicateIcon, UserPlusIcon, UploadIcon } from './icons/IconComponents';
 import { read, utils } from 'xlsx';
+import { computeDistributorRisk, computeLesseeRisk, classifyRisk, riskColors, RiskLevel } from '../lib/riskUtils';
 
 interface ContractManagementProps {
   contracts: Contract[];
@@ -31,6 +32,11 @@ const StatusBadge: React.FC<{ status: ContractStatus }> = ({ status }) => {
     [ContractStatus.SETTLED]: "bg-sky-500/20 text-sky-300",
   };
   return <span className={`${baseClasses} ${statusClasses[status]}`}>{status}</span>;
+};
+
+const MiniRiskBadge: React.FC<{ level: RiskLevel }> = ({ level }) => {
+  if (level === '정상') return null;
+  return <span className={`ml-2 px-1.5 py-0.5 text-[10px] font-semibold rounded ${riskColors[level]}`}>{level}</span>;
 };
 
 export const ContractManagement: React.FC<ContractManagementProps> = ({ contracts, partners, onSelectContract, onAddContract, onImportContracts }) => {
@@ -385,7 +391,13 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
                   <Fragment key={group.key}>
                     <tr onClick={() => handleToggleExpand(group.key)} className="border-b border-slate-700 hover:bg-slate-700/50 cursor-pointer transition-colors">
                       <td className="p-4 text-center"><ChevronDownIcon className={`w-5 h-5 text-slate-400 transition-transform transform ${isExpanded ? 'rotate-180' : ''}`} /></td>
-                      <td className="p-4 font-medium text-white">{group.distributor_name}</td>
+                      <td className="p-4 font-medium text-white">
+                        {group.distributor_name}
+                        {(() => {
+                          const dr = computeDistributorRisk(contracts, group.distributor_name);
+                          return dr ? <MiniRiskBadge level={classifyRisk(dr.rate, dr.lawsuitCount > 0)} /> : null;
+                        })()}
+                      </td>
                       <td className="p-4 font-medium text-white">{group.lessee_name}</td>
                       <td className="p-4 text-center">{group.contractCount}건</td>
                       <td className="p-4 text-center">{group.totalUnits}대</td>

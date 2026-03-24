@@ -15,6 +15,7 @@ import { Calendar } from './components/Calendar';
 import { DatabaseManagement } from './components/DatabaseManagement';
 import { GreenwichSettlement } from './components/GreenwichSettlement';
 import { CreditorBatch } from './components/CreditorBatch';
+import { CollectionManagement } from './components/CollectionManagement';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 import { ContractFormModal } from './components/ContractFormModal';
@@ -761,6 +762,7 @@ const App: React.FC = () => {
                   onImportContracts={handleImportContracts}
                 />
               )}
+              {currentView === 'collectionManagement' && <CollectionManagement contracts={contracts} partners={partners} />}
               {currentView === 'deductionManagement' && (
                 <DeductionManagement
                   contracts={contracts}

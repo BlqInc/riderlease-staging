@@ -1,7 +1,7 @@
 import React from 'react';
-import { DashboardIcon, ContractsIcon, PartnersIcon, SettlementIcon, DeductionIcon, ShippingIcon, CreditorDataIcon, CalendarIcon, DatabaseIcon, LogoutIcon, ShieldIcon } from './icons/IconComponents';
+import { DashboardIcon, ContractsIcon, PartnersIcon, SettlementIcon, DeductionIcon, ShippingIcon, CreditorDataIcon, CalendarIcon, DatabaseIcon, LogoutIcon, ShieldIcon, CollectionIcon } from './icons/IconComponents';
 
-export type View = 'dashboard' | 'contractManagement' | 'deductionManagement' | 'shippingManagement' | 'settlementManagement' | 'creditorSettlementData' | 'creditorBatch' | 'partners' | 'database' | 'calendar' | 'greenwichSettlement' | 'privacyMasking';
+export type View = 'dashboard' | 'contractManagement' | 'collectionManagement' | 'deductionManagement' | 'shippingManagement' | 'settlementManagement' | 'creditorSettlementData' | 'creditorBatch' | 'partners' | 'database' | 'calendar' | 'greenwichSettlement' | 'privacyMasking';
 
 interface SidebarProps {
   currentView: View;
@@ -32,6 +32,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, onLog
   const navItems = [
     { view: 'dashboard', label: '대시보드', Icon: DashboardIcon },
     { view: 'contractManagement', label: '계약 관리', Icon: ContractsIcon },
+    { view: 'collectionManagement', label: '회수 관리', Icon: CollectionIcon },
     { view: 'deductionManagement', label: '일차감 관리', Icon: DeductionIcon },
     { view: 'shippingManagement', label: '조달 및 배송 현황', Icon: ShippingIcon },
     { view: 'settlementManagement', label: '정산 관리', Icon: SettlementIcon },
