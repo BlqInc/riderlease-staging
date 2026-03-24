@@ -25,8 +25,8 @@ export function computePaymentStats(contract: Contract) {
 
   const totalAmount = Number(contract.total_amount) || 0;
 
-  // 납부율: 오늘까지 내야 할 금액 대비 실제 납부액
-  const paymentRate = expectedByToday > 0 ? (totalPaid / expectedByToday) * 100 : (totalPaid > 0 ? 100 : 0);
+  // 납부율: 오늘까지 내야 할 금액 대비 실제 납부액 (둘 다 0이면 아직 차감 전이므로 100%)
+  const paymentRate = expectedByToday > 0 ? (totalPaid / expectedByToday) * 100 : 100;
 
   // 잔액: 오늘까지 내야 할 금액 - 실제 납부액
   const balance = expectedByToday - totalPaid;
@@ -53,7 +53,7 @@ export function computeDistributorRisk(contracts: Contract[], distributorName: s
   const stats = filtered.map(c => computePaymentStats(c));
   const totalExpected = stats.reduce((s, st) => s + st.expectedByToday, 0);
   const totalPaid = stats.reduce((s, st) => s + st.totalPaid, 0);
-  const rate = totalExpected > 0 ? (totalPaid / totalExpected) * 100 : (totalPaid > 0 ? 100 : 0);
+  const rate = totalExpected > 0 ? (totalPaid / totalExpected) * 100 : 100;
   const lawsuitCount = filtered.filter(c => c.is_lawsuit).length;
   return { name: distributorName, rate, contractCount: filtered.length, lawsuitCount };
 }
@@ -64,7 +64,7 @@ export function computeLesseeRisk(contracts: Contract[], lesseeName: string) {
   const stats = filtered.map(c => computePaymentStats(c));
   const totalExpected = stats.reduce((s, st) => s + st.expectedByToday, 0);
   const totalPaid = stats.reduce((s, st) => s + st.totalPaid, 0);
-  const rate = totalExpected > 0 ? (totalPaid / totalExpected) * 100 : (totalPaid > 0 ? 100 : 0);
+  const rate = totalExpected > 0 ? (totalPaid / totalExpected) * 100 : 100;
   return { name: lesseeName, rate, contractCount: filtered.length };
 }
 
