@@ -11,14 +11,26 @@ export function classifyRisk(paymentRate: number, isLawsuit: boolean | null): Ri
 
 export function computePaymentStats(contract: Contract) {
   const deductions = contract.daily_deductions || [];
+  const today = new Date().toISOString().slice(0, 10);
+
+  // 오늘까지 내야 할 금액 (오늘 이전 날짜의 차감 합계)
+  const expectedByToday = deductions
+    .filter(d => d.date <= today)
+    .reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
+
+  // 실제 납부한 금액 (오늘까지 기준)
   const totalPaid = deductions
     .filter(d => d.status === DeductionStatus.PAID)
     .reduce((sum, d) => sum + (Number(d.paid_amount) || Number(d.amount) || 0), 0);
-  const totalAmount = Number(contract.total_amount) || 0;
-  const paymentRate = totalAmount > 0 ? (totalPaid / totalAmount) * 100 : 0;
-  const balance = totalAmount - totalPaid;
 
-  const today = new Date().toISOString().slice(0, 10);
+  const totalAmount = Number(contract.total_amount) || 0;
+
+  // 납부율: 오늘까지 내야 할 금액 대비 실제 납부액
+  const paymentRate = expectedByToday > 0 ? (totalPaid / expectedByToday) * 100 : (totalPaid > 0 ? 100 : 0);
+
+  // 잔액: 오늘까지 내야 할 금액 - 실제 납부액
+  const balance = expectedByToday - totalPaid;
+
   const overdueDeductions = deductions.filter(
     d => d.date <= today && d.status !== DeductionStatus.PAID
   );
@@ -32,15 +44,16 @@ export function computePaymentStats(contract: Contract) {
     .sort();
   const lastPaymentDate = paidDates.length > 0 ? paidDates[paidDates.length - 1] : null;
 
-  return { totalPaid, totalAmount, paymentRate, balance, overdueDays, lastPaymentDate, overdueCount: overdueDeductions.length };
+  return { totalPaid, expectedByToday, totalAmount, paymentRate, balance, overdueDays, lastPaymentDate, overdueCount: overdueDeductions.length };
 }
 
 export function computeDistributorRisk(contracts: Contract[], distributorName: string) {
   const filtered = contracts.filter(c => c.distributor_name?.trim() === distributorName.trim());
   if (filtered.length === 0) return null;
-  const totalAmount = filtered.reduce((s, c) => s + (Number(c.total_amount) || 0), 0);
-  const totalPaid = filtered.reduce((s, c) => s + computePaymentStats(c).totalPaid, 0);
-  const rate = totalAmount > 0 ? (totalPaid / totalAmount) * 100 : 0;
+  const stats = filtered.map(c => computePaymentStats(c));
+  const totalExpected = stats.reduce((s, st) => s + st.expectedByToday, 0);
+  const totalPaid = stats.reduce((s, st) => s + st.totalPaid, 0);
+  const rate = totalExpected > 0 ? (totalPaid / totalExpected) * 100 : (totalPaid > 0 ? 100 : 0);
   const lawsuitCount = filtered.filter(c => c.is_lawsuit).length;
   return { name: distributorName, rate, contractCount: filtered.length, lawsuitCount };
 }
@@ -48,9 +61,10 @@ export function computeDistributorRisk(contracts: Contract[], distributorName: s
 export function computeLesseeRisk(contracts: Contract[], lesseeName: string) {
   const filtered = contracts.filter(c => c.lessee_name?.trim() === lesseeName.trim());
   if (filtered.length === 0) return null;
-  const totalAmount = filtered.reduce((s, c) => s + (Number(c.total_amount) || 0), 0);
-  const totalPaid = filtered.reduce((s, c) => s + computePaymentStats(c).totalPaid, 0);
-  const rate = totalAmount > 0 ? (totalPaid / totalAmount) * 100 : 0;
+  const stats = filtered.map(c => computePaymentStats(c));
+  const totalExpected = stats.reduce((s, st) => s + st.expectedByToday, 0);
+  const totalPaid = stats.reduce((s, st) => s + st.totalPaid, 0);
+  const rate = totalExpected > 0 ? (totalPaid / totalExpected) * 100 : (totalPaid > 0 ? 100 : 0);
   return { name: lesseeName, rate, contractCount: filtered.length };
 }
 
