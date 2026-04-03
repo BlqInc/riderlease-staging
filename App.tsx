@@ -16,6 +16,7 @@ import { DatabaseManagement } from './components/DatabaseManagement';
 import { GreenwichSettlement } from './components/GreenwichSettlement';
 import { CreditorBatch } from './components/CreditorBatch';
 import { CollectionManagement } from './components/CollectionManagement';
+import { ContractDocGenerator } from './components/ContractDocGenerator';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 import { ContractFormModal } from './components/ContractFormModal';
@@ -792,6 +793,7 @@ const App: React.FC = () => {
               )}
               {currentView === 'creditorSettlementData' && <CreditorSettlementData contracts={contracts} />}
               {currentView === 'creditorBatch' && <CreditorBatch contracts={contracts} />}
+              {currentView === 'contractDocGenerator' && <ContractDocGenerator />}
               {currentView === 'partners' && (
                 <PartnersManagement
                   partners={partners}

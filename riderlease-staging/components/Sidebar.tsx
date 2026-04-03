@@ -1,7 +1,7 @@
 import React from 'react';
-import { DashboardIcon, ContractsIcon, PartnersIcon, SettlementIcon, DeductionIcon, ShippingIcon, CreditorDataIcon, CalendarIcon, DatabaseIcon, LogoutIcon, ShieldIcon, CollectionIcon } from './icons/IconComponents';
+import { DashboardIcon, ContractsIcon, PartnersIcon, SettlementIcon, DeductionIcon, ShippingIcon, CreditorDataIcon, CalendarIcon, DatabaseIcon, LogoutIcon, ShieldIcon, CollectionIcon, DocGeneratorIcon } from './icons/IconComponents';
 
-export type View = 'dashboard' | 'contractManagement' | 'collectionManagement' | 'deductionManagement' | 'shippingManagement' | 'settlementManagement' | 'creditorSettlementData' | 'creditorBatch' | 'partners' | 'database' | 'calendar' | 'greenwichSettlement' | 'privacyMasking';
+export type View = 'dashboard' | 'contractManagement' | 'collectionManagement' | 'deductionManagement' | 'shippingManagement' | 'settlementManagement' | 'creditorSettlementData' | 'creditorBatch' | 'contractDocGenerator' | 'partners' | 'database' | 'calendar' | 'greenwichSettlement' | 'privacyMasking';
 
 interface SidebarProps {
   currentView: View;
@@ -38,6 +38,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, onLog
     { view: 'settlementManagement', label: '정산 관리', Icon: SettlementIcon },
     { view: 'creditorSettlementData', label: '채권사 정산 데이터', Icon: CreditorDataIcon },
     { view: 'creditorBatch', label: '채권사 발송', Icon: CreditorDataIcon },
+    { view: 'contractDocGenerator', label: '계약서 자동 생성', Icon: DocGeneratorIcon },
     { view: 'greenwichSettlement', label: '그린위치 정산', Icon: CreditorDataIcon },
     { view: 'privacyMasking', label: '개인정보 마스킹', Icon: ShieldIcon },
     { view: 'partners', label: '파트너사', Icon: PartnersIcon },

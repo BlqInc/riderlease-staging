@@ -17,6 +17,7 @@ import { DatabaseManagement } from './components/DatabaseManagement';
 import { GreenwichSettlement } from './components/GreenwichSettlement';
 import { PrivacyMasking } from './components/PrivacyMasking';
 import { CollectionManagement } from './components/CollectionManagement';
+import { ContractDocGenerator } from './components/ContractDocGenerator';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 import { ContractFormModal } from './ContractFormModal';
@@ -207,6 +208,7 @@ const App: React.FC = () => {
               {currentView === 'settlementManagement' && <SettlementManagement contracts={contracts} partners={partners} onSelectContract={()=>{}} onRequestSettlement={()=>{}} onCompleteSettlement={()=>{}} onUpdatePrerequisites={()=>{}} onBulkRequestSettlement={()=>{}} onBulkCompleteSettlement={()=>{}} />}
               {currentView === 'creditorSettlementData' && <CreditorSettlementData contracts={contracts} />}
               {currentView === 'creditorBatch' && <CreditorBatch contracts={contracts} />}
+              {currentView === 'contractDocGenerator' && <ContractDocGenerator />}
               {currentView === 'greenwichSettlement' && <GreenwichSettlement contracts={contracts} settlements={greenwichSettlements} onSave={()=>{}} onDelete={()=>{}} />}
               {currentView === 'privacyMasking' && <PrivacyMasking />}
               {currentView === 'partners' && <PartnersManagement partners={partners} onSelectPartner={()=>{}} onAddPartner={() => {}} onAddTemplate={() => {}} />}
