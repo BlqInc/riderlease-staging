@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import JSZip from 'jszip';
-import XLSX from 'xlsx';
+import XLSX from 'xlsx-js-style';
 
 // ─── Excel column mapping (Row 6 headers from 고객리스트 sheet) ───
 // 0: 계약번호, 1: 계약일, 2: 공급자 성명, 3: 공급자 생년월일, 4: 공급자 휴대전화
