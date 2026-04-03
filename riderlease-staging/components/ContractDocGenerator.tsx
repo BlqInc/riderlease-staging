@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import JSZip from 'jszip';
-import XLSX from 'xlsx';
+import { read, utils } from 'xlsx';
 
 // ─── Excel column mapping (Row 6 headers from 고객리스트 sheet) ───
 // 0: 계약번호, 1: 계약일, 2: 공급자 성명, 3: 공급자 생년월일, 4: 공급자 휴대전화
@@ -454,10 +454,10 @@ export const ContractDocGenerator: React.FC = () => {
 
     const reader = new FileReader();
     reader.onload = () => {
-      const wb = XLSX.read(reader.result, { type: 'array' });
+      const wb = read(reader.result, { type: 'array' });
       const sheetName = wb.SheetNames.find(n => n.includes('고객리스트')) || wb.SheetNames[0];
       const sheet = wb.Sheets[sheetName];
-      const rawData = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1 });
+      const rawData = utils.sheet_to_json<any[]>(sheet, { header: 1 });
 
       let headerIdx = -1;
       for (let i = 0; i < rawData.length; i++) {
