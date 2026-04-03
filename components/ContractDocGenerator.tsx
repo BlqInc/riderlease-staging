@@ -241,31 +241,71 @@ function replaceTextInRow(xml: string, label: string, oldText: string, newText: 
   return xml;
 }
 
-/** Replace text in paragraph (non-table) by finding _____ pattern or specific text */
+/** Find a table row where the FIRST cell is exactly the label (not contained in other text) */
+function setValueByExactLabel(xml: string, label: string, cellIndex: number, value: string): string {
+  const trRegex = /(<w:tr\b[^>]*>)([\s\S]*?)(<\/w:tr>)/g;
+  let match;
+
+  while ((match = trRegex.exec(xml)) !== null) {
+    const fullRow = match[0];
+    const rowContent = match[2];
+
+    // Get cells
+    const cellRegex = /(<w:tc\b[^>]*>)([\s\S]*?)(<\/w:tc>)/g;
+    const cells: { full: string; start: string; content: string; end: string }[] = [];
+    let cm;
+    while ((cm = cellRegex.exec(fullRow)) !== null) {
+      cells.push({ full: cm[0], start: cm[1], content: cm[2], end: cm[3] });
+    }
+
+    if (cells.length < 2 || cellIndex >= cells.length) continue;
+
+    // Check if first cell text is exactly the label
+    const firstCellText = cells[0].content.replace(/<[^>]+>/g, '').replace(/\s+/g, '').trim();
+    if (firstCellText !== label.replace(/\s+/g, '')) continue;
+
+    const targetCell = cells[cellIndex];
+    const cellText = targetCell.content.replace(/<[^>]+>/g, '').trim();
+    if (cellText.length > 0 && cellText !== ' ') continue;
+
+    let runStyle: string | undefined;
+    const rPrMatch = rowContent.match(/<w:rPr>([\s\S]*?)<\/w:rPr>/);
+    if (rPrMatch) runStyle = `<w:rPr>${rPrMatch[1]}</w:rPr>`;
+
+    const newRun = makeRun(value, runStyle);
+    const finalContent = targetCell.content.replace(/(<\/w:p>)(?![\s\S]*<\/w:p>)/, `${newRun}$1`);
+    xml = xml.replace(targetCell.full, targetCell.start + finalContent + targetCell.end);
+    break;
+  }
+  return xml;
+}
+
+/** Replace ___ underscores in a paragraph that contains the marker text */
 function replaceInlineText(xml: string, marker: string, value: string): string {
-  // Find paragraphs containing the marker text
   const pRegex = /(<w:p\b[^>]*>)([\s\S]*?)(<\/w:p>)/g;
   let match;
 
   while ((match = pRegex.exec(xml)) !== null) {
     const fullP = match[0];
-    const textContent = fullP.replace(/<[^>]+>/g, '').replace(/\s+/g, '');
+    const textContent = fullP.replace(/<[^>]+>/g, '');
 
-    if (!textContent.includes(marker.replace(/\s+/g, ''))) continue;
+    if (!textContent.includes(marker)) continue;
 
-    // Find underscores or empty space after the marker and replace
-    // Pattern: marker text followed by ___ or spaces
-    const underscorePattern = new RegExp(`(${escapeRegex(escapeXml(marker))}[^<]*)</w:t>([\\s\\S]*?)<w:t[^>]*>[_\\s]+</w:t>`);
-    if (underscorePattern.test(fullP)) {
-      const newP = fullP.replace(underscorePattern, `$1 ${escapeXml(value)}</w:t>$2<w:t xml:space="preserve"> </w:t>`);
+    // The ___ is in the same <w:t> as the marker text
+    // Replace: "고객 연락처   ___________________________" → "고객 연락처   010-xxxx-xxxx"
+    const underscoreInSameT = new RegExp(
+      `(<w:t[^>]*>)(${escapeRegex(marker)}[\\s]*)_{3,}([^<]*)(<\\/w:t>)`
+    );
+    if (underscoreInSameT.test(fullP)) {
+      const newP = fullP.replace(underscoreInSameT, `$1$2${escapeXml(value)}$3$4`);
       xml = xml.replace(fullP, newP);
       break;
     }
 
-    // Fallback: find the run with ___ and replace
-    const underscoreRun = /(<w:t[^>]*>)([_]{3,})<\/w:t>/;
+    // Fallback: ___ in a separate <w:t>
+    const underscoreRun = /(<w:t[^>]*>)([_]{3,})(<\/w:t>)/;
     if (underscoreRun.test(fullP)) {
-      const newP = fullP.replace(underscoreRun, `$1${escapeXml(value)}</w:t>`);
+      const newP = fullP.replace(underscoreRun, `$1${escapeXml(value)}$3`);
       xml = xml.replace(fullP, newP);
       break;
     }
@@ -404,9 +444,10 @@ function fillDocument(xml: string, group: GroupedContract): string {
 
   // ─── 설치 확인서 ───
   doc = setValueByLabel(doc, '고객명', 1, data.이용자_성명);
-  doc = setValueByRowByOccurrence(doc, '생년월일', 3, 1, data.이용자_생년월일);
-  // 주소: 설치확인서의 "주소" 행 (고객명, 생년월일 다음)
-  doc = setValueByRowByOccurrence(doc, '주소', 2, 1, data.이용자_집주소);
+  // 생년월일: Row16 제공항목에도 포함되어 occurrence 4번째가 설치확인서
+  doc = setValueByRowByOccurrence(doc, '생년월일', 4, 1, data.이용자_생년월일);
+  // 주소: 설치확인서의 "주소" 행 - 정확히 셀이 "주소"만 있는 행 찾기
+  doc = setValueByExactLabel(doc, '주소', 1, data.이용자_집주소);
   doc = setValueByLabel(doc, '설치주소', 1, data.이용자_집주소);
   doc = setValueByLabel(doc, '설치일자', 1, data.계약일);
 
