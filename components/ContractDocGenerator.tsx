@@ -42,7 +42,7 @@ interface GroupedContract {
 }
 
 function parseExcelRow(row: any[]): ExcelRow | null {
-  if (!row || !row[0]) return null;
+  if (!row) return null;
   const str = (v: any) => v == null ? '' : String(v);
   const formatDate = (v: any) => {
     if (!v) return '';
@@ -52,6 +52,8 @@ function parseExcelRow(row: any[]): ExcelRow | null {
     }
     return str(v);
   };
+  // 데이터가 하나도 없는 빈 행은 건너뛰기 (이용자 성명 또는 공급자 성명 기준)
+  if (!row[2] && !row[9]) return null;
   return {
     계약번호: str(row[0]),
     계약일: formatDate(row[1]),
@@ -77,7 +79,7 @@ function parseExcelRow(row: any[]): ExcelRow | null {
   };
 }
 
-/** 동일인+동일계약일 기준으로 행 그룹화 */
+/** 동일인+동일계약일 기준으로 행 그룹화 + 계약번호 자동 생성 */
 function groupRows(rows: ExcelRow[]): GroupedContract[] {
   const map = new Map<string, ExcelRow[]>();
   for (const row of rows) {
@@ -86,6 +88,10 @@ function groupRows(rows: ExcelRow[]): GroupedContract[] {
     arr.push(row);
     map.set(key, arr);
   }
+
+  // 날짜별 순번 카운터 (자동 생성용)
+  const dateCounters = new Map<string, number>();
+
   return Array.from(map.values()).map(group => {
     const items = group.map(r => ({
       상품명: r.상품명,
@@ -94,6 +100,15 @@ function groupRows(rows: ExcelRow[]): GroupedContract[] {
     }));
     const 총수량 = items.reduce((s, it) => s + (Number(it.수량) || 0), 0);
     const 총일납부금 = items.reduce((s, it) => s + (Number(it.일납부금) || 0), 0);
+
+    // 계약번호가 없으면 자동 생성: YYYYMMDD + 4자리 순번
+    if (!group[0].계약번호) {
+      const dateKey = group[0].계약일.replace(/-/g, '');
+      const seq = (dateCounters.get(dateKey) || 0) + 1;
+      dateCounters.set(dateKey, seq);
+      group[0].계약번호 = `${dateKey}${String(seq).padStart(4, '0')}`;
+    }
+
     return { base: group[0], items, 총수량, 총일납부금 };
   });
 }
