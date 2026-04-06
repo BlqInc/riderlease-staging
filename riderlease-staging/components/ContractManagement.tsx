@@ -11,6 +11,7 @@ interface ContractManagementProps {
   onSelectContract: (contract: Contract) => void;
   onAddContract: (template?: Partial<Contract>) => void;
   onImportContracts: (contracts: Partial<Omit<Contract, 'id' | 'contract_number' | 'unpaid_balance'>>[]) => Promise<void>;
+  onDeleteContracts?: (ids: string[]) => Promise<void>;
 }
 
 interface ContractGroup {
@@ -39,12 +40,14 @@ const MiniRiskBadge: React.FC<{ level: RiskLevel }> = ({ level }) => {
   return <span className={`ml-2 px-1.5 py-0.5 text-[10px] font-semibold rounded ${riskColors[level]}`}>{level}</span>;
 };
 
-export const ContractManagement: React.FC<ContractManagementProps> = ({ contracts, partners, onSelectContract, onAddContract, onImportContracts }) => {
+export const ContractManagement: React.FC<ContractManagementProps> = ({ contracts, partners, onSelectContract, onAddContract, onImportContracts, onDeleteContracts }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<ContractStatus | 'all'>('all');
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const [importStatus, setImportStatus] = useState({ loading: false, message: '' });
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [selectedForDelete, setSelectedForDelete] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
 
   const partnerMap = useMemo(() => new Map(partners.map(p => [p.id, p.name])), [partners]);
 
@@ -158,7 +161,7 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
               device_name: deviceName,
               color: '',
               contract_date: formattedDate,
-              execution_date: formattedDate,
+              execution_date: '2030-12-31',
               expiry_date: expiryDate,
               duration_days: durationDays,
               total_amount: totalAmount,
@@ -404,6 +407,37 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
     });
   };
 
+  const toggleSelectForDelete = (id: string) => {
+    setSelectedForDelete(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) newSet.delete(id); else newSet.add(id);
+      return newSet;
+    });
+  };
+
+  const toggleSelectGroup = (contractIds: string[]) => {
+    setSelectedForDelete(prev => {
+      const newSet = new Set(prev);
+      const allSelected = contractIds.every(id => newSet.has(id));
+      contractIds.forEach(id => allSelected ? newSet.delete(id) : newSet.add(id));
+      return newSet;
+    });
+  };
+
+  const handleDeleteSelected = async () => {
+    if (!onDeleteContracts || selectedForDelete.size === 0) return;
+    if (!confirm(`선택한 ${selectedForDelete.size}건의 계약을 삭제하시겠습니까?`)) return;
+    setDeleting(true);
+    try {
+      await onDeleteContracts(Array.from(selectedForDelete));
+      setSelectedForDelete(new Set());
+    } catch (error: any) {
+      alert(`삭제 실패: ${error.message}`);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <div className="p-8">
       <div className="flex justify-between items-center mb-6">
@@ -433,6 +467,20 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
             {importStatus.message}
         </div>
     )}
+
+      {/* 삭제 바 */}
+      {selectedForDelete.size > 0 && (
+        <div className="flex items-center justify-between bg-red-900/30 border border-red-700/50 p-3 rounded-lg mb-4">
+          <span className="text-red-300 text-sm font-medium">{selectedForDelete.size}건 선택됨</span>
+          <div className="flex gap-2">
+            <button onClick={() => setSelectedForDelete(new Set())} className="text-sm text-slate-400 hover:text-slate-300 px-3 py-1.5 rounded-lg hover:bg-slate-700">선택 해제</button>
+            <button onClick={handleDeleteSelected} disabled={deleting}
+              className="text-sm bg-red-600 text-white px-4 py-1.5 rounded-lg font-medium hover:bg-red-700 disabled:opacity-50">
+              {deleting ? '삭제 중...' : `${selectedForDelete.size}건 삭제`}
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="flex items-center space-x-4 bg-slate-800 p-4 rounded-lg mb-6">
         <input
@@ -576,6 +624,14 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
                             <table className="w-full text-left bg-slate-800/70 rounded-md">
                               <thead className="bg-slate-700/50">
                                 <tr>
+                                  {onDeleteContracts && (
+                                    <th className="p-3 w-10">
+                                      <input type="checkbox"
+                                        checked={group.contracts.every(c => selectedForDelete.has(c.id))}
+                                        onChange={() => toggleSelectGroup(group.contracts.map(c => c.id))}
+                                        className="h-3.5 w-3.5 rounded border-slate-500 bg-slate-700 text-indigo-600" />
+                                    </th>
+                                  )}
                                   <th className="p-3 font-semibold text-slate-400">계약번호</th>
                                   <th className="p-3 font-semibold text-slate-400">기기명</th>
                                   <th className="p-3 font-semibold text-slate-400">파트너사</th>
@@ -593,6 +649,14 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
                                   const remaining = contract.total_amount - totalPaid;
                                   return (
                                     <tr key={contract.id} onClick={(e) => { e.stopPropagation(); onSelectContract(contract); }} className="border-b border-slate-700 last:border-b-0 hover:bg-slate-700/70 cursor-pointer transition-colors">
+                                      {onDeleteContracts && (
+                                        <td className="p-3 w-10" onClick={(e) => e.stopPropagation()}>
+                                          <input type="checkbox"
+                                            checked={selectedForDelete.has(contract.id)}
+                                            onChange={() => toggleSelectForDelete(contract.id)}
+                                            className="h-3.5 w-3.5 rounded border-slate-500 bg-slate-700 text-indigo-600" />
+                                        </td>
+                                      )}
                                       <td className="p-3 text-center font-mono text-indigo-400">#{contract.contract_number}</td>
                                       <td className="p-3 font-medium text-white">{contract.device_name}</td>
                                       <td className="p-3">{partnerMap.get(contract.partner_id)}</td>

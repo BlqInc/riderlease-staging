@@ -801,6 +801,13 @@ const App: React.FC = () => {
                     setIsContractFormOpen(true);
                   }}
                   onImportContracts={handleImportContracts}
+                  onDeleteContracts={async (ids) => {
+                    if (!supabase) return;
+                    for (const id of ids) {
+                      await supabase.from('contracts').delete().eq('id', id);
+                    }
+                    setContracts(prev => prev.filter(c => !ids.includes(c.id)));
+                  }}
                 />
               )}
               {currentView === 'collectionManagement' && <CollectionManagement contracts={contracts} partners={partners} />}

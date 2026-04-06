@@ -254,7 +254,13 @@ const App: React.FC = () => {
           ) : (
             <>
               {currentView === 'dashboard' && <Dashboard contracts={contracts} partners={partners} />}
-              {currentView === 'contractManagement' && <ContractManagement contracts={contracts} partners={partners} onSelectContract={()=>{}} onAddContract={() => {}} onImportContracts={async () => {}} />}
+              {currentView === 'contractManagement' && <ContractManagement contracts={contracts} partners={partners} onSelectContract={()=>{}} onAddContract={() => {}} onImportContracts={async () => {}} onDeleteContracts={async (ids) => {
+                if (!supabase) return;
+                for (const id of ids) {
+                  await supabase.from('contracts').delete().eq('id', id);
+                }
+                setContracts(prev => prev.filter(c => !ids.includes(c.id)));
+              }} />}
               {currentView === 'collectionManagement' && <CollectionManagement contracts={contracts} partners={partners} />}
               {currentView === 'deductionManagement' && <DeductionManagement contracts={contracts} partners={partners} onAddPayment={handleAddPayment} onSettleDeduction={handleSettleDeduction} onCancelDeduction={handleCancelDeduction} onToggleLawsuit={handleToggleLawsuit} onBulkSettleDeductions={handleBulkSettleDeductions} />}
               {currentView === 'shippingManagement' && <ShippingManagement contracts={contracts} partners={partners} onSelectContract={()=>{}} />}
