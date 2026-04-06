@@ -1,3 +1,5 @@
+
+
 export enum ContractStatus {
   ACTIVE = '진행중',
   EXPIRED = '만료',
@@ -31,7 +33,7 @@ export enum SettlementStatus {
 
 export interface DailyDeductionLog {
   id: string;
-  date: string;
+  date: string; // YYYY-MM-DD
   amount: number;
   status: DeductionStatus;
   paid_amount: number;
@@ -44,7 +46,6 @@ export interface PriceTier {
   duration_days: number;
   total_amount: number;
   daily_deduction: number;
-  supply_price?: number;
 }
 
 export interface Partner {
@@ -68,7 +69,7 @@ export interface Contract {
   total_amount: number;
   daily_deduction: number;
   daily_deductions: DailyDeductionLog[] | null;
-  unpaid_balance: number;
+  unpaid_balance: number; // Client-side calculated
   status: ContractStatus;
   contract_file_url: string | null;
   
@@ -103,37 +104,36 @@ export interface Contract {
   settlement_request_date: string | null;
   settlement_document_url: string | null;
   contract_initial_deduction: number | null;
-  distributor_gender: string | null;
-  distributor_ssn_prefix: string | null;
-  lessee_gender: string | null;
-  lessee_ssn_prefix: string | null;
-  guarantor_name: string | null;
-  guarantor_gender: string | null;
-  guarantor_ssn_prefix: string | null;
-  guarantor_phone: string | null;
-  guarantor_address: string | null;
-  unit_price_a: number | null;
-  unit_price_b: number | null;
-  distributor_rep_name: string | null;
-  lessee_home_address: string | null;
-  unit_supply_price: number | null;
+  creditor_id: string | null;
 }
 
-export interface CalendarEvent {
+export interface Creditor {
   id: string;
-  title: string;
-  date: string;
-  user: string;
-  color: string;
-  end_date: string | null;
-  time: string | null;
+  name: string;
+  display_order: number;
+  is_active: boolean;
+  created_at: string;
 }
 
-export interface GreenwichSettlement {
+export interface CreditorSettlementRound {
   id: string;
+  creditor_id: string;
   settlement_round: number;
   start_date: string;
   end_date: string;
   total_daily_deduction_amount: number;
   created_at: string;
+}
+
+// 하위 호환
+export type GreenwichSettlement = CreditorSettlementRound;
+
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  date: string; // YYYY-MM-DD
+  user: string;
+  color: string;
+  end_date: string | null; // YYYY-MM-DD
+  time: string | null; // HH:MM
 }

@@ -13,7 +13,7 @@ import { CreditorSettlementData } from './components/CreditorSettlementData';
 import { PartnersManagement } from './components/PartnersManagement';
 import { Calendar } from './components/Calendar';
 import { DatabaseManagement } from './components/DatabaseManagement';
-import { GreenwichSettlement } from './components/GreenwichSettlement';
+import { CreditorSettlement } from './components/CreditorSettlement';
 import { CreditorBatch } from './components/CreditorBatch';
 import { CollectionManagement } from './components/CollectionManagement';
 import { ContractDocGenerator } from './components/ContractDocGenerator';
@@ -26,7 +26,7 @@ import { PartnerFormModal } from './components/PartnerFormModal';
 import { PartnerDetailModal } from './components/PartnerDetailModal';
 import { EventFormModal } from './components/EventFormModal';
 
-import { Contract, Partner, CalendarEvent, GreenwichSettlement as IGreenwichSettlement, DeductionStatus, PriceTier, SettlementStatus, ContractStatus } from './types';
+import { Contract, Partner, CalendarEvent, Creditor, CreditorSettlementRound, DeductionStatus, PriceTier, SettlementStatus, ContractStatus } from './types';
 
 // --- Pure helper functions (outside component for stable references) ---
 
@@ -80,7 +80,8 @@ const App: React.FC = () => {
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [partners, setPartners] = useState<Partner[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
-  const [greenwichSettlements, setGreenwichSettlements] = useState<IGreenwichSettlement[]>([]);
+  const [creditors, setCreditors] = useState<Creditor[]>([]);
+  const [creditorSettlements, setCreditorSettlements] = useState<CreditorSettlementRound[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
@@ -106,20 +107,21 @@ const App: React.FC = () => {
     setLoading(true);
     setFetchError(null);
     try {
-      const [contractsRes, partnersRes, eventsRes, greenwichRes] = await Promise.all([
+      const [contractsRes, partnersRes, eventsRes, creditorsRes, creditorSettlementsRes] = await Promise.all([
         supabase.from('contracts').select('*').order('contract_number', { ascending: false }),
         supabase.from('partners').select('*').order('name', { ascending: true }),
         supabase.from('events').select('*').order('date', { ascending: true }),
-        supabase.from('greenwich_settlements').select('*').order('settlement_round', { ascending: false }),
+        (supabase.from('creditors') as any).select('*').order('display_order', { ascending: true }),
+        (supabase.from('creditor_settlements') as any).select('*').order('settlement_round', { ascending: false }),
       ]);
       if (contractsRes.error) throw new Error(`계약 데이터 로드 실패: ${contractsRes.error.message}`);
       if (partnersRes.error) throw new Error(`파트너 데이터 로드 실패: ${partnersRes.error.message}`);
       if (eventsRes.error) throw new Error(`일정 데이터 로드 실패: ${eventsRes.error.message}`);
-      if (greenwichRes.error) throw new Error(`정산 데이터 로드 실패: ${greenwichRes.error.message}`);
       setContracts(processContracts(contractsRes.data || []));
       setPartners(partnersRes.data || []);
       setEvents(eventsRes.data || []);
-      setGreenwichSettlements(greenwichRes.data || []);
+      if (creditorsRes.data) setCreditors(creditorsRes.data);
+      if (creditorSettlementsRes.data) setCreditorSettlements(creditorSettlementsRes.data);
     } catch (error: any) {
       console.error('Error fetching data:', error);
       setFetchError(error.message || '데이터를 불러오는 중 알 수 없는 오류가 발생했습니다.');
@@ -201,18 +203,32 @@ const App: React.FC = () => {
           setEvents(prev => prev.filter(e => e.id !== (payload.old as any).id));
         }
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'greenwich_settlements' }, (payload) => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'creditor_settlements' }, (payload) => {
         if (payload.eventType === 'INSERT') {
-          setGreenwichSettlements(prev => {
+          setCreditorSettlements(prev => {
             if (prev.some(s => s.id === (payload.new as any).id)) return prev;
-            return [payload.new as IGreenwichSettlement, ...prev];
+            return [payload.new as CreditorSettlementRound, ...prev];
           });
         } else if (payload.eventType === 'UPDATE') {
-          setGreenwichSettlements(prev => prev.map(s =>
-            s.id === (payload.new as any).id ? (payload.new as IGreenwichSettlement) : s
+          setCreditorSettlements(prev => prev.map(s =>
+            s.id === (payload.new as any).id ? (payload.new as CreditorSettlementRound) : s
           ));
         } else if (payload.eventType === 'DELETE') {
-          setGreenwichSettlements(prev => prev.filter(s => s.id !== (payload.old as any).id));
+          setCreditorSettlements(prev => prev.filter(s => s.id !== (payload.old as any).id));
+        }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'creditors' }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          setCreditors(prev => {
+            if (prev.some(c => c.id === (payload.new as any).id)) return prev;
+            return [...prev, payload.new as Creditor];
+          });
+        } else if (payload.eventType === 'UPDATE') {
+          setCreditors(prev => prev.map(c =>
+            c.id === (payload.new as any).id ? (payload.new as Creditor) : c
+          ));
+        } else if (payload.eventType === 'DELETE') {
+          setCreditors(prev => prev.filter(c => c.id !== (payload.old as any).id));
         }
       })
       .subscribe();
@@ -676,38 +692,51 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // --- Greenwich Settlement Handlers ---
+  // --- Creditor Settlement Handlers ---
 
-  const handleSaveGreenwichSettlement = useCallback(async (data: any) => {
+  const handleSaveCreditorSettlement = useCallback(async (data: Omit<CreditorSettlementRound, 'id' | 'created_at'> & { id?: string }) => {
     if (!supabase) return;
-    const { id, ...dataToSave } = data;
     try {
-      if (id) {
-        const { error } = await (supabase.from('greenwich_settlements') as any).update(dataToSave).eq('id', id);
+      if (data.id) {
+        const { id, ...dataToSave } = data;
+        const { data: updated, error } = await (supabase.from('creditor_settlements') as any).update(dataToSave).eq('id', id).select().single();
         if (error) throw error;
-        setGreenwichSettlements(prev => prev.map(s => s.id === id ? { ...s, ...dataToSave } : s));
+        if (updated) setCreditorSettlements(prev => prev.map(s => s.id === updated.id ? updated : s));
       } else {
-        const { data: newSettlement, error } = await (supabase.from('greenwich_settlements') as any)
-          .insert(dataToSave)
-          .select()
-          .single();
+        const { id: _, ...dataToSave } = data;
+        const { data: created, error } = await (supabase.from('creditor_settlements') as any).insert(dataToSave).select().single();
         if (error) throw error;
-        setGreenwichSettlements(prev => [newSettlement, ...prev]);
+        if (created) setCreditorSettlements(prev => [created, ...prev]);
       }
     } catch (error: any) {
       alert(`저장 실패: ${error.message}`);
     }
   }, []);
 
-  const handleDeleteGreenwichSettlement = useCallback(async (id: string) => {
+  const handleDeleteCreditorSettlement = useCallback(async (id: string) => {
     if (!supabase) return;
     try {
-      const { error } = await supabase.from('greenwich_settlements').delete().eq('id', id);
+      const { error } = await (supabase.from('creditor_settlements') as any).delete().eq('id', id);
       if (error) throw error;
-      setGreenwichSettlements(prev => prev.filter(s => s.id !== id));
+      setCreditorSettlements(prev => prev.filter(s => s.id !== id));
     } catch (error: any) {
       alert(`삭제 실패: ${error.message}`);
     }
+  }, []);
+
+  const handleSaveCreditor = useCallback(async (name: string) => {
+    if (!supabase) return;
+    const maxOrder = creditors.reduce((max, c) => Math.max(max, c.display_order), 0);
+    const { data: created } = await (supabase.from('creditors') as any).insert({ name, display_order: maxOrder + 1 }).select().single();
+    if (created) setCreditors(prev => [...prev, created]);
+  }, [creditors]);
+
+  const handleDeleteCreditor = useCallback(async (id: string) => {
+    if (!supabase) return;
+    await (supabase.from('creditor_settlements') as any).delete().eq('creditor_id', id);
+    await (supabase.from('creditors') as any).delete().eq('id', id);
+    setCreditors(prev => prev.filter(c => c.id !== id));
+    setCreditorSettlements(prev => prev.filter(s => s.creditor_id !== id));
   }, []);
 
   if (!isSupabaseConfigured) {
@@ -810,12 +839,15 @@ const App: React.FC = () => {
                 />
               )}
               {currentView === 'database' && <DatabaseManagement />}
-              {currentView === 'greenwichSettlement' && (
-                <GreenwichSettlement
+              {currentView === 'creditorSettlement' && (
+                <CreditorSettlement
                   contracts={contracts}
-                  settlements={greenwichSettlements}
-                  onSave={handleSaveGreenwichSettlement}
-                  onDelete={handleDeleteGreenwichSettlement}
+                  creditors={creditors}
+                  settlements={creditorSettlements}
+                  onSaveSettlement={handleSaveCreditorSettlement}
+                  onDeleteSettlement={handleDeleteCreditorSettlement}
+                  onSaveCreditor={handleSaveCreditor}
+                  onDeleteCreditor={handleDeleteCreditor}
                 />
               )}
             </>

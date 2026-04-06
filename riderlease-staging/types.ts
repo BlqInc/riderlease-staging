@@ -104,7 +104,29 @@ export interface Contract {
   settlement_request_date: string | null;
   settlement_document_url: string | null;
   contract_initial_deduction: number | null;
+  creditor_id: string | null;
 }
+
+export interface Creditor {
+  id: string;
+  name: string;
+  display_order: number;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface CreditorSettlementRound {
+  id: string;
+  creditor_id: string;
+  settlement_round: number;
+  start_date: string;
+  end_date: string;
+  total_daily_deduction_amount: number;
+  created_at: string;
+}
+
+// 하위 호환
+export type GreenwichSettlement = CreditorSettlementRound;
 
 export interface CalendarEvent {
   id: string;

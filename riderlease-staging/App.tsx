@@ -14,7 +14,7 @@ import { CreditorBatch } from './components/CreditorBatch';
 import { PartnersManagement } from './components/PartnersManagement';
 import { Calendar } from './components/Calendar';
 import { DatabaseManagement } from './components/DatabaseManagement';
-import { GreenwichSettlement } from './components/GreenwichSettlement';
+import { CreditorSettlement } from './components/CreditorSettlement';
 import { PrivacyMasking } from './components/PrivacyMasking';
 import { CollectionManagement } from './components/CollectionManagement';
 import { ContractDocGenerator } from './components/ContractDocGenerator';
@@ -26,7 +26,7 @@ import { PartnerFormModal } from './components/PartnerFormModal';
 import { PartnerDetailModal } from './components/PartnerDetailModal';
 import { EventFormModal } from './components/EventFormModal';
 
-import { Contract, Partner, CalendarEvent, GreenwichSettlement as IGreenwichSettlement, DeductionStatus } from './types';
+import { Contract, Partner, CalendarEvent, Creditor, CreditorSettlementRound, DeductionStatus } from './types';
 
 const App: React.FC = () => {
   const [session, setSession] = useState<any>(null);
@@ -34,7 +34,8 @@ const App: React.FC = () => {
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [partners, setPartners] = useState<Partner[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
-  const [greenwichSettlements, setGreenwichSettlements] = useState<IGreenwichSettlement[]>([]);
+  const [creditors, setCreditors] = useState<Creditor[]>([]);
+  const [creditorSettlements, setCreditorSettlements] = useState<CreditorSettlementRound[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -61,17 +62,19 @@ const App: React.FC = () => {
     if (!supabase) return;
     setLoading(true);
     try {
-      const [contractsRes, partnersRes, eventsRes, greenwichRes] = await Promise.all([
+      const [contractsRes, partnersRes, eventsRes, creditorsRes, creditorSettlementsRes] = await Promise.all([
         supabase.from('contracts').select('*').order('created_at', { ascending: false }),
         supabase.from('partners').select('*').order('created_at', { ascending: false }),
         supabase.from('events').select('*').order('date', { ascending: true }),
-        supabase.from('greenwich_settlements').select('*').order('settlement_round', { ascending: false })
+        supabase.from('creditors').select('*').order('display_order', { ascending: true }),
+        supabase.from('creditor_settlements').select('*').order('settlement_round', { ascending: false })
       ]);
 
       if (contractsRes.data) setContracts(contractsRes.data as any);
       if (partnersRes.data) setPartners(partnersRes.data);
       if (eventsRes.data) setEvents(eventsRes.data);
-      if (greenwichRes.data) setGreenwichSettlements(greenwichRes.data);
+      if (creditorsRes.data) setCreditors(creditorsRes.data);
+      if (creditorSettlementsRes.data) setCreditorSettlements(creditorSettlementsRes.data);
     } catch (e) {
       console.error("Data Fetch Error:", e);
     } finally {
@@ -182,6 +185,45 @@ const App: React.FC = () => {
     if (data) setContracts(prev => prev.map(c => c.id === contractId ? { ...data, unpaid_balance: unpaidBalance } : c));
   };
 
+  // 채권사 정산 핸들러
+  const handleSaveCreditorSettlement = async (data: Omit<CreditorSettlementRound, 'id' | 'created_at'> & { id?: string }) => {
+    if (!supabase) return;
+    if (data.id) {
+      const { data: updated } = await supabase.from('creditor_settlements').update({
+        settlement_round: data.settlement_round, start_date: data.start_date, end_date: data.end_date,
+        creditor_id: data.creditor_id, total_daily_deduction_amount: data.total_daily_deduction_amount,
+      }).eq('id', data.id).select().single();
+      if (updated) setCreditorSettlements(prev => prev.map(s => s.id === updated.id ? updated : s));
+    } else {
+      const { data: created } = await supabase.from('creditor_settlements').insert({
+        settlement_round: data.settlement_round, start_date: data.start_date, end_date: data.end_date,
+        creditor_id: data.creditor_id, total_daily_deduction_amount: data.total_daily_deduction_amount,
+      }).select().single();
+      if (created) setCreditorSettlements(prev => [created, ...prev]);
+    }
+  };
+
+  const handleDeleteCreditorSettlement = async (id: string) => {
+    if (!supabase) return;
+    await supabase.from('creditor_settlements').delete().eq('id', id);
+    setCreditorSettlements(prev => prev.filter(s => s.id !== id));
+  };
+
+  const handleSaveCreditor = async (name: string) => {
+    if (!supabase) return;
+    const maxOrder = creditors.reduce((max, c) => Math.max(max, c.display_order), 0);
+    const { data: created } = await supabase.from('creditors').insert({ name, display_order: maxOrder + 1 }).select().single();
+    if (created) setCreditors(prev => [...prev, created]);
+  };
+
+  const handleDeleteCreditor = async (id: string) => {
+    if (!supabase) return;
+    await supabase.from('creditor_settlements').delete().eq('creditor_id', id);
+    await supabase.from('creditors').delete().eq('id', id);
+    setCreditors(prev => prev.filter(c => c.id !== id));
+    setCreditorSettlements(prev => prev.filter(s => s.creditor_id !== id));
+  };
+
   if (!isSupabaseConfigured) return <ConfigurationError />;
   if (!session) return <Login />;
 
@@ -209,7 +251,7 @@ const App: React.FC = () => {
               {currentView === 'creditorSettlementData' && <CreditorSettlementData contracts={contracts} />}
               {currentView === 'creditorBatch' && <CreditorBatch contracts={contracts} />}
               {currentView === 'contractDocGenerator' && <ContractDocGenerator />}
-              {currentView === 'greenwichSettlement' && <GreenwichSettlement contracts={contracts} settlements={greenwichSettlements} onSave={()=>{}} onDelete={()=>{}} />}
+              {currentView === 'creditorSettlement' && <CreditorSettlement contracts={contracts} creditors={creditors} settlements={creditorSettlements} onSaveSettlement={handleSaveCreditorSettlement} onDeleteSettlement={handleDeleteCreditorSettlement} onSaveCreditor={handleSaveCreditor} onDeleteCreditor={handleDeleteCreditor} />}
               {currentView === 'privacyMasking' && <PrivacyMasking />}
               {currentView === 'partners' && <PartnersManagement partners={partners} onSelectPartner={()=>{}} onAddPartner={() => {}} onAddTemplate={() => {}} />}
               {currentView === 'calendar' && <Calendar events={events} onAddEvent={()=>{}} onEditEvent={()=>{}} />}
