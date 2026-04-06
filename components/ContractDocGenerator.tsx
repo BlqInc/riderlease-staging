@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import JSZip from 'jszip';
-import XLSX from 'xlsx-js-style';
+import { read, utils } from 'xlsx';
 
 // ─── Excel column mapping (Row 6 headers from 고객리스트 sheet) ───
 // 0: 계약번호, 1: 계약일, 2: 공급자 성명, 3: 공급자 생년월일, 4: 공급자 휴대전화
@@ -101,12 +101,12 @@ function groupRows(rows: ExcelRow[]): GroupedContract[] {
     const 총수량 = items.reduce((s, it) => s + (Number(it.수량) || 0), 0);
     const 총일납부금 = items.reduce((s, it) => s + (Number(it.일납부금) || 0), 0);
 
-    // 계약번호가 없으면 자동 생성: YYYYMMDD + 4자리 순번
+    // 계약번호가 없으면 자동 생성: YYYYMMDD + 4자리 순번 (전체 기준 유니크)
     if (!group[0].계약번호) {
       const dateKey = group[0].계약일.replace(/-/g, '');
-      const seq = (dateCounters.get(dateKey) || 0) + 1;
-      dateCounters.set(dateKey, seq);
-      group[0].계약번호 = `${dateKey}${String(seq).padStart(4, '0')}`;
+      const globalSeq = (dateCounters.get(dateKey) || Math.floor(Math.random() * 9000) + 1000);
+      dateCounters.set(dateKey, globalSeq + 1);
+      group[0].계약번호 = `${dateKey}${String(globalSeq).padStart(4, '0')}`;
     }
 
     return { base: group[0], items, 총수량, 총일납부금 };
@@ -510,10 +510,10 @@ export const ContractDocGenerator: React.FC = () => {
 
     const reader = new FileReader();
     reader.onload = () => {
-      const wb = XLSX.read(reader.result, { type: 'array' });
+      const wb = read(reader.result, { type: 'array' });
       const sheetName = wb.SheetNames.find(n => n.includes('고객리스트')) || wb.SheetNames[0];
       const sheet = wb.Sheets[sheetName];
-      const rawData = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1 });
+      const rawData = utils.sheet_to_json<any[]>(sheet, { header: 1 });
 
       let headerIdx = -1;
       for (let i = 0; i < rawData.length; i++) {
