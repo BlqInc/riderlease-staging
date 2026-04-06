@@ -143,9 +143,10 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
             }
             if (!formattedDate) formattedDate = new Date().toISOString().split('T')[0];
 
-            // 만료일 계산
-            const startParts = formattedDate.split('-').map(Number);
-            const startDate = new Date(Date.UTC(startParts[0], startParts[1] - 1, startParts[2]));
+            // 만료일 계산 (실행일 기준)
+            const executionDate = '2030-12-31';
+            const execParts = executionDate.split('-').map(Number);
+            const startDate = new Date(Date.UTC(execParts[0], execParts[1] - 1, execParts[2]));
             startDate.setUTCDate(startDate.getUTCDate() + durationDays - 1);
             const expiryDate = startDate.toISOString().split('T')[0];
 
