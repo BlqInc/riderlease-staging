@@ -261,7 +261,7 @@ const App: React.FC = () => {
               {currentView === 'settlementManagement' && <SettlementManagement contracts={contracts} partners={partners} onSelectContract={()=>{}} onRequestSettlement={()=>{}} onCompleteSettlement={()=>{}} onUpdatePrerequisites={()=>{}} onBulkRequestSettlement={()=>{}} onBulkCompleteSettlement={()=>{}} />}
               {currentView === 'creditorSettlementData' && <CreditorSettlementData contracts={contracts} />}
               {currentView === 'creditorBatch' && <CreditorBatch contracts={contracts} />}
-              {currentView === 'documentStatus' && <DocumentStatus partners={partners} onContractCreated={() => fetchData()} />}
+              {currentView === 'documentStatus' && <DocumentStatus partners={partners} contracts={contracts} onContractCreated={() => fetchData()} />}
               {currentView === 'contractDocGenerator' && <ContractDocGenerator />}
               {currentView === 'creditorSettlement' && <CreditorSettlement contracts={contracts} creditors={creditors} settlements={creditorSettlements} onSaveSettlement={handleSaveCreditorSettlement} onDeleteSettlement={handleDeleteCreditorSettlement} onSaveCreditor={handleSaveCreditor} onDeleteCreditor={handleDeleteCreditor} />}
               {currentView === 'privacyMasking' && <PrivacyMasking />}

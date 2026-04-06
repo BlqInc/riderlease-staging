@@ -58,10 +58,11 @@ const CopyIcon: React.FC<{ className?: string }> = ({ className }) => (
 
 interface DocumentStatusProps {
   partners?: Partner[];
+  contracts?: Contract[];
   onContractCreated?: () => void;
 }
 
-export const DocumentStatus: React.FC<DocumentStatusProps> = ({ partners = [], onContractCreated }) => {
+export const DocumentStatus: React.FC<DocumentStatusProps> = ({ partners = [], contracts = [], onContractCreated }) => {
   const [tokens, setTokens] = useState<Token[]>([]);
   const [documents, setDocuments] = useState<UploadedDoc[]>([]);
   const [loading, setLoading] = useState(true);
@@ -200,7 +201,11 @@ export const DocumentStatus: React.FC<DocumentStatusProps> = ({ partners = [], o
 
     setCreatingContract(contractId);
     try {
+      // 계약번호 자동 생성 (기존 최대값 + 1)
+      const maxContractNumber = contracts.reduce((max, c) => Math.max(max, c.contract_number || 0), 0);
+
       const insertData: any = {
+        contract_number: maxContractNumber + 1,
         device_name: deviceName,
         color: '',
         contract_date: today,

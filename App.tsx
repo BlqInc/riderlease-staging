@@ -833,7 +833,7 @@ const App: React.FC = () => {
               )}
               {currentView === 'creditorSettlementData' && <CreditorSettlementData contracts={contracts} />}
               {currentView === 'creditorBatch' && <CreditorBatch contracts={contracts} />}
-              {currentView === 'documentStatus' && <DocumentStatus partners={partners} onContractCreated={() => fetchData()} />}
+              {currentView === 'documentStatus' && <DocumentStatus partners={partners} contracts={contracts} onContractCreated={() => fetchData()} />}
               {currentView === 'contractDocGenerator' && <ContractDocGenerator />}
               {currentView === 'partners' && (
                 <PartnersManagement
