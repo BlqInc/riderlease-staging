@@ -67,6 +67,12 @@ export const DistributorUpload: React.FC = () => {
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [listSearch, setListSearch] = useState('');
 
+  // 수수료 기능 (특정 토큰만)
+  const COMMISSION_TOKEN = '9dc3d9215a5f4c2e82e15f5d';
+  const showCommission = tokenParam === COMMISSION_TOKEN;
+  const [commissionContracts, setCommissionContracts] = useState<{ id: string; device_name: string; total_amount: number; units_required: number; lessee_name: string; dismissed: boolean }[]>([]);
+  const [loadingCommission, setLoadingCommission] = useState(false);
+
   // Form state (consolidated)
   const [formState, setFormState] = useState({
     supplierName: '',
@@ -187,8 +193,53 @@ export const DistributorUpload: React.FC = () => {
   };
 
   useEffect(() => {
-    if (tokenData) fetchPreviousSubmissions();
+    if (tokenData) {
+      fetchPreviousSubmissions();
+      if (showCommission) fetchCommissionData();
+    }
   }, [tokenData]);
+
+  // 수수료용 계약 데이터 가져오기
+  const fetchCommissionData = async () => {
+    if (!supabase || !tokenData) return;
+    setLoadingCommission(true);
+    try {
+      // 이 총판의 완료된 계약(진행중 포함) 가져오기
+      const { data, error } = await (supabase.from('contracts') as any)
+        .select('id, device_name, total_amount, units_required, lessee_name, status')
+        .eq('distributor_name', tokenData.distributor_name)
+        .in('status', ['진행중', '정산완료']);
+      if (error) throw error;
+      // dismissed 상태는 로컬스토리지에서 복원
+      const dismissedIds = JSON.parse(localStorage.getItem(`commission_dismissed_${tokenParam}`) || '[]');
+      setCommissionContracts((data || []).map((c: any) => ({
+        id: c.id,
+        device_name: c.device_name,
+        total_amount: (Number(c.total_amount) || 0) * (Number(c.units_required) || 1),
+        units_required: Number(c.units_required) || 1,
+        lessee_name: c.lessee_name || '',
+        dismissed: dismissedIds.includes(c.id),
+      })));
+    } catch {
+      setCommissionContracts([]);
+    } finally {
+      setLoadingCommission(false);
+    }
+  };
+
+  const toggleCommissionDismiss = (contractId: string) => {
+    setCommissionContracts(prev => {
+      const updated = prev.map(c => c.id === contractId ? { ...c, dismissed: !c.dismissed } : c);
+      const dismissedIds = updated.filter(c => c.dismissed).map(c => c.id);
+      localStorage.setItem(`commission_dismissed_${tokenParam}`, JSON.stringify(dismissedIds));
+      return updated;
+    });
+  };
+
+  // 수수료 계산: 총액 × 10% × 90% × 50% = 총액 × 4.5%
+  const activeCommissionContracts = commissionContracts.filter(c => !c.dismissed);
+  const commissionTotalAmount = activeCommissionContracts.reduce((s, c) => s + c.total_amount, 0);
+  const commissionAmount = Math.round(commissionTotalAmount * 0.045);
 
   // Initialize slots when isSamePerson changes
   useEffect(() => {
@@ -492,7 +543,42 @@ export const DistributorUpload: React.FC = () => {
           </div>
         </div>
 
-        <div className="max-w-lg mx-auto px-4 py-4">
+        <div className="max-w-lg mx-auto px-4 py-4 space-y-4">
+          {/* 수수료 섹션 */}
+          {showCommission && !loadingCommission && commissionContracts.length > 0 && (
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+              <div className="bg-gradient-to-r from-emerald-500 to-teal-500 px-4 py-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-white text-sm font-semibold">예상 수수료</span>
+                  <span className="text-white text-xl font-bold">₩{commissionAmount.toLocaleString()}</span>
+                </div>
+                <p className="text-emerald-100 text-xs mt-1">총 계약액 ₩{commissionTotalAmount.toLocaleString()} 기준 · {activeCommissionContracts.length}건</p>
+              </div>
+              <div className="divide-y divide-gray-100 max-h-48 overflow-y-auto">
+                {commissionContracts.map(c => (
+                  <div key={c.id} className={`flex items-center px-4 py-2.5 ${c.dismissed ? 'opacity-40' : ''}`}>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm ${c.dismissed ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+                        {c.lessee_name || '미지정'} · {c.device_name}
+                      </p>
+                      <p className="text-xs text-gray-400">₩{c.total_amount.toLocaleString()} · 수수료 ₩{Math.round(c.total_amount * 0.045).toLocaleString()}</p>
+                    </div>
+                    <button
+                      onClick={() => toggleCommissionDismiss(c.id)}
+                      className={`text-xs px-2 py-1 rounded-lg shrink-0 ml-2 ${
+                        c.dismissed
+                          ? 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                          : 'bg-emerald-100 text-emerald-600 hover:bg-emerald-200'
+                      }`}
+                    >
+                      {c.dismissed ? '복원' : '수령 완료'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {loadingHistory ? (
             <div className="text-center py-8">
               <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500 mx-auto"></div>
