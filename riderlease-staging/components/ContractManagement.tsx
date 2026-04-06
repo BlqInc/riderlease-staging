@@ -57,143 +57,261 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
     try {
         const data = await file.arrayBuffer();
         const workbook = read(data);
-        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-        const jsonData: Record<string, any>[] = utils.sheet_to_json(worksheet);
 
-        if (!Array.isArray(jsonData)) {
-          throw new Error("엑셀 파일의 형식이 올바르지 않습니다. 객체의 배열이어야 합니다.");
-        }
-        
-        const partnerNameToIdMap = new Map(partners.map(p => [p.name.trim().toLowerCase(), p.id]));
-        const headerToFieldMap: { [key: string]: keyof Partial<Contract> | 'model' | 'storage' } = {
-            '파트너사명': 'partner_id', '기기명': 'model', '용량': 'storage', '색상': 'color',
-            '계약일': 'contract_date', '실행일': 'execution_date', '만료일': 'expiry_date',
-            '계약 기간': 'duration_days', '총 채권액': 'total_amount', 
-            '일차감액': 'daily_deduction',
-            '일 차감액': 'daily_deduction',
-            '계약자(라이더)': 'lessee_name',
-            '계약자': 'lessee_name',
-            '계약자 연락처': 'lessee_contact',
-            '계약자 사업자번호': 'lessee_business_number',
-            '계약자 사업자주소': 'lessee_business_address',
-            '총판명': 'distributor_name', '필요 수량': 'units_required',
-            '정산 차수': 'settlement_round',
-        };
+        // 계약서 엑셀 양식 감지: '고객리스트' 시트가 있으면 계약서 양식
+        const isContractExcel = workbook.SheetNames.includes('고객리스트');
 
-        const newContracts: Partial<Omit<Contract, 'id' | 'contract_number' | 'unpaid_balance'>>[] = [];
+        let newContracts: Partial<Omit<Contract, 'id' | 'contract_number' | 'unpaid_balance'>>[] = [];
         const errors: string[] = [];
+        const partnerNameToIdMap = new Map(partners.map(p => [p.name.trim().toLowerCase(), p.id]));
 
-        jsonData.forEach((row, index) => {
-            const newContract: Partial<Contract> & { model?: string, storage?: string } = {
-                status: ContractStatus.ACTIVE,
-                settlement_status: SettlementStatus.NOT_READY,
-                is_lessee_contract_signed: false,
-                shipping_status: ShippingStatus.PREPARING,
-                procurement_status: ProcurementStatus.UNSECURED,
-                daily_deductions: null,
+        if (isContractExcel) {
+          // ─── 계약서 엑셀 양식 파싱 ───
+          const customerSheet = workbook.Sheets['고객리스트'];
+          const rawData: any[][] = utils.sheet_to_json(customerSheet, { header: 1 });
+
+          // 헤더 찾기 (Row 6: "계약번호" 포함된 행)
+          let headerIdx = -1;
+          for (let i = 0; i < Math.min(rawData.length, 15); i++) {
+            if (rawData[i]?.some((c: any) => String(c || '').includes('계약번호'))) {
+              headerIdx = i;
+              break;
+            }
+          }
+          if (headerIdx === -1) throw new Error('고객리스트 시트에서 헤더 행(계약번호)을 찾을 수 없습니다.');
+
+          const headers = rawData[headerIdx].map((h: any) => String(h || '').trim());
+
+          // 상품리스트에서 가격 정보 가져오기
+          const priceMap = new Map<string, { dailyA: number; commission: number; period: number }>();
+          if (workbook.SheetNames.includes('상품리스트')) {
+            const priceSheet = workbook.Sheets['상품리스트'];
+            const priceData: any[][] = utils.sheet_to_json(priceSheet, { header: 1 });
+            for (let i = 9; i < priceData.length; i++) {
+              const row = priceData[i];
+              if (!row || !row[2]) continue; // 상품명 없으면 스킵
+              const productName = String(row[2]).trim();
+              if (!productName) continue;
+              priceMap.set(productName, {
+                dailyA: Number(row[3]) || 0,
+                commission: Number(row[4]) || 0,
+                period: Number(row[7]) || 180,
+              });
+            }
+          }
+
+          // 데이터 행 파싱
+          for (let i = headerIdx + 1; i < rawData.length; i++) {
+            const row = rawData[i];
+            if (!row || row.every((c: any) => c == null || c === '')) continue;
+
+            const getValue = (colName: string): any => {
+              const idx = headers.indexOf(colName);
+              return idx >= 0 ? row[idx] : null;
             };
-            let hasError = false;
 
-            for (const rawHeader of Object.keys(row)) {
-                const header = String(rawHeader).trim();
-                const field = headerToFieldMap[header];
-                if (field) {
-                    const value = row[rawHeader];
-                    if (value === null || value === undefined) continue;
+            const contractDate = getValue('계약일');
+            const deviceName = String(getValue('상품명') || '').trim();
+            if (!deviceName) continue; // 상품명 없으면 스킵
 
-                    if (field === 'partner_id') {
-                        // FIX: Explicitly convert `value` to a string before using string methods,
-                        // as its type is 'unknown' when read from the Excel file.
-                        const partnerName = String(value).trim().toLowerCase();
-                        const partnerId = partnerNameToIdMap.get(partnerName);
-                        if (partnerId) {
-                            newContract.partner_id = partnerId;
-                        } else {
-                            errors.push(`Row ${index + 2}: 파트너사 '${String(value)}'을(를) 찾을 수 없습니다.`);
-                            hasError = true;
-                        }
-                    } else if (['contract_date', 'execution_date', 'expiry_date'].includes(field)) {
-                        let formattedDate: string | null = null;
-                        if (value instanceof Date && !isNaN(value.getTime())) {
-                            value.setMinutes(value.getMinutes() - value.getTimezoneOffset());
-                            formattedDate = value.toISOString().split('T')[0];
-                        } else if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value.trim())) {
-                            const d = new Date(value.trim());
-                            if (!isNaN(d.getTime())) {
-                                d.setMinutes(d.getMinutes() + d.getTimezoneOffset());
-                                formattedDate = d.toISOString().split('T')[0];
-                            }
-                        } else if (typeof value === 'number') {
-                            const d = new Date(Math.round((value - 25569) * 86400 * 1000));
-                            if (!isNaN(d.getTime())) {
-                                formattedDate = d.toISOString().split('T')[0];
-                            }
-                        }
-                        
-                        if (formattedDate) {
-                            (newContract as any)[field] = formattedDate;
-                        } else if (value) {
-                            errors.push(`Row ${index + 2}: '${header}'의 날짜 형식이 올바르지 않습니다. (YYYY-MM-DD 필요)`);
-                            hasError = true;
-                        }
-                    } else if (['duration_days', 'total_amount', 'daily_deduction', 'units_required', 'settlement_round'].includes(field)) {
-                        const numValue = Number(value);
-                        if (!isNaN(numValue)) {
-                            (newContract as any)[field] = numValue;
-                        } else {
-                             errors.push(`Row ${index + 2}: '${header}'은(는) 숫자여야 합니다.`);
-                             hasError = true;
-                        }
-                    }
-                    else {
-                        (newContract as any)[field] = String(value);
-                    }
-                }
-            }
-            
-            if (newContract.model) {
-                newContract.device_name = [newContract.model, newContract.storage].filter(Boolean).join(' ');
-            }
-            delete newContract.model;
-            delete newContract.storage;
-
-            // 실행일이 없으면 계약일로 대체
-            if (!newContract.execution_date && newContract.contract_date) {
-                newContract.execution_date = newContract.contract_date;
+            // 계약기간 파싱: "7개월(210일)" → 210, 또는 숫자 그대로
+            let durationDays = 180;
+            const periodRaw = getValue('계약기간');
+            if (periodRaw) {
+              const match = String(periodRaw).match(/(\d+)\s*일/);
+              if (match) durationDays = parseInt(match[1]);
+              else if (!isNaN(Number(periodRaw))) durationDays = Number(periodRaw);
             }
 
-            // 만료일이 없으면 실행일과 계약 기간으로 계산
-            if (!newContract.expiry_date && newContract.duration_days && newContract.execution_date) {
-                try {
-                    const parts = newContract.execution_date.split('-').map(Number);
-                    const startDate = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
-                    if (isNaN(startDate.getTime())) throw new Error('Invalid date');
-                    startDate.setUTCDate(startDate.getUTCDate() + (Number(newContract.duration_days) - 1));
-                    newContract.expiry_date = startDate.toISOString().split('T')[0];
-                } catch (e) {
-                    // Date calculation failed, will be caught by the validation below
-                }
+            // 날짜 파싱
+            let formattedDate = '';
+            if (contractDate) {
+              if (typeof contractDate === 'number') {
+                const d = new Date(Math.round((contractDate - 25569) * 86400 * 1000));
+                formattedDate = d.toISOString().split('T')[0];
+              } else if (typeof contractDate === 'string' && /^\d{4}-\d{2}-\d{2}/.test(contractDate)) {
+                formattedDate = contractDate.split('T')[0];
+              }
             }
+            if (!formattedDate) formattedDate = new Date().toISOString().split('T')[0];
 
+            // 만료일 계산
+            const startParts = formattedDate.split('-').map(Number);
+            const startDate = new Date(Date.UTC(startParts[0], startParts[1] - 1, startParts[2]));
+            startDate.setUTCDate(startDate.getUTCDate() + durationDays - 1);
+            const expiryDate = startDate.toISOString().split('T')[0];
 
-            if (!newContract.partner_id) {
-                if (!hasError) errors.push(`Row ${index + 2}: '파트너사명'이 비어있거나 유효하지 않습니다.`);
-                hasError = true;
-            }
-            if (!newContract.device_name) {
-                if (!hasError) errors.push(`Row ${index + 2}: '기기명'이 비어있습니다.`);
-                hasError = true;
-            }
-            if (!newContract.expiry_date) {
-                if (!hasError) errors.push(`Row ${index + 2}: '만료일'이 없습니다. '만료일'을 직접 입력하거나, '실행일'(또는 '계약일')과 '계약 기간'으로 계산할 수 있도록 값을 입력해주세요.`);
-                hasError = true;
-            }
+            // 총판(공급자 회사명)으로 파트너 매칭
+            const distributorCompany = String(getValue('공급자 회사명') || '').trim();
+            const partnerId = partnerNameToIdMap.get(distributorCompany.toLowerCase());
 
+            // 일차감, 대수, 합계
+            const dailyDeduction = Number(getValue('일 납부금')) || 0;
+            const unitsRequired = Number(getValue('상품대수합계')) || 1;
+            const totalAmount = Number(getValue('합계')) || (dailyDeduction * durationDays);
 
-            if (!hasError) {
-                newContracts.push(newContract);
-            }
-        });
+            const newContract: Partial<Contract> = {
+              device_name: deviceName,
+              color: '',
+              contract_date: formattedDate,
+              execution_date: formattedDate,
+              expiry_date: expiryDate,
+              duration_days: durationDays,
+              total_amount: totalAmount,
+              daily_deduction: dailyDeduction,
+              units_required: unitsRequired,
+              status: ContractStatus.ACTIVE,
+              settlement_status: SettlementStatus.NOT_READY,
+              is_lessee_contract_signed: false,
+              shipping_status: ShippingStatus.PREPARING,
+              procurement_status: ProcurementStatus.UNSECURED,
+              daily_deductions: null,
+              distributor_name: distributorCompany || String(getValue('공급자 성명') || ''),
+              distributor_contact: String(getValue('공급자 휴대전화') || ''),
+              distributor_business_number: String(getValue('공급자 사업자번호') || ''),
+              distributor_address: String(getValue('공급자 회사주소') || ''),
+              lessee_name: String(getValue('이용자 성명') || ''),
+              lessee_contact: String(getValue('이용자 휴대전화') || ''),
+              lessee_business_address: String(getValue('이용자 집주소') || ''),
+            };
+
+            if (partnerId) newContract.partner_id = partnerId;
+
+            newContracts.push(newContract);
+          }
+
+          if (newContracts.length === 0) {
+            throw new Error('가져올 수 있는 계약 데이터가 없습니다. 고객리스트 시트를 확인해주세요.');
+          }
+
+        } else {
+          // ─── 기존 양식 파싱 ───
+          const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+          const jsonData: Record<string, any>[] = utils.sheet_to_json(worksheet);
+
+          if (!Array.isArray(jsonData)) {
+            throw new Error("엑셀 파일의 형식이 올바르지 않습니다.");
+          }
+
+          const headerToFieldMap: { [key: string]: keyof Partial<Contract> | 'model' | 'storage' } = {
+              '파트너사명': 'partner_id', '기기명': 'model', '용량': 'storage', '색상': 'color',
+              '계약일': 'contract_date', '실행일': 'execution_date', '만료일': 'expiry_date',
+              '계약 기간': 'duration_days', '총 채권액': 'total_amount',
+              '일차감액': 'daily_deduction',
+              '일 차감액': 'daily_deduction',
+              '계약자(라이더)': 'lessee_name',
+              '계약자': 'lessee_name',
+              '계약자 연락처': 'lessee_contact',
+              '계약자 사업자번호': 'lessee_business_number',
+              '계약자 사업자주소': 'lessee_business_address',
+              '총판명': 'distributor_name', '필요 수량': 'units_required',
+              '정산 차수': 'settlement_round',
+          };
+
+          jsonData.forEach((row, index) => {
+              const newContract: Partial<Contract> & { model?: string, storage?: string } = {
+                  status: ContractStatus.ACTIVE,
+                  settlement_status: SettlementStatus.NOT_READY,
+                  is_lessee_contract_signed: false,
+                  shipping_status: ShippingStatus.PREPARING,
+                  procurement_status: ProcurementStatus.UNSECURED,
+                  daily_deductions: null,
+              };
+              let hasError = false;
+
+              for (const rawHeader of Object.keys(row)) {
+                  const header = String(rawHeader).trim();
+                  const field = headerToFieldMap[header];
+                  if (field) {
+                      const value = row[rawHeader];
+                      if (value === null || value === undefined) continue;
+
+                      if (field === 'partner_id') {
+                          const partnerName = String(value).trim().toLowerCase();
+                          const partnerId = partnerNameToIdMap.get(partnerName);
+                          if (partnerId) {
+                              newContract.partner_id = partnerId;
+                          } else {
+                              errors.push(`Row ${index + 2}: 파트너사 '${String(value)}'을(를) 찾을 수 없습니다.`);
+                              hasError = true;
+                          }
+                      } else if (['contract_date', 'execution_date', 'expiry_date'].includes(field)) {
+                          let formattedDate: string | null = null;
+                          if (value instanceof Date && !isNaN(value.getTime())) {
+                              value.setMinutes(value.getMinutes() - value.getTimezoneOffset());
+                              formattedDate = value.toISOString().split('T')[0];
+                          } else if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value.trim())) {
+                              const d = new Date(value.trim());
+                              if (!isNaN(d.getTime())) {
+                                  d.setMinutes(d.getMinutes() + d.getTimezoneOffset());
+                                  formattedDate = d.toISOString().split('T')[0];
+                              }
+                          } else if (typeof value === 'number') {
+                              const d = new Date(Math.round((value - 25569) * 86400 * 1000));
+                              if (!isNaN(d.getTime())) {
+                                  formattedDate = d.toISOString().split('T')[0];
+                              }
+                          }
+
+                          if (formattedDate) {
+                              (newContract as any)[field] = formattedDate;
+                          } else if (value) {
+                              errors.push(`Row ${index + 2}: '${header}'의 날짜 형식이 올바르지 않습니다.`);
+                              hasError = true;
+                          }
+                      } else if (['duration_days', 'total_amount', 'daily_deduction', 'units_required', 'settlement_round'].includes(field)) {
+                          const numValue = Number(value);
+                          if (!isNaN(numValue)) {
+                              (newContract as any)[field] = numValue;
+                          } else {
+                               errors.push(`Row ${index + 2}: '${header}'은(는) 숫자여야 합니다.`);
+                               hasError = true;
+                          }
+                      }
+                      else {
+                          (newContract as any)[field] = String(value);
+                      }
+                  }
+              }
+
+              if (newContract.model) {
+                  newContract.device_name = [newContract.model, newContract.storage].filter(Boolean).join(' ');
+              }
+              delete newContract.model;
+              delete newContract.storage;
+
+              if (!newContract.execution_date && newContract.contract_date) {
+                  newContract.execution_date = newContract.contract_date;
+              }
+
+              if (!newContract.expiry_date && newContract.duration_days && newContract.execution_date) {
+                  try {
+                      const parts = newContract.execution_date.split('-').map(Number);
+                      const startDate = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+                      if (isNaN(startDate.getTime())) throw new Error('Invalid date');
+                      startDate.setUTCDate(startDate.getUTCDate() + (Number(newContract.duration_days) - 1));
+                      newContract.expiry_date = startDate.toISOString().split('T')[0];
+                  } catch (e) {}
+              }
+
+              if (!newContract.partner_id) {
+                  if (!hasError) errors.push(`Row ${index + 2}: '파트너사명'이 비어있거나 유효하지 않습니다.`);
+                  hasError = true;
+              }
+              if (!newContract.device_name) {
+                  if (!hasError) errors.push(`Row ${index + 2}: '기기명'이 비어있습니다.`);
+                  hasError = true;
+              }
+              if (!newContract.expiry_date) {
+                  if (!hasError) errors.push(`Row ${index + 2}: '만료일'이 없습니다.`);
+                  hasError = true;
+              }
+
+              if (!hasError) {
+                  newContracts.push(newContract);
+              }
+          });
+        }
 
         if (errors.length > 0) {
             throw new Error(errors.join('\n'));
