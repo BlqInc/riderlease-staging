@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabaseClient';
+import { Contract, Partner } from '../types';
 
 interface Token {
   id: string;
@@ -48,7 +49,12 @@ const CopyIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
-export const DocumentStatus: React.FC = () => {
+interface DocumentStatusProps {
+  partners?: Partner[];
+  onContractCreated?: () => void;
+}
+
+export const DocumentStatus: React.FC<DocumentStatusProps> = ({ partners = [], onContractCreated }) => {
   const [tokens, setTokens] = useState<Token[]>([]);
   const [documents, setDocuments] = useState<UploadedDoc[]>([]);
   const [loading, setLoading] = useState(true);
@@ -57,6 +63,8 @@ export const DocumentStatus: React.FC = () => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [filterDistributor, setFilterDistributor] = useState<string>('');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [creatingContract, setCreatingContract] = useState<string | null>(null);
+  const [createdContracts, setCreatedContracts] = useState<Set<string>>(new Set());
 
   const fetchAll = useCallback(async () => {
     if (!supabase) return;
@@ -125,6 +133,83 @@ export const DocumentStatus: React.FC = () => {
       setCopiedId(id);
       setTimeout(() => setCopiedId(null), 2000);
     });
+  };
+
+  // 계약 자동 생성
+  const handleCreateContract = async (contractId: string, docs: UploadedDoc[]) => {
+    if (!supabase) return;
+    const firstDoc = docs[0];
+
+    // 파트너 찾기 (총판명 기준)
+    let partnerId = '';
+    const matchedPartner = partners.find(p =>
+      p.name === firstDoc.distributor_name || p.name.includes(firstDoc.distributor_name)
+    );
+
+    if (matchedPartner) {
+      partnerId = matchedPartner.id;
+    } else {
+      // 파트너가 없으면 첫 번째 파트너 사용 (또는 빈값)
+      partnerId = partners[0]?.id || '';
+    }
+
+    // 단가표에서 가격 매칭
+    let totalAmount = 0;
+    let dailyDeduction = 0;
+    let durationDays = firstDoc.contract_period || 180;
+    const deviceName = `${firstDoc.device_model || ''} ${firstDoc.device_capacity || ''}`.trim();
+
+    if (matchedPartner?.price_list) {
+      const tier = matchedPartner.price_list.find(t =>
+        t.model === firstDoc.device_model &&
+        t.storage === firstDoc.device_capacity &&
+        t.duration_days === durationDays
+      );
+      if (tier) {
+        totalAmount = tier.total_amount;
+        dailyDeduction = tier.daily_deduction;
+      }
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+    const expiryDate = new Date(Date.now() + durationDays * 86400000).toISOString().split('T')[0];
+
+    // 계약자명 결정: 라이더가 있으면 라이더, 없으면 공급자
+    const lesseeName = firstDoc.rider_name || firstDoc.supplier_name || '';
+    const lesseeContact = firstDoc.rider_phone || firstDoc.supplier_phone || '';
+
+    setCreatingContract(contractId);
+    try {
+      const { error } = await (supabase.from('contracts') as any).insert({
+        partner_id: partnerId,
+        device_name: deviceName,
+        color: '',
+        contract_date: today,
+        expiry_date: expiryDate,
+        duration_days: durationDays,
+        total_amount: totalAmount,
+        daily_deduction: dailyDeduction,
+        status: '진행중',
+        lessee_name: lesseeName,
+        lessee_contact: lesseeContact,
+        distributor_name: firstDoc.distributor_name || firstDoc.supplier_name || '',
+        distributor_contact: firstDoc.supplier_phone || '',
+        units_required: 1,
+        settlement_status: '준비중',
+        is_lessee_contract_signed: false,
+        unpaid_balance: 0,
+      });
+
+      if (error) throw error;
+
+      setCreatedContracts(prev => new Set(prev).add(contractId));
+      if (onContractCreated) onContractCreated();
+      alert('계약이 등록되었습니다. 계약 관리 탭에서 상세 정보를 확인/수정해주세요.');
+    } catch (error: any) {
+      alert(`계약 등록 실패: ${error.message}`);
+    } finally {
+      setCreatingContract(null);
+    }
   };
 
   const distributorNames = [...new Set(tokens.map(t => t.distributor_name))];
@@ -285,9 +370,24 @@ export const DocumentStatus: React.FC = () => {
                         )}
                       </div>
                     </div>
-                    <span className="text-xs text-slate-400 whitespace-nowrap ml-3">
-                      {new Date(firstDoc.uploaded_at).toLocaleString('ko-KR')}
-                    </span>
+                    <div className="flex items-center gap-2 ml-3">
+                      <span className="text-xs text-slate-400 whitespace-nowrap">
+                        {new Date(firstDoc.uploaded_at).toLocaleString('ko-KR')}
+                      </span>
+                      {createdContracts.has(contractId) ? (
+                        <span className="px-3 py-1.5 text-xs bg-green-500/20 text-green-400 rounded-lg font-medium">
+                          등록 완료
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => handleCreateContract(contractId, docs)}
+                          disabled={creatingContract === contractId}
+                          className="px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors whitespace-nowrap"
+                        >
+                          {creatingContract === contractId ? '등록 중...' : '계약 등록'}
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {/* Document list */}
