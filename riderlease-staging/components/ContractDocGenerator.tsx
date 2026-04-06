@@ -1,6 +1,4 @@
 import React, { useState, useCallback } from 'react';
-import JSZip from 'jszip';
-import { read, utils } from 'xlsx';
 
 // ─── Excel column mapping (Row 6 headers from 고객리스트 sheet) ───
 // 0: 계약번호, 1: 계약일, 2: 공급자 성명, 3: 공급자 생년월일, 4: 공급자 휴대전화
@@ -509,11 +507,12 @@ export const ContractDocGenerator: React.FC = () => {
     setExcelFileName(file.name);
 
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
+      const { read, utils: xlsxUtils } = await import('xlsx-js-style');
       const wb = read(reader.result, { type: 'array' });
       const sheetName = wb.SheetNames.find(n => n.includes('고객리스트')) || wb.SheetNames[0];
       const sheet = wb.Sheets[sheetName];
-      const rawData = utils.sheet_to_json<any[]>(sheet, { header: 1 });
+      const rawData = xlsxUtils.sheet_to_json<any[]>(sheet, { header: 1 });
 
       let headerIdx = -1;
       for (let i = 0; i < rawData.length; i++) {
@@ -569,6 +568,7 @@ export const ContractDocGenerator: React.FC = () => {
       const selected = grouped.filter((_, i) => selectedRows.has(i));
       if (selected.length === 0) { alert('생성할 계약을 선택해주세요.'); return; }
 
+      const JSZip = (await import('jszip')).default;
       const templateZip = await JSZip.loadAsync(templateFile);
       const originalXml = await templateZip.file('word/document.xml')!.async('string');
 

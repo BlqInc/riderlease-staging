@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { UploadIcon, DownloadIcon, CloseIcon, ShieldIcon } from './icons/IconComponents';
 
 export const PrivacyMasking: React.FC = () => {
@@ -30,9 +30,9 @@ export const PrivacyMasking: React.FC = () => {
 
         try {
             const { GoogleGenAI, Type } = await import('@google/genai');
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+            // Using process.env.API_KEY as requested for this environment
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
             
-            // 1. Prepare Image Part
             const base64Data = originalImage.split(',')[1];
             const imagePart = {
                 inlineData: {
@@ -41,8 +41,6 @@ export const PrivacyMasking: React.FC = () => {
                 },
             };
 
-            // 2. Request Gemini to find RRN area
-            // We ask for normalized coordinates of the last 7 digits of any Resident Registration Number found.
             const response = await ai.models.generateContent({
                 model: 'gemini-3-flash-preview',
                 contents: [
@@ -85,7 +83,6 @@ export const PrivacyMasking: React.FC = () => {
                 return;
             }
 
-            // 3. Draw on Canvas and Blur
             applyMaskingToCanvas(boxes);
 
         } catch (err: any) {
@@ -105,36 +102,23 @@ export const PrivacyMasking: React.FC = () => {
             const ctx = canvas.getContext('2d');
             if (!ctx) return;
 
-            // Set canvas size to match image
             canvas.width = img.width;
             canvas.height = img.height;
-
-            // Draw original image
             ctx.drawImage(img, 0, 0);
 
-            // Apply masks for each detected box
             boxes.forEach(item => {
                 const [ymin, xmin, ymax, xmax] = item.box;
-                
-                // Convert normalized (0-1000) to actual pixel coordinates
                 const x = (xmin / 1000) * canvas.width;
                 const y = (ymin / 1000) * canvas.height;
                 const width = ((xmax - xmin) / 1000) * canvas.width;
                 const height = ((ymax - ymin) / 1000) * canvas.height;
 
-                // Create a blurred or solid rectangle
-                // For privacy, we'll use a deep indigo solid rectangle with a slight blur effect around it
                 ctx.save();
-                
-                // Option 1: Solid Box (Most Secure)
-                ctx.fillStyle = '#1e1b4b'; // Deep Indigo
+                ctx.fillStyle = '#1e1b4b'; 
                 ctx.fillRect(x - 2, y - 2, width + 4, height + 4);
-                
-                // Option 2: Heavy Blur on top of it for aesthetics
                 ctx.filter = 'blur(8px)';
                 ctx.fillStyle = 'rgba(30, 27, 75, 0.8)';
                 ctx.fillRect(x, y, width, height);
-                
                 ctx.restore();
             });
 
@@ -190,7 +174,6 @@ export const PrivacyMasking: React.FC = () => {
                 </div>
             ) : (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    {/* Source View */}
                     <div className="bg-slate-800 rounded-xl p-6 border border-slate-700 flex flex-col">
                         <div className="flex justify-between items-center mb-4">
                             <h3 className="font-bold text-white">원본 이미지</h3>
@@ -218,7 +201,6 @@ export const PrivacyMasking: React.FC = () => {
                         )}
                     </div>
 
-                    {/* Result View */}
                     <div className="bg-slate-800 rounded-xl p-6 border border-slate-700 flex flex-col">
                         <h3 className="font-bold text-white mb-4">마스킹 결과</h3>
                         <div className="flex-grow flex items-center justify-center bg-slate-900 rounded-lg overflow-hidden border border-slate-700 min-h-[400px]">
@@ -261,7 +243,6 @@ export const PrivacyMasking: React.FC = () => {
                 </div>
             )}
 
-            {/* Hidden Canvas for Processing */}
             <canvas ref={canvasRef} className="hidden" />
 
             <section className="bg-slate-800/30 rounded-xl p-6 border border-slate-700/50">

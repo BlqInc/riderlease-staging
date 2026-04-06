@@ -1,6 +1,4 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import XLSX from 'xlsx-js-style';
-import JSZip from 'jszip';
 import { Contract } from '../types';
 import { CloseIcon } from './icons/IconComponents';
 import { supabase } from '../lib/supabaseClient';
@@ -119,6 +117,7 @@ function buildWorkbook(
   selected: Contract[],
   allEdits: Record<string, Partial<Contract>>,
   allContracts: Contract[],
+  XLSX: any,
 ) {
   const wb = { SheetNames: [] as string[], Sheets: {} as Record<string, any> };
 
@@ -608,9 +607,10 @@ export const CreditorBatch: React.FC<Props> = ({ contracts }) => {
     return edits && (edits as any)[field] !== undefined ? (edits as any)[field] : c[field];
   };
 
-  const generateExcel = () => {
+  const generateExcel = async () => {
     if (selectedContracts.length === 0) return;
-    const wb = buildWorkbook(selectedContracts, pendingEdits, contracts);
+    const XLSX = (await import('xlsx-js-style')).default;
+    const wb = buildWorkbook(selectedContracts, pendingEdits, contracts, XLSX);
     const today = new Date();
     const dateStr = `${String(today.getFullYear()).substring(2)}${String(today.getMonth()+1).padStart(2,'0')}${String(today.getDate()).padStart(2,'0')}`;
     const distNames = [...new Set(selectedContracts.map(c => (pendingEdits[c.id]?.distributor_name ?? c.distributor_name) || '').filter(Boolean))].slice(0, 3).join(',');
@@ -692,6 +692,7 @@ export const CreditorBatch: React.FC<Props> = ({ contracts }) => {
     const checked = checkedDocs[contractId] || new Set();
     const targets = slots.filter(s => checked.has(s.key) && contractDocs[contractId]?.[s.key]);
     if (!targets.length) return;
+    const JSZip = (await import('jszip')).default;
     const zip = new JSZip();
     await Promise.all(targets.map(async slot => {
       const doc = contractDocs[contractId]![slot.key]!;

@@ -2,7 +2,6 @@ import React, { useState, useMemo, Fragment, useRef } from 'react';
 import { Contract, ContractStatus, Partner, DeductionStatus, SettlementStatus, ShippingStatus, ProcurementStatus } from '../types';
 import { formatDate, formatCurrency } from '../lib/utils';
 import { PlusIcon, ChevronDownIcon, DuplicateIcon, UserPlusIcon, UploadIcon } from './icons/IconComponents';
-import { read, utils } from 'xlsx';
 import { computeDistributorRisk, computeLesseeRisk, classifyRisk, riskColors, RiskLevel } from '../lib/riskUtils';
 
 interface ContractManagementProps {
@@ -58,6 +57,7 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
     setImportStatus({ loading: true, message: '파일을 분석 중입니다...' });
 
     try {
+        const { read, utils } = await import('xlsx-js-style');
         const data = await file.arrayBuffer();
         const workbook = read(data);
 

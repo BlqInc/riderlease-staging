@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Partner, PriceTier } from '../types';
 import { CloseIcon, UploadIcon } from './icons/IconComponents';
-import { read, utils } from 'xlsx';
 
 interface PartnerFormModalProps {
   isOpen: boolean;
@@ -51,6 +50,7 @@ export const PartnerFormModal: React.FC<PartnerFormModalProps> = ({ isOpen, onCl
     setIsLoading(true);
     setImportMessage('');
     try {
+        const { read, utils } = await import('xlsx-js-style');
         const data = await file.arrayBuffer();
         const workbook = read(data);
         const worksheetName = workbook.SheetNames[0];

@@ -65,14 +65,16 @@ export const DistributorUpload: React.FC = () => {
   const [selectedSubmission, setSelectedSubmission] = useState<SubmissionGroup | null>(null);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  // Form state
-  const [isSamePerson, setIsSamePerson] = useState(true);
-  const [supplierName, setSupplierName] = useState('');
-  const [supplierPhone, setSupplierPhone] = useState('');
-  const [riderName, setRiderName] = useState('');
-  const [riderPhone, setRiderPhone] = useState('');
-  const [guarantorName, setGuarantorName] = useState('');
-  const [guarantorPhone, setGuarantorPhone] = useState('');
+  // Form state (consolidated)
+  const [formState, setFormState] = useState({
+    supplierName: '',
+    supplierPhone: '',
+    riderName: '',
+    riderPhone: '',
+    guarantorName: '',
+    guarantorPhone: '',
+    isSamePerson: true,
+  });
   const [devices, setDevices] = useState<{ model: string; capacity: string; quantity: number; period: '180' | '210' }[]>([
     { model: '', capacity: '', quantity: 1, period: '180' },
   ]);
@@ -170,7 +172,7 @@ export const DistributorUpload: React.FC = () => {
 
   // Initialize slots when isSamePerson changes
   useEffect(() => {
-    const slotDefs = isSamePerson ? SAME_PERSON_SLOTS : DIFF_PERSON_SLOTS;
+    const slotDefs = formState.isSamePerson ? SAME_PERSON_SLOTS : DIFF_PERSON_SLOTS;
     setSlots(slotDefs.map(s => ({
       key: s.key,
       label: s.label,
@@ -180,7 +182,7 @@ export const DistributorUpload: React.FC = () => {
       progress: 0,
       uploaded: false,
     })));
-  }, [isSamePerson]);
+  }, [formState.isSamePerson]);
 
   const addDevice = () => setDevices(prev => [...prev, { model: '', capacity: '', quantity: 1, period: '180' }]);
   const removeDevice = (idx: number) => setDevices(prev => prev.filter((_, i) => i !== idx));
@@ -212,27 +214,27 @@ export const DistributorUpload: React.FC = () => {
     if (!supabase || !tokenData) return;
 
     // Validation
-    if (!supplierName.trim()) {
+    if (!formState.supplierName.trim()) {
       setSubmitError('대표자(공급자) 성명을 입력해주세요.');
       return;
     }
-    if (!supplierPhone.trim()) {
+    if (!formState.supplierPhone.trim()) {
       setSubmitError('대표자(공급자) 휴대폰번호를 입력해주세요.');
       return;
     }
-    if (!isSamePerson && !riderName.trim()) {
+    if (!formState.isSamePerson && !formState.riderName.trim()) {
       setSubmitError('라이더(구매자) 성명을 입력해주세요.');
       return;
     }
-    if (!isSamePerson && !riderPhone.trim()) {
+    if (!formState.isSamePerson && !formState.riderPhone.trim()) {
       setSubmitError('라이더(구매자) 휴대폰번호를 입력해주세요.');
       return;
     }
-    if (!guarantorName.trim()) {
+    if (!formState.guarantorName.trim()) {
       setSubmitError('보증인 성명을 입력해주세요.');
       return;
     }
-    if (!guarantorPhone.trim()) {
+    if (!formState.guarantorPhone.trim()) {
       setSubmitError('보증인 휴대폰번호를 입력해주세요.');
       return;
     }
@@ -256,7 +258,7 @@ export const DistributorUpload: React.FC = () => {
 
     try {
       const timestamp = Date.now();
-      const contractId = `${tokenData.distributor_name}_${supplierName}_${timestamp}`;
+      const contractId = `${tokenData.distributor_name}_${formState.supplierName}_${timestamp}`;
 
       for (const slot of filledSlots) {
         if (!slot.file) continue;
@@ -292,16 +294,16 @@ export const DistributorUpload: React.FC = () => {
           doc_type: slot.key,
           file_name: slot.file.name,
           file_url: urlData?.publicUrl || filePath,
-          supplier_name: supplierName,
-          supplier_phone: supplierPhone,
-          rider_name: !isSamePerson ? riderName : null,
-          rider_phone: !isSamePerson ? riderPhone : null,
-          guarantor_name: guarantorName,
-          guarantor_phone: guarantorPhone,
+          supplier_name: formState.supplierName,
+          supplier_phone: formState.supplierPhone,
+          rider_name: !formState.isSamePerson ? formState.riderName : null,
+          rider_phone: !formState.isSamePerson ? formState.riderPhone : null,
+          guarantor_name: formState.guarantorName,
+          guarantor_phone: formState.guarantorPhone,
           device_model: devices.map(d => d.model).join(', '),
           device_capacity: devices.map(d => d.capacity).join(', '),
           contract_period: Number(devices[0]?.period) || 180,
-          is_same_person: isSamePerson,
+          is_same_person: formState.isSamePerson,
           devices_json: JSON.stringify(devices),
         });
 
@@ -327,14 +329,16 @@ export const DistributorUpload: React.FC = () => {
     setViewMode('new');
     setSubmitted(false);
     setSubmitError(null);
-    setSupplierName('');
-    setSupplierPhone('');
-    setRiderName('');
-    setRiderPhone('');
-    setGuarantorName('');
-    setGuarantorPhone('');
+    setFormState({
+      supplierName: '',
+      supplierPhone: '',
+      riderName: '',
+      riderPhone: '',
+      guarantorName: '',
+      guarantorPhone: '',
+      isSamePerson: true,
+    });
     setDevices([{ model: '', capacity: '', quantity: 1, period: '180' }]);
-    setIsSamePerson(true);
   };
 
   // 제출 건 상세 보기
@@ -569,14 +573,14 @@ export const DistributorUpload: React.FC = () => {
             <span className="text-sm font-medium text-gray-700">공급자 = 구매자 동일</span>
             <button
               type="button"
-              onClick={() => setIsSamePerson(!isSamePerson)}
+              onClick={() => setFormState(prev => ({ ...prev, isSamePerson: !prev.isSamePerson }))}
               className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${
-                isSamePerson ? 'bg-blue-500' : 'bg-gray-300'
+                formState.isSamePerson ? 'bg-blue-500' : 'bg-gray-300'
               }`}
             >
               <span
                 className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform ${
-                  isSamePerson ? 'translate-x-6' : 'translate-x-1'
+                  formState.isSamePerson ? 'translate-x-6' : 'translate-x-1'
                 }`}
               />
             </button>
@@ -587,8 +591,8 @@ export const DistributorUpload: React.FC = () => {
               <label className="block text-sm font-medium text-gray-600 mb-1.5">대표자(공급자) 성명</label>
               <input
                 type="text"
-                value={supplierName}
-                onChange={(e) => setSupplierName(e.target.value)}
+                value={formState.supplierName}
+                onChange={(e) => setFormState(prev => ({ ...prev, supplierName: e.target.value }))}
                 placeholder="성명 입력"
                 className="w-full px-4 py-3 rounded-xl border border-gray-200 text-gray-800 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
               />
@@ -597,21 +601,21 @@ export const DistributorUpload: React.FC = () => {
               <label className="block text-sm font-medium text-gray-600 mb-1.5">대표자(공급자) 휴대폰번호</label>
               <input
                 type="tel"
-                value={supplierPhone}
-                onChange={(e) => setSupplierPhone(e.target.value)}
+                value={formState.supplierPhone}
+                onChange={(e) => setFormState(prev => ({ ...prev, supplierPhone: e.target.value }))}
                 placeholder="010-0000-0000"
                 className="w-full px-4 py-3 rounded-xl border border-gray-200 text-gray-800 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
               />
             </div>
 
-            {!isSamePerson && (
+            {!formState.isSamePerson && (
               <>
                 <div className="border-t border-gray-100 pt-4">
                   <label className="block text-sm font-medium text-gray-600 mb-1.5">라이더(구매자) 성명</label>
                   <input
                     type="text"
-                    value={riderName}
-                    onChange={(e) => setRiderName(e.target.value)}
+                    value={formState.riderName}
+                    onChange={(e) => setFormState(prev => ({ ...prev, riderName: e.target.value }))}
                     placeholder="성명 입력"
                     className="w-full px-4 py-3 rounded-xl border border-gray-200 text-gray-800 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
                   />
@@ -620,8 +624,8 @@ export const DistributorUpload: React.FC = () => {
                   <label className="block text-sm font-medium text-gray-600 mb-1.5">라이더(구매자) 휴대폰번호</label>
                   <input
                     type="tel"
-                    value={riderPhone}
-                    onChange={(e) => setRiderPhone(e.target.value)}
+                    value={formState.riderPhone}
+                    onChange={(e) => setFormState(prev => ({ ...prev, riderPhone: e.target.value }))}
                     placeholder="010-0000-0000"
                     className="w-full px-4 py-3 rounded-xl border border-gray-200 text-gray-800 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
                   />
@@ -633,8 +637,8 @@ export const DistributorUpload: React.FC = () => {
               <label className="block text-sm font-medium text-gray-600 mb-1.5">보증인 성명</label>
               <input
                 type="text"
-                value={guarantorName}
-                onChange={(e) => setGuarantorName(e.target.value)}
+                value={formState.guarantorName}
+                onChange={(e) => setFormState(prev => ({ ...prev, guarantorName: e.target.value }))}
                 placeholder="성명 입력"
                 className="w-full px-4 py-3 rounded-xl border border-gray-200 text-gray-800 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
               />
@@ -643,8 +647,8 @@ export const DistributorUpload: React.FC = () => {
               <label className="block text-sm font-medium text-gray-600 mb-1.5">보증인 휴대폰번호</label>
               <input
                 type="tel"
-                value={guarantorPhone}
-                onChange={(e) => setGuarantorPhone(e.target.value)}
+                value={formState.guarantorPhone}
+                onChange={(e) => setFormState(prev => ({ ...prev, guarantorPhone: e.target.value }))}
                 placeholder="010-0000-0000"
                 className="w-full px-4 py-3 rounded-xl border border-gray-200 text-gray-800 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
               />

@@ -4,23 +4,25 @@ import { supabase, isSupabaseConfigured } from './lib/supabaseClient';
 import { Sidebar, View } from './components/Sidebar';
 import { Login } from './components/Login';
 import { ConfigurationError } from './components/ConfigurationError';
-import { Dashboard } from './components/Dashboard';
-import { ContractManagement } from './components/ContractManagement';
-import { DeductionManagement } from './components/DeductionManagement';
-import { ShippingManagement } from './components/ShippingManagement';
-import { SettlementManagement } from './components/SettlementManagement';
-import { CreditorSettlementData } from './components/CreditorSettlementData';
-import { CreditorBatch } from './components/CreditorBatch';
-import { PartnersManagement } from './components/PartnersManagement';
-import { Calendar } from './components/Calendar';
-import { DatabaseManagement } from './components/DatabaseManagement';
-import { CreditorSettlement } from './components/CreditorSettlement';
-import { PrivacyMasking } from './components/PrivacyMasking';
-import { CollectionManagement } from './components/CollectionManagement';
-import { ContractDocGenerator } from './components/ContractDocGenerator';
-import { DocumentStatus } from './components/DocumentStatus';
 import { DistributorUpload } from './components/DistributorUpload';
 import { ErrorBoundary } from './components/ErrorBoundary';
+
+// Lazy-loaded view components
+const Dashboard = React.lazy(() => import('./components/Dashboard').then(m => ({ default: m.Dashboard })));
+const ContractManagement = React.lazy(() => import('./components/ContractManagement').then(m => ({ default: m.ContractManagement })));
+const DeductionManagement = React.lazy(() => import('./components/DeductionManagement').then(m => ({ default: m.DeductionManagement })));
+const ShippingManagement = React.lazy(() => import('./components/ShippingManagement').then(m => ({ default: m.ShippingManagement })));
+const SettlementManagement = React.lazy(() => import('./components/SettlementManagement').then(m => ({ default: m.SettlementManagement })));
+const CreditorSettlementData = React.lazy(() => import('./components/CreditorSettlementData').then(m => ({ default: m.CreditorSettlementData })));
+const CreditorBatch = React.lazy(() => import('./components/CreditorBatch').then(m => ({ default: m.CreditorBatch })));
+const PartnersManagement = React.lazy(() => import('./components/PartnersManagement').then(m => ({ default: m.PartnersManagement })));
+const Calendar = React.lazy(() => import('./components/Calendar').then(m => ({ default: m.Calendar })));
+const DatabaseManagement = React.lazy(() => import('./components/DatabaseManagement').then(m => ({ default: m.DatabaseManagement })));
+const CreditorSettlement = React.lazy(() => import('./components/CreditorSettlement').then(m => ({ default: m.CreditorSettlement })));
+const PrivacyMasking = React.lazy(() => import('./components/PrivacyMasking').then(m => ({ default: m.PrivacyMasking })));
+const CollectionManagement = React.lazy(() => import('./components/CollectionManagement').then(m => ({ default: m.CollectionManagement })));
+const ContractDocGenerator = React.lazy(() => import('./components/ContractDocGenerator').then(m => ({ default: m.ContractDocGenerator })));
+const DocumentStatus = React.lazy(() => import('./components/DocumentStatus').then(m => ({ default: m.DocumentStatus })));
 
 import { ContractFormModal } from './ContractFormModal';
 import ContractDetailModal from './components/ContractDetailModal';
@@ -252,7 +254,7 @@ const App: React.FC = () => {
               <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-indigo-500"></div>
             </div>
           ) : (
-            <>
+            <React.Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-t-2 border-indigo-500"></div></div>}>
               {currentView === 'dashboard' && <Dashboard contracts={contracts} partners={partners} />}
               {currentView === 'contractManagement' && <ContractManagement contracts={contracts} partners={partners} onSelectContract={()=>{}} onAddContract={() => {}} onImportContracts={async () => {}} onDeleteContracts={async (ids) => {
                 if (!supabase) return;
@@ -274,7 +276,7 @@ const App: React.FC = () => {
               {currentView === 'partners' && <PartnersManagement partners={partners} onSelectPartner={()=>{}} onAddPartner={() => {}} onAddTemplate={() => {}} />}
               {currentView === 'calendar' && <Calendar events={events} onAddEvent={()=>{}} onEditEvent={()=>{}} />}
               {currentView === 'database' && <DatabaseManagement />}
-            </>
+            </React.Suspense>
           )}
         </ErrorBoundary>
       </main>
