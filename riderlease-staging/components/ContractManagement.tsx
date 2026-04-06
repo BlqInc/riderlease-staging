@@ -87,21 +87,24 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
 
           // 상품리스트에서 가격 정보 가져오기
           // 컬럼: [EX, 총판명, 상품명, 1대일출금액(A), 영업수수료(B), 총대수, 최종일출금액(A+B), 계약기간, 총매출액, 공급대금]
-          const priceMap = new Map<string, { dailyTotal: number; units: number; period: number; totalRevenue: number }>();
+          const priceMap = new Map<string, { dailyA: number; commission: number; dailyTotal: number; units: number; period: number; totalRevenue: number }>();
           if (workbook.SheetNames.includes('상품리스트')) {
             const priceSheet = workbook.Sheets['상품리스트'];
-            const priceData: any[][] = utils.sheet_to_json(priceSheet, { header: 1 });
+            const priceData: any[][] = utils.sheet_to_json(priceSheet, { header: 1, raw: true });
             for (let i = 9; i < priceData.length; i++) {
               const row = priceData[i];
               if (!row || !row[2]) continue;
               const productName = String(row[2]).trim();
               if (!productName) continue;
-              priceMap.set(productName, {
-                dailyTotal: Number(row[6]) || 0,  // 최종 일출금액(A+B) = 전체 대수 기준
-                units: Number(row[5]) || 1,        // 총대수
-                period: Number(row[7]) || 180,     // 계약기간
-                totalRevenue: Number(row[8]) || 0, // 총매출액 = 총 채권액
-              });
+              const dailyA = Number(row[3]) || 0;
+              const commission = Number(row[4]) || 0;
+              const units = Number(row[5]) || 1;
+              const period = Number(row[7]) || 180;
+              // 최종 일출금액: 수식이 깨져있을 수 있으니 직접 계산도 fallback
+              const dailyTotal = Number(row[6]) || ((dailyA + commission) * units);
+              // 총매출액: 수식이 깨져있을 수 있으니 직접 계산도 fallback
+              const totalRevenue = Number(row[8]) || (dailyTotal * period);
+              priceMap.set(productName, { dailyA, commission, dailyTotal, units, period, totalRevenue });
             }
           }
 
@@ -150,12 +153,18 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
             const distributorCompany = String(getValue('공급자 회사명') || '').trim();
             const partnerId = partnerNameToIdMap.get(distributorCompany.toLowerCase());
 
-            // 상품리스트에서 가격 매칭
+            // 고객리스트 값 먼저 읽기
+            const custDailyDeduction = Number(getValue('일 납부금')) || 0;
+            const custUnits = Number(getValue('상품대수합계')) || 1;
+
+            // 상품리스트에서 가격 매칭 (값이 유효할 때만 사용)
             const priceInfo = priceMap.get(deviceName);
-            const dailyDeduction = priceInfo?.dailyTotal || Number(getValue('일 납부금')) || 0;
-            const unitsRequired = priceInfo?.units || Number(getValue('상품대수합계')) || 1;
-            const totalAmount = priceInfo?.totalRevenue || (dailyDeduction * durationDays);
-            if (priceInfo?.period) durationDays = priceInfo.period;
+            const dailyDeduction = custDailyDeduction || priceInfo?.dailyTotal || 0;
+            const unitsRequired = custUnits || priceInfo?.units || 1;
+            // 총 채권액: 상품리스트 총매출액 > 0이면 사용, 아니면 일차감 × 기간으로 계산
+            const totalAmount = (priceInfo?.totalRevenue && priceInfo.totalRevenue > 0)
+              ? priceInfo.totalRevenue
+              : (dailyDeduction * durationDays);
 
             const newContract: Partial<Contract> = {
               device_name: deviceName,
