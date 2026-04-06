@@ -18,6 +18,8 @@ import { CreditorSettlement } from './components/CreditorSettlement';
 import { PrivacyMasking } from './components/PrivacyMasking';
 import { CollectionManagement } from './components/CollectionManagement';
 import { ContractDocGenerator } from './components/ContractDocGenerator';
+import { DocumentStatus } from './components/DocumentStatus';
+import { DistributorUpload } from './components/DistributorUpload';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 import { ContractFormModal } from './ContractFormModal';
@@ -27,6 +29,15 @@ import { PartnerDetailModal } from './components/PartnerDetailModal';
 import { EventFormModal } from './components/EventFormModal';
 
 import { Contract, Partner, CalendarEvent, Creditor, CreditorSettlementRound, DeductionStatus } from './types';
+
+// Wrapper to handle token-based routing before hooks
+const AppRouter: React.FC = () => {
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.has('token')) {
+    return <DistributorUpload />;
+  }
+  return <App />;
+};
 
 const App: React.FC = () => {
   const [session, setSession] = useState<any>(null);
@@ -250,6 +261,7 @@ const App: React.FC = () => {
               {currentView === 'settlementManagement' && <SettlementManagement contracts={contracts} partners={partners} onSelectContract={()=>{}} onRequestSettlement={()=>{}} onCompleteSettlement={()=>{}} onUpdatePrerequisites={()=>{}} onBulkRequestSettlement={()=>{}} onBulkCompleteSettlement={()=>{}} />}
               {currentView === 'creditorSettlementData' && <CreditorSettlementData contracts={contracts} />}
               {currentView === 'creditorBatch' && <CreditorBatch contracts={contracts} />}
+              {currentView === 'documentStatus' && <DocumentStatus />}
               {currentView === 'contractDocGenerator' && <ContractDocGenerator />}
               {currentView === 'creditorSettlement' && <CreditorSettlement contracts={contracts} creditors={creditors} settlements={creditorSettlements} onSaveSettlement={handleSaveCreditorSettlement} onDeleteSettlement={handleDeleteCreditorSettlement} onSaveCreditor={handleSaveCreditor} onDeleteCreditor={handleDeleteCreditor} />}
               {currentView === 'privacyMasking' && <PrivacyMasking />}
@@ -264,4 +276,4 @@ const App: React.FC = () => {
   );
 };
 
-export default App;
+export default AppRouter;

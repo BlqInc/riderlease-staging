@@ -1,0 +1,576 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { supabase } from '../lib/supabaseClient';
+
+interface UploadSlot {
+  key: string;
+  label: string;
+  file: File | null;
+  preview: string | null;
+  uploading: boolean;
+  progress: number;
+  uploaded: boolean;
+}
+
+const CameraIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" />
+  </svg>
+);
+
+const CheckIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+  </svg>
+);
+
+const SAME_PERSON_SLOTS = [
+  { key: 'business_registration', label: '사업자등록증' },
+  { key: 'supplier_id', label: '대표자(공급자) 신분증' },
+  { key: 'supplier_resident', label: '대표자(공급자) 등본' },
+  { key: 'biz_cert_original', label: '사업자등록증명 원본' },
+  { key: 'biz_cert_blq', label: '사업자등록증명 비엘큐용' },
+  { key: 'guarantor_id', label: '보증인(구매자) 신분증' },
+  { key: 'guarantor_resident', label: '보증인(구매자) 등본' },
+];
+
+const DIFF_PERSON_SLOTS = [
+  { key: 'business_registration', label: '사업자등록증' },
+  { key: 'biz_cert_original', label: '사업자등록증명 원본' },
+  { key: 'biz_cert_blq', label: '사업자등록증명 비엘큐용' },
+  { key: 'rider_id', label: '라이더(구매자) 신분증' },
+  { key: 'rider_resident', label: '라이더(구매자) 등본' },
+  { key: 'guarantor_id', label: '보증인(공급자) 신분증' },
+  { key: 'guarantor_resident', label: '보증인(공급자) 등본' },
+];
+
+export const DistributorUpload: React.FC = () => {
+  const [tokenParam, setTokenParam] = useState<string | null>(null);
+  const [tokenData, setTokenData] = useState<any>(null);
+  const [validating, setValidating] = useState(true);
+  const [isValid, setIsValid] = useState(false);
+
+  // Form state
+  const [isSamePerson, setIsSamePerson] = useState(true);
+  const [supplierName, setSupplierName] = useState('');
+  const [supplierPhone, setSupplierPhone] = useState('');
+  const [riderName, setRiderName] = useState('');
+  const [riderPhone, setRiderPhone] = useState('');
+  const [guarantorName, setGuarantorName] = useState('');
+  const [guarantorPhone, setGuarantorPhone] = useState('');
+  const [deviceModel, setDeviceModel] = useState('');
+  const [deviceCapacity, setDeviceCapacity] = useState('');
+  const [contractPeriod, setContractPeriod] = useState<'180' | '210'>('180');
+
+  // Upload state
+  const [slots, setSlots] = useState<UploadSlot[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const fileInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
+
+  // Extract token from URL
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+    setTokenParam(token);
+  }, []);
+
+  // Validate token
+  useEffect(() => {
+    if (!tokenParam || !supabase) {
+      setValidating(false);
+      return;
+    }
+
+    const validate = async () => {
+      try {
+        const { data, error } = await (supabase.from('distributor_tokens') as any)
+          .select('*')
+          .eq('token', tokenParam)
+          .eq('is_active', true)
+          .single();
+
+        if (error || !data) {
+          setIsValid(false);
+        } else {
+          setTokenData(data);
+          setIsValid(true);
+        }
+      } catch {
+        setIsValid(false);
+      } finally {
+        setValidating(false);
+      }
+    };
+
+    validate();
+  }, [tokenParam]);
+
+  // Initialize slots when isSamePerson changes
+  useEffect(() => {
+    const slotDefs = isSamePerson ? SAME_PERSON_SLOTS : DIFF_PERSON_SLOTS;
+    setSlots(slotDefs.map(s => ({
+      key: s.key,
+      label: s.label,
+      file: null,
+      preview: null,
+      uploading: false,
+      progress: 0,
+      uploaded: false,
+    })));
+  }, [isSamePerson]);
+
+  const handleFileSelect = (slotKey: string, file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      setSlots(prev => prev.map(s =>
+        s.key === slotKey
+          ? { ...s, file, preview: e.target?.result as string }
+          : s
+      ));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveFile = (slotKey: string) => {
+    setSlots(prev => prev.map(s =>
+      s.key === slotKey
+        ? { ...s, file: null, preview: null, uploaded: false, progress: 0 }
+        : s
+    ));
+  };
+
+  const handleSubmit = async () => {
+    if (!supabase || !tokenData) return;
+
+    // Validation
+    if (!supplierName.trim()) {
+      setSubmitError('대표자(공급자) 성명을 입력해주세요.');
+      return;
+    }
+    if (!supplierPhone.trim()) {
+      setSubmitError('대표자(공급자) 휴대폰번호를 입력해주세요.');
+      return;
+    }
+    if (!isSamePerson && !riderName.trim()) {
+      setSubmitError('라이더(구매자) 성명을 입력해주세요.');
+      return;
+    }
+    if (!isSamePerson && !riderPhone.trim()) {
+      setSubmitError('라이더(구매자) 휴대폰번호를 입력해주세요.');
+      return;
+    }
+    if (!guarantorName.trim()) {
+      setSubmitError('보증인 성명을 입력해주세요.');
+      return;
+    }
+    if (!guarantorPhone.trim()) {
+      setSubmitError('보증인 휴대폰번호를 입력해주세요.');
+      return;
+    }
+    if (!deviceModel.trim()) {
+      setSubmitError('기종을 입력해주세요.');
+      return;
+    }
+    if (!deviceCapacity.trim()) {
+      setSubmitError('용량을 입력해주세요.');
+      return;
+    }
+
+    const filledSlots = slots.filter(s => s.file);
+    if (filledSlots.length === 0) {
+      setSubmitError('최소 1개 이상의 서류를 업로드해주세요.');
+      return;
+    }
+
+    setSubmitting(true);
+    setSubmitError(null);
+
+    try {
+      const timestamp = Date.now();
+      const contractId = `${tokenData.distributor_name}_${supplierName}_${timestamp}`;
+
+      for (const slot of filledSlots) {
+        if (!slot.file) continue;
+
+        // Update progress
+        setSlots(prev => prev.map(s =>
+          s.key === slot.key ? { ...s, uploading: true, progress: 30 } : s
+        ));
+
+        const ext = slot.file.name.split('.').pop() || 'jpg';
+        const filePath = `${tokenParam}/${slot.key}_${timestamp}.${ext}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('documents')
+          .upload(filePath, slot.file);
+
+        if (uploadError) throw new Error(`${slot.label} 업로드 실패: ${uploadError.message}`);
+
+        setSlots(prev => prev.map(s =>
+          s.key === slot.key ? { ...s, progress: 70 } : s
+        ));
+
+        // Get public URL
+        const { data: urlData } = supabase.storage
+          .from('documents')
+          .getPublicUrl(filePath);
+
+        // Save record
+        const { error: dbError } = await (supabase.from('uploaded_documents') as any).insert({
+          token_id: tokenData.id,
+          distributor_name: tokenData.distributor_name,
+          contract_id: contractId,
+          doc_type: slot.key,
+          file_name: slot.file.name,
+          file_url: urlData?.publicUrl || filePath,
+          supplier_name: supplierName,
+          supplier_phone: supplierPhone,
+          rider_name: !isSamePerson ? riderName : null,
+          rider_phone: !isSamePerson ? riderPhone : null,
+          guarantor_name: guarantorName,
+          guarantor_phone: guarantorPhone,
+          device_model: deviceModel,
+          device_capacity: deviceCapacity,
+          contract_period: parseInt(contractPeriod),
+          is_same_person: isSamePerson,
+        });
+
+        if (dbError) throw new Error(`${slot.label} 저장 실패: ${dbError.message}`);
+
+        setSlots(prev => prev.map(s =>
+          s.key === slot.key ? { ...s, uploading: false, progress: 100, uploaded: true } : s
+        ));
+      }
+
+      setSubmitted(true);
+    } catch (error: any) {
+      setSubmitError(error.message || '업로드 중 오류가 발생했습니다.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Loading
+  if (validating) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mx-auto"></div>
+          <p className="mt-4 text-gray-500 text-sm">확인 중...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Invalid token
+  if (!isValid || !tokenParam) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-lg p-8 max-w-sm w-full text-center">
+          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg className="w-8 h-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-bold text-gray-800 mb-2">유효하지 않은 링크입니다</h2>
+          <p className="text-gray-500 text-sm">관리자에게 문의해주세요.</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Success
+  if (submitted) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-lg p-8 max-w-sm w-full text-center">
+          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <CheckIcon className="w-8 h-8 text-green-500" />
+          </div>
+          <h2 className="text-xl font-bold text-gray-800 mb-2">제출 완료</h2>
+          <p className="text-gray-500 text-sm">서류가 성공적으로 제출되었습니다.<br />감사합니다.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const filledCount = slots.filter(s => s.file).length;
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
+        <div className="max-w-lg mx-auto px-4 py-4">
+          <h1 className="text-lg font-bold text-gray-800">서류 제출</h1>
+          <p className="text-xs text-gray-500 mt-0.5">{tokenData?.distributor_name}</p>
+        </div>
+      </div>
+
+      <div className="max-w-lg mx-auto px-4 py-6 space-y-6">
+        {/* Basic Info Section */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+          <h2 className="text-base font-bold text-gray-800 mb-4">기본 정보</h2>
+
+          {/* Same person toggle */}
+          <div className="flex items-center justify-between mb-5 bg-gray-50 rounded-xl p-4">
+            <span className="text-sm font-medium text-gray-700">공급자 = 구매자 동일</span>
+            <button
+              type="button"
+              onClick={() => setIsSamePerson(!isSamePerson)}
+              className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${
+                isSamePerson ? 'bg-blue-500' : 'bg-gray-300'
+              }`}
+            >
+              <span
+                className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform ${
+                  isSamePerson ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-1.5">대표자(공급자) 성명</label>
+              <input
+                type="text"
+                value={supplierName}
+                onChange={(e) => setSupplierName(e.target.value)}
+                placeholder="성명 입력"
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 text-gray-800 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-1.5">대표자(공급자) 휴대폰번호</label>
+              <input
+                type="tel"
+                value={supplierPhone}
+                onChange={(e) => setSupplierPhone(e.target.value)}
+                placeholder="010-0000-0000"
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 text-gray-800 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+              />
+            </div>
+
+            {!isSamePerson && (
+              <>
+                <div className="border-t border-gray-100 pt-4">
+                  <label className="block text-sm font-medium text-gray-600 mb-1.5">라이더(구매자) 성명</label>
+                  <input
+                    type="text"
+                    value={riderName}
+                    onChange={(e) => setRiderName(e.target.value)}
+                    placeholder="성명 입력"
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 text-gray-800 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1.5">라이더(구매자) 휴대폰번호</label>
+                  <input
+                    type="tel"
+                    value={riderPhone}
+                    onChange={(e) => setRiderPhone(e.target.value)}
+                    placeholder="010-0000-0000"
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 text-gray-800 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                  />
+                </div>
+              </>
+            )}
+
+            <div className="border-t border-gray-100 pt-4">
+              <label className="block text-sm font-medium text-gray-600 mb-1.5">보증인 성명</label>
+              <input
+                type="text"
+                value={guarantorName}
+                onChange={(e) => setGuarantorName(e.target.value)}
+                placeholder="성명 입력"
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 text-gray-800 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-1.5">보증인 휴대폰번호</label>
+              <input
+                type="tel"
+                value={guarantorPhone}
+                onChange={(e) => setGuarantorPhone(e.target.value)}
+                placeholder="010-0000-0000"
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 text-gray-800 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Device & Contract Section */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+          <h2 className="text-base font-bold text-gray-800 mb-4">기기 / 계약 선택</h2>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-1.5">기종</label>
+              <input
+                type="text"
+                value={deviceModel}
+                onChange={(e) => setDeviceModel(e.target.value)}
+                placeholder="예: iPhone 15 Pro"
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 text-gray-800 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-1.5">용량</label>
+              <input
+                type="text"
+                value={deviceCapacity}
+                onChange={(e) => setDeviceCapacity(e.target.value)}
+                placeholder="예: 256GB"
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 text-gray-800 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-2">계약기간</label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setContractPeriod('180')}
+                  className={`py-3 rounded-xl text-base font-medium transition-all ${
+                    contractPeriod === '180'
+                      ? 'bg-blue-500 text-white shadow-sm'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  180일
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setContractPeriod('210')}
+                  className={`py-3 rounded-xl text-base font-medium transition-all ${
+                    contractPeriod === '210'
+                      ? 'bg-blue-500 text-white shadow-sm'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  210일
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Upload Section */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base font-bold text-gray-800">서류 업로드</h2>
+            <span className="text-xs text-gray-400">{filledCount}/{slots.length}</span>
+          </div>
+
+          <div className="space-y-3">
+            {slots.map((slot, idx) => (
+              <div key={slot.key} className="border border-gray-100 rounded-xl overflow-hidden">
+                <div className="flex items-center p-3 bg-gray-50">
+                  <span className="flex items-center justify-center w-6 h-6 rounded-full bg-gray-200 text-xs font-bold text-gray-500 mr-3">
+                    {idx + 1}
+                  </span>
+                  <span className="text-sm font-medium text-gray-700 flex-1">{slot.label}</span>
+                  {slot.uploaded && (
+                    <span className="flex items-center text-green-500">
+                      <CheckIcon className="w-5 h-5" />
+                    </span>
+                  )}
+                  {slot.file && !slot.uploaded && (
+                    <span className="text-xs text-blue-500 font-medium">준비됨</span>
+                  )}
+                </div>
+
+                {slot.preview ? (
+                  <div className="relative p-3">
+                    <img
+                      src={slot.preview}
+                      alt={slot.label}
+                      className="w-full h-40 object-cover rounded-lg"
+                    />
+                    {slot.uploading && (
+                      <div className="absolute inset-3 bg-black/40 rounded-lg flex items-center justify-center">
+                        <div className="w-3/4">
+                          <div className="bg-white/30 rounded-full h-2 overflow-hidden">
+                            <div
+                              className="bg-white h-full rounded-full transition-all duration-500"
+                              style={{ width: `${slot.progress}%` }}
+                            />
+                          </div>
+                          <p className="text-white text-xs text-center mt-2">업로드 중...</p>
+                        </div>
+                      </div>
+                    )}
+                    {!slot.uploading && !slot.uploaded && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveFile(slot.key)}
+                        className="absolute top-5 right-5 bg-black/50 text-white rounded-full w-7 h-7 flex items-center justify-center text-sm hover:bg-black/70"
+                      >
+                        &times;
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => fileInputRefs.current[slot.key]?.click()}
+                    className="w-full p-6 flex flex-col items-center justify-center text-gray-400 hover:text-blue-500 hover:bg-blue-50/50 transition-colors"
+                  >
+                    <CameraIcon className="w-8 h-8 mb-1" />
+                    <span className="text-xs">탭하여 업로드</span>
+                  </button>
+                )}
+
+                <input
+                  ref={(el) => { fileInputRefs.current[slot.key] = el; }}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleFileSelect(slot.key, file);
+                    e.target.value = '';
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Error */}
+        {submitError && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+            <p className="text-red-600 text-sm">{submitError}</p>
+          </div>
+        )}
+
+        {/* Submit Button */}
+        <button
+          type="button"
+          onClick={handleSubmit}
+          disabled={submitting || filledCount === 0}
+          className={`w-full py-4 rounded-2xl text-base font-bold transition-all shadow-sm ${
+            submitting || filledCount === 0
+              ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+              : 'bg-blue-500 text-white hover:bg-blue-600 active:bg-blue-700'
+          }`}
+        >
+          {submitting ? (
+            <span className="flex items-center justify-center">
+              <svg className="animate-spin h-5 w-5 mr-2" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+              제출 중...
+            </span>
+          ) : (
+            `서류 제출하기 (${filledCount}/${slots.length})`
+          )}
+        </button>
+
+        <div className="h-8" />
+      </div>
+    </div>
+  );
+};

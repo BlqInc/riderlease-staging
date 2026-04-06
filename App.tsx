@@ -17,6 +17,8 @@ import { CreditorSettlement } from './components/CreditorSettlement';
 import { CreditorBatch } from './components/CreditorBatch';
 import { CollectionManagement } from './components/CollectionManagement';
 import { ContractDocGenerator } from './components/ContractDocGenerator';
+import { DocumentStatus } from './components/DocumentStatus';
+import { DistributorUpload } from './components/DistributorUpload';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 import { ContractFormModal } from './components/ContractFormModal';
@@ -71,6 +73,15 @@ const processContracts = (data: any[]): Contract[] => {
 };
 
 // ---
+
+// Wrapper to handle token-based routing before hooks
+const AppRouter: React.FC = () => {
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.has('token')) {
+    return <DistributorUpload />;
+  }
+  return <App />;
+};
 
 const App: React.FC = () => {
   const [session, setSession] = useState<any>(null);
@@ -822,6 +833,7 @@ const App: React.FC = () => {
               )}
               {currentView === 'creditorSettlementData' && <CreditorSettlementData contracts={contracts} />}
               {currentView === 'creditorBatch' && <CreditorBatch contracts={contracts} />}
+              {currentView === 'documentStatus' && <DocumentStatus />}
               {currentView === 'contractDocGenerator' && <ContractDocGenerator />}
               {currentView === 'partners' && (
                 <PartnersManagement
@@ -923,4 +935,4 @@ const App: React.FC = () => {
   );
 };
 
-export default App;
+export default AppRouter;
