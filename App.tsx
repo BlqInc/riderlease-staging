@@ -877,6 +877,7 @@ const App: React.FC = () => {
           partners={partners}
           contractToEdit={editingContract}
           template={contractFormTemplate}
+          creditors={creditors}
         />
       )}
 
