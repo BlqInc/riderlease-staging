@@ -61,6 +61,7 @@ const initialFormState: FormState = {
   procurement_cost: null,
   delivery_method_to_lessee: null,
   settlement_request_date: null,
+  is_lawsuit: null,
   settlement_status: SettlementStatus.NOT_READY,
   settlement_document_url: null,
 };
@@ -100,10 +101,13 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
   }, [selectedPartner, formState.model]);
   
   const availableDurations = useMemo(() => {
-    if (!selectedPartner?.price_list || !formState.model || !formState.storage) return [];
-    return selectedPartner.price_list
-      .filter(p => p.model === formState.model && p.storage === formState.storage)
-      .map(p => p.duration_days);
+    if (selectedPartner?.price_list && formState.model && formState.storage) {
+      const durations = selectedPartner.price_list
+        .filter(p => p.model === formState.model && p.storage === formState.storage)
+        .map(p => p.duration_days);
+      if (durations.length > 0) return durations;
+    }
+    return [180, 210];
   }, [selectedPartner, formState.model, formState.storage]);
 
 
@@ -319,7 +323,7 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
 
             <FormSection title="계약 및 금액 정보">
                 <FormField label="계약 기간 (일)">
-                    <select name="duration_days" value={formState.duration_days} onChange={handleChange} required disabled={!formState.storage} className={disabledInputClass}>
+                    <select name="duration_days" value={formState.duration_days} onChange={handleChange} required className={inputClass}>
                         <option value={0} disabled>기간 선택</option>
                         {availableDurations.map(days => <option key={days} value={days}>{days}일</option>)}
                     </select>
