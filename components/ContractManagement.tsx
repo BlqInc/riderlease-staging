@@ -2,7 +2,7 @@ import React, { useState, useMemo, Fragment, useRef } from 'react';
 import { Contract, ContractStatus, Partner, DeductionStatus, SettlementStatus, ShippingStatus, ProcurementStatus } from '../types';
 import { formatDate, formatCurrency } from '../lib/utils';
 import { PlusIcon, ChevronDownIcon, DuplicateIcon, UserPlusIcon, UploadIcon } from './icons/IconComponents';
-import { read, utils } from 'xlsx-js-style';
+import { read, utils } from 'xlsx';
 import { computeDistributorRisk, computeLesseeRisk, classifyRisk, riskColors, RiskLevel } from '../lib/riskUtils';
 
 interface ContractManagementProps {
@@ -83,19 +83,21 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
           const headers = rawData[headerIdx].map((h: any) => String(h || '').trim());
 
           // 상품리스트에서 가격 정보 가져오기
-          const priceMap = new Map<string, { dailyA: number; commission: number; period: number }>();
+          // 컬럼: [EX, 총판명, 상품명, 1대일출금액(A), 영업수수료(B), 총대수, 최종일출금액(A+B), 계약기간, 총매출액, 공급대금]
+          const priceMap = new Map<string, { dailyTotal: number; units: number; period: number; totalRevenue: number }>();
           if (workbook.SheetNames.includes('상품리스트')) {
             const priceSheet = workbook.Sheets['상품리스트'];
             const priceData: any[][] = utils.sheet_to_json(priceSheet, { header: 1 });
             for (let i = 9; i < priceData.length; i++) {
               const row = priceData[i];
-              if (!row || !row[2]) continue; // 상품명 없으면 스킵
+              if (!row || !row[2]) continue;
               const productName = String(row[2]).trim();
               if (!productName) continue;
               priceMap.set(productName, {
-                dailyA: Number(row[3]) || 0,
-                commission: Number(row[4]) || 0,
-                period: Number(row[7]) || 180,
+                dailyTotal: Number(row[6]) || 0,  // 최종 일출금액(A+B) = 전체 대수 기준
+                units: Number(row[5]) || 1,        // 총대수
+                period: Number(row[7]) || 180,     // 계약기간
+                totalRevenue: Number(row[8]) || 0, // 총매출액 = 총 채권액
               });
             }
           }
@@ -145,10 +147,12 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
             const distributorCompany = String(getValue('공급자 회사명') || '').trim();
             const partnerId = partnerNameToIdMap.get(distributorCompany.toLowerCase());
 
-            // 일차감, 대수, 합계
-            const dailyDeduction = Number(getValue('일 납부금')) || 0;
-            const unitsRequired = Number(getValue('상품대수합계')) || 1;
-            const totalAmount = Number(getValue('합계')) || (dailyDeduction * durationDays);
+            // 상품리스트에서 가격 매칭
+            const priceInfo = priceMap.get(deviceName);
+            const dailyDeduction = priceInfo?.dailyTotal || Number(getValue('일 납부금')) || 0;
+            const unitsRequired = priceInfo?.units || Number(getValue('상품대수합계')) || 1;
+            const totalAmount = priceInfo?.totalRevenue || (dailyDeduction * durationDays);
+            if (priceInfo?.period) durationDays = priceInfo.period;
 
             const newContract: Partial<Contract> = {
               device_name: deviceName,
