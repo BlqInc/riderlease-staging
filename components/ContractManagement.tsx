@@ -2,7 +2,7 @@ import React, { useState, useMemo, Fragment, useRef } from 'react';
 import { Contract, ContractStatus, Partner, DeductionStatus, SettlementStatus, ShippingStatus, ProcurementStatus } from '../types';
 import { formatDate, formatCurrency } from '../lib/utils';
 import { PlusIcon, ChevronDownIcon, DuplicateIcon, UserPlusIcon, UploadIcon } from './icons/IconComponents';
-import { read, utils } from 'xlsx';
+import { read, utils } from 'xlsx-js-style';
 import { computeDistributorRisk, computeLesseeRisk, classifyRisk, riskColors, RiskLevel } from '../lib/riskUtils';
 
 interface ContractManagementProps {
