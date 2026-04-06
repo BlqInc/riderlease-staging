@@ -44,11 +44,28 @@ const DIFF_PERSON_SLOTS = [
   { key: 'guarantor_resident', label: '보증인(공급자) 등본' },
 ];
 
+interface SubmissionGroup {
+  contract_id: string;
+  supplier_name: string;
+  device_model: string;
+  device_capacity: string;
+  contract_period: number;
+  is_same_person: boolean;
+  uploaded_at: string;
+  documents: { doc_type: string; file_name: string; file_url: string; id: string }[];
+}
+
 export const DistributorUpload: React.FC = () => {
   const [tokenParam, setTokenParam] = useState<string | null>(null);
   const [tokenData, setTokenData] = useState<any>(null);
   const [validating, setValidating] = useState(true);
   const [isValid, setIsValid] = useState(false);
+
+  // View mode: 'list' = 이전 내역, 'new' = 새 등록, 'detail' = 상세 보기
+  const [viewMode, setViewMode] = useState<'list' | 'new' | 'detail'>('list');
+  const [previousSubmissions, setPreviousSubmissions] = useState<SubmissionGroup[]>([]);
+  const [selectedSubmission, setSelectedSubmission] = useState<SubmissionGroup | null>(null);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   // Form state
   const [isSamePerson, setIsSamePerson] = useState(true);
@@ -106,6 +123,52 @@ export const DistributorUpload: React.FC = () => {
 
     validate();
   }, [tokenParam]);
+
+  // Fetch previous submissions
+  const fetchPreviousSubmissions = async () => {
+    if (!supabase || !tokenData) return;
+    setLoadingHistory(true);
+    try {
+      const { data, error } = await (supabase.from('uploaded_documents') as any)
+        .select('*')
+        .eq('token_id', tokenData.id)
+        .order('uploaded_at', { ascending: false });
+
+      if (error || !data) { setPreviousSubmissions([]); return; }
+
+      // Group by contract_id
+      const groups = new Map<string, SubmissionGroup>();
+      for (const doc of data) {
+        if (!groups.has(doc.contract_id)) {
+          groups.set(doc.contract_id, {
+            contract_id: doc.contract_id,
+            supplier_name: doc.supplier_name || '',
+            device_model: doc.device_model || '',
+            device_capacity: doc.device_capacity || '',
+            contract_period: doc.contract_period || 180,
+            is_same_person: doc.is_same_person ?? true,
+            uploaded_at: doc.uploaded_at,
+            documents: [],
+          });
+        }
+        groups.get(doc.contract_id)!.documents.push({
+          doc_type: doc.doc_type,
+          file_name: doc.file_name,
+          file_url: doc.file_url,
+          id: doc.id,
+        });
+      }
+      setPreviousSubmissions(Array.from(groups.values()));
+    } catch {
+      setPreviousSubmissions([]);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  useEffect(() => {
+    if (tokenData) fetchPreviousSubmissions();
+  }, [tokenData]);
 
   // Initialize slots when isSamePerson changes
   useEffect(() => {
@@ -245,11 +308,42 @@ export const DistributorUpload: React.FC = () => {
       }
 
       setSubmitted(true);
+      // 목록 새로고침
+      await fetchPreviousSubmissions();
     } catch (error: any) {
       setSubmitError(error.message || '업로드 중 오류가 발생했습니다.');
     } finally {
       setSubmitting(false);
     }
+  };
+
+  // 새 건 등록으로 전환
+  const startNewSubmission = () => {
+    setViewMode('new');
+    setSubmitted(false);
+    setSubmitError(null);
+    setSupplierName('');
+    setSupplierPhone('');
+    setRiderName('');
+    setRiderPhone('');
+    setGuarantorName('');
+    setGuarantorPhone('');
+    setDeviceModel('');
+    setDeviceCapacity('');
+    setContractPeriod('180');
+    setIsSamePerson(true);
+  };
+
+  // 제출 건 상세 보기
+  const viewSubmissionDetail = (sub: SubmissionGroup) => {
+    setSelectedSubmission(sub);
+    setViewMode('detail');
+  };
+
+  // doc_type에 맞는 라벨 찾기
+  const getDocLabel = (docType: string, isSame: boolean) => {
+    const allSlots = [...SAME_PERSON_SLOTS, ...DIFF_PERSON_SLOTS];
+    return allSlots.find(s => s.key === docType)?.label || docType;
   };
 
   // Loading
@@ -290,21 +384,175 @@ export const DistributorUpload: React.FC = () => {
             <CheckIcon className="w-8 h-8 text-green-500" />
           </div>
           <h2 className="text-xl font-bold text-gray-800 mb-2">제출 완료</h2>
-          <p className="text-gray-500 text-sm">서류가 성공적으로 제출되었습니다.<br />감사합니다.</p>
+          <p className="text-gray-500 text-sm mb-6">서류가 성공적으로 제출되었습니다.<br />감사합니다.</p>
+          <div className="space-y-2">
+            <button
+              onClick={() => { setViewMode('list'); setSubmitted(false); }}
+              className="w-full py-3 rounded-xl bg-blue-500 text-white font-medium hover:bg-blue-600 transition-colors"
+            >
+              제출 내역 보기
+            </button>
+            <button
+              onClick={startNewSubmission}
+              className="w-full py-3 rounded-xl bg-gray-100 text-gray-600 font-medium hover:bg-gray-200 transition-colors"
+            >
+              새 건 등록하기
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
+  // ─── 이전 제출 내역 목록 ───
+  if (viewMode === 'list') {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
+          <div className="max-w-lg mx-auto px-4 py-4">
+            <h1 className="text-lg font-bold text-gray-800">서류 관리</h1>
+            <p className="text-xs text-gray-500 mt-0.5">{tokenData?.distributor_name}</p>
+          </div>
+        </div>
+
+        <div className="max-w-lg mx-auto px-4 py-6 space-y-4">
+          <button
+            onClick={startNewSubmission}
+            className="w-full py-4 rounded-2xl bg-blue-500 text-white font-bold text-base hover:bg-blue-600 active:bg-blue-700 transition-colors shadow-sm flex items-center justify-center gap-2"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            새 건 등록하기
+          </button>
+
+          {loadingHistory ? (
+            <div className="text-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500 mx-auto"></div>
+              <p className="mt-3 text-gray-400 text-sm">불러오는 중...</p>
+            </div>
+          ) : previousSubmissions.length === 0 ? (
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
+              <p className="text-gray-400 text-sm">아직 제출된 내역이 없습니다.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold text-gray-500">제출 내역 ({previousSubmissions.length}건)</h3>
+              {previousSubmissions.map((sub) => (
+                <button
+                  key={sub.contract_id}
+                  onClick={() => viewSubmissionDetail(sub)}
+                  className="w-full bg-white rounded-2xl shadow-sm border border-gray-100 p-4 text-left hover:border-blue-200 hover:shadow-md transition-all"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-gray-800 text-base truncate">
+                        {sub.supplier_name || '이름 없음'}
+                      </p>
+                      <p className="text-sm text-gray-500 mt-0.5">
+                        {sub.device_model} {sub.device_capacity} · {sub.contract_period}일
+                      </p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        {new Date(sub.uploaded_at).toLocaleDateString('ko-KR')} 제출 · 서류 {sub.documents.length}건
+                      </p>
+                    </div>
+                    <svg className="w-5 h-5 text-gray-300 ml-2 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                    </svg>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ─── 제출 건 상세 보기 ───
+  if (viewMode === 'detail' && selectedSubmission) {
+    const sub = selectedSubmission;
+    const slotDefs = sub.is_same_person ? SAME_PERSON_SLOTS : DIFF_PERSON_SLOTS;
+
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
+          <div className="max-w-lg mx-auto px-4 py-4 flex items-center gap-3">
+            <button onClick={() => setViewMode('list')} className="text-blue-500 hover:text-blue-600">
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+              </svg>
+            </button>
+            <div>
+              <h1 className="text-lg font-bold text-gray-800">{sub.supplier_name}</h1>
+              <p className="text-xs text-gray-500">{sub.device_model} {sub.device_capacity} · {sub.contract_period}일</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="max-w-lg mx-auto px-4 py-6 space-y-4">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+            <p className="text-xs text-gray-400 mb-2">
+              제출일: {new Date(sub.uploaded_at).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+            </p>
+            <p className="text-sm text-gray-600">
+              <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${sub.is_same_person ? 'bg-blue-100 text-blue-600' : 'bg-purple-100 text-purple-600'}`}>
+                {sub.is_same_person ? '공급자=구매자 동일' : '공급자≠구매자'}
+              </span>
+            </p>
+          </div>
+
+          <h3 className="text-sm font-semibold text-gray-500">제출된 서류</h3>
+          <div className="space-y-3">
+            {slotDefs.map((slotDef, idx) => {
+              const doc = sub.documents.find(d => d.doc_type === slotDef.key);
+              return (
+                <div key={slotDef.key} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                  <div className="flex items-center p-3">
+                    <span className="flex items-center justify-center w-6 h-6 rounded-full bg-gray-200 text-xs font-bold text-gray-500 mr-3">
+                      {idx + 1}
+                    </span>
+                    <span className="text-sm font-medium text-gray-700 flex-1">{slotDef.label}</span>
+                    {doc ? (
+                      <span className="text-green-500"><CheckIcon className="w-5 h-5" /></span>
+                    ) : (
+                      <span className="text-xs text-red-400 font-medium">미제출</span>
+                    )}
+                  </div>
+                  {doc && (
+                    <div className="px-3 pb-3">
+                      <img src={doc.file_url} alt={slotDef.label} className="w-full h-40 object-cover rounded-lg bg-gray-100" />
+                      <p className="text-xs text-gray-400 mt-1.5 truncate">{doc.file_name}</p>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── 새 건 등록 폼 ───
   const filledCount = slots.filter(s => s.file).length;
 
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-lg mx-auto px-4 py-4">
-          <h1 className="text-lg font-bold text-gray-800">서류 제출</h1>
-          <p className="text-xs text-gray-500 mt-0.5">{tokenData?.distributor_name}</p>
+        <div className="max-w-lg mx-auto px-4 py-4 flex items-center gap-3">
+          {previousSubmissions.length > 0 && (
+            <button onClick={() => setViewMode('list')} className="text-blue-500 hover:text-blue-600">
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+              </svg>
+            </button>
+          )}
+          <div>
+            <h1 className="text-lg font-bold text-gray-800">새 건 등록</h1>
+            <p className="text-xs text-gray-500 mt-0.5">{tokenData?.distributor_name}</p>
+          </div>
         </div>
       </div>
 
