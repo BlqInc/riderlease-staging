@@ -159,12 +159,19 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
 
             // 상품리스트에서 가격 매칭 (값이 유효할 때만 사용)
             const priceInfo = priceMap.get(deviceName);
-            const dailyDeduction = custDailyDeduction || priceInfo?.dailyTotal || 0;
             const unitsRequired = custUnits || priceInfo?.units || 1;
-            // 총 채권액: 상품리스트 총매출액 > 0이면 사용, 아니면 일차감 × 기간으로 계산
-            const totalAmount = (priceInfo?.totalRevenue && priceInfo.totalRevenue > 0)
+
+            // DB에는 1대 기준 값을 저장 (processContracts에서 units를 곱하므로)
+            // 일차감: 고객리스트 일 납부금은 이미 대수 곱한 값이므로 나눠서 저장
+            const dailyDeduction = custDailyDeduction
+              ? Math.round(custDailyDeduction / unitsRequired)
+              : (priceInfo?.dailyA || 0) + (priceInfo?.commission || 0);
+
+            // 총 채권액: 상품리스트 총매출액도 대수 반영된 값이므로 나눠서 저장
+            const totalRevenueRaw = (priceInfo?.totalRevenue && priceInfo.totalRevenue > 0)
               ? priceInfo.totalRevenue
-              : (dailyDeduction * durationDays);
+              : (custDailyDeduction * durationDays);
+            const totalAmount = Math.round(totalRevenueRaw / unitsRequired);
 
             const newContract: Partial<Contract> = {
               device_name: deviceName,
