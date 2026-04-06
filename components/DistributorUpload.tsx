@@ -95,6 +95,22 @@ export const DistributorUpload: React.FC = () => {
     setTokenParam(token);
   }, []);
 
+  // 브라우저 뒤로가기 지원
+  useEffect(() => {
+    const handlePopState = () => {
+      if (viewMode === 'detail') setViewMode('list');
+      else if (viewMode === 'new') setViewMode('list');
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [viewMode]);
+
+  // 화면 전환 시 히스토리 push
+  const navigateTo = (mode: 'list' | 'new' | 'detail') => {
+    if (mode !== 'list') window.history.pushState({ mode }, '');
+    setViewMode(mode);
+  };
+
   // Validate token
   useEffect(() => {
     if (!tokenParam || !supabase) {
@@ -330,7 +346,7 @@ export const DistributorUpload: React.FC = () => {
 
   // 새 건 등록으로 전환
   const startNewSubmission = () => {
-    setViewMode('new');
+    navigateTo('new');
     setSubmitted(false);
     setSubmitError(null);
     setFormState({
@@ -348,7 +364,7 @@ export const DistributorUpload: React.FC = () => {
   // 제출 건 상세 보기
   const viewSubmissionDetail = (sub: SubmissionGroup) => {
     setSelectedSubmission(sub);
-    setViewMode('detail');
+    navigateTo('detail');
   };
 
   // doc_type에 맞는 라벨 찾기
@@ -398,7 +414,7 @@ export const DistributorUpload: React.FC = () => {
           <p className="text-gray-500 text-sm mb-6">서류가 성공적으로 제출되었습니다.<br />감사합니다.</p>
           <div className="space-y-2">
             <button
-              onClick={() => { setViewMode('list'); setSubmitted(false); }}
+              onClick={() => { navigateTo('list'); setSubmitted(false); }}
               className="w-full py-3 rounded-xl bg-blue-500 text-white font-medium hover:bg-blue-600 transition-colors"
             >
               제출 내역 보기
@@ -551,7 +567,7 @@ export const DistributorUpload: React.FC = () => {
       <div className="min-h-screen bg-gray-50">
         <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
           <div className="max-w-lg mx-auto px-4 py-4 flex items-center gap-3">
-            <button onClick={() => setViewMode('list')} className="text-blue-500 hover:text-blue-600">
+            <button onClick={() => window.history.back()} className="text-blue-500 hover:text-blue-600">
               <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
               </svg>
@@ -627,7 +643,7 @@ export const DistributorUpload: React.FC = () => {
       <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
         <div className="max-w-lg mx-auto px-4 py-4 flex items-center gap-3">
           {previousSubmissions.length > 0 && (
-            <button onClick={() => setViewMode('list')} className="text-blue-500 hover:text-blue-600">
+            <button onClick={() => window.history.back()} className="text-blue-500 hover:text-blue-600">
               <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
               </svg>
@@ -808,6 +824,29 @@ export const DistributorUpload: React.FC = () => {
               기기 추가
             </button>
           </div>
+
+          {/* 예상 매출/수수료 계산 */}
+          {devices.some(d => d.model && d.capacity) && (
+            <div className="mt-4 bg-blue-50 rounded-xl p-4 space-y-2">
+              <h3 className="text-sm font-semibold text-blue-800">예상 계약 요약</h3>
+              {devices.filter(d => d.model).map((d, i) => {
+                const totalDays = Number(d.period) || 180;
+                const totalDevices = d.quantity || 1;
+                return (
+                  <div key={i} className="flex justify-between items-center text-xs">
+                    <span className="text-blue-600">{d.model} {d.capacity} x{totalDevices}</span>
+                    <span className="text-blue-700 font-medium">{totalDays}일 계약</span>
+                  </div>
+                );
+              })}
+              <div className="border-t border-blue-200 pt-2 mt-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-blue-600 font-medium">총 기기 수</span>
+                  <span className="text-blue-800 font-bold">{devices.reduce((s, d) => s + (d.quantity || 0), 0)}대</span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Upload Section */}
@@ -879,8 +918,7 @@ export const DistributorUpload: React.FC = () => {
                 <input
                   ref={(el) => { fileInputRefs.current[slot.key] = el; }}
                   type="file"
-                  accept="image/*"
-                  capture="environment"
+                  accept="image/*,application/pdf"
                   className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
