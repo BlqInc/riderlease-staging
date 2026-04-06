@@ -50,7 +50,8 @@ interface SubmissionGroup {
   contract_period: number;
   is_same_person: boolean;
   uploaded_at: string;
-  documents: { doc_type: string; file_name: string; file_url: string; id: string }[];
+  review_status: string;
+  documents: { doc_type: string; file_name: string; file_url: string; id: string; review_memo?: string }[];
 }
 
 export const DistributorUpload: React.FC = () => {
@@ -148,6 +149,7 @@ export const DistributorUpload: React.FC = () => {
             contract_period: doc.contract_period || 180,
             is_same_person: doc.is_same_person ?? true,
             uploaded_at: doc.uploaded_at,
+            review_status: doc.review_status || '서류 검토 중',
             documents: [],
           });
         }
@@ -156,6 +158,7 @@ export const DistributorUpload: React.FC = () => {
           file_name: doc.file_name,
           file_url: doc.file_url,
           id: doc.id,
+          review_memo: doc.review_memo || undefined,
         });
       }
       setPreviousSubmissions(Array.from(groups.values()));
@@ -453,15 +456,29 @@ export const DistributorUpload: React.FC = () => {
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex-1 min-w-0">
-                      <p className="font-bold text-gray-800 text-base truncate">
-                        {sub.supplier_name || '이름 없음'}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-bold text-gray-800 text-base truncate">
+                          {sub.supplier_name || '이름 없음'}
+                        </p>
+                        {sub.documents.some(d => d.review_memo) && (
+                          <span className="flex items-center justify-center w-5 h-5 bg-red-500 rounded-full text-white text-[10px] font-bold shrink-0">!</span>
+                        )}
+                      </div>
                       <p className="text-sm text-gray-500 mt-0.5">
                         {sub.device_model} · {sub.contract_period}일
                       </p>
-                      <p className="text-xs text-gray-400 mt-1">
-                        {new Date(sub.uploaded_at).toLocaleDateString('ko-KR')} 제출 · 서류 {sub.documents.length}건
-                      </p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
+                          sub.review_status === '보완 필요' ? 'bg-red-100 text-red-600' :
+                          sub.review_status === '서류 확인 완료' ? 'bg-blue-100 text-blue-600' :
+                          sub.review_status === '계약서 발송' ? 'bg-purple-100 text-purple-600' :
+                          sub.review_status === '진행중' ? 'bg-green-100 text-green-600' :
+                          'bg-gray-100 text-gray-500'
+                        }`}>{sub.review_status}</span>
+                        <span className="text-xs text-gray-400">
+                          {new Date(sub.uploaded_at).toLocaleDateString('ko-KR')} · {sub.documents.length}건
+                        </span>
+                      </div>
                     </div>
                     <svg className="w-5 h-5 text-gray-300 ml-2 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
@@ -514,18 +531,29 @@ export const DistributorUpload: React.FC = () => {
             {slotDefs.map((slotDef, idx) => {
               const doc = sub.documents.find(d => d.doc_type === slotDef.key);
               return (
-                <div key={slotDef.key} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                <div key={slotDef.key} className={`bg-white rounded-xl shadow-sm overflow-hidden ${doc?.review_memo ? 'border-2 border-red-300' : 'border border-gray-100'}`}>
                   <div className="flex items-center p-3">
-                    <span className="flex items-center justify-center w-6 h-6 rounded-full bg-gray-200 text-xs font-bold text-gray-500 mr-3">
-                      {idx + 1}
+                    <span className={`flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold mr-3 ${doc?.review_memo ? 'bg-red-100 text-red-500' : 'bg-gray-200 text-gray-500'}`}>
+                      {doc?.review_memo ? '!' : idx + 1}
                     </span>
                     <span className="text-sm font-medium text-gray-700 flex-1">{slotDef.label}</span>
                     {doc ? (
-                      <span className="text-green-500"><CheckIcon className="w-5 h-5" /></span>
+                      doc.review_memo ? (
+                        <span className="text-xs text-red-500 font-medium">보완 필요</span>
+                      ) : (
+                        <span className="text-green-500"><CheckIcon className="w-5 h-5" /></span>
+                      )
                     ) : (
                       <span className="text-xs text-red-400 font-medium">미제출</span>
                     )}
                   </div>
+                  {/* 반려 메모 표시 */}
+                  {doc?.review_memo && (
+                    <div className="mx-3 mb-2 bg-red-50 border border-red-200 rounded-lg p-3">
+                      <p className="text-xs text-red-600 font-medium mb-1">보완 요청</p>
+                      <p className="text-sm text-red-700">{doc.review_memo}</p>
+                    </div>
+                  )}
                   {doc && (
                     <div className="px-3 pb-3">
                       <img src={doc.file_url} alt={slotDef.label} className="w-full h-40 object-cover rounded-lg bg-gray-100" />

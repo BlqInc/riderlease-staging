@@ -30,6 +30,8 @@ interface UploadedDoc {
   contract_period?: number;
   is_same_person?: boolean;
   devices_json?: string;
+  review_status?: string;
+  review_memo?: string;
 }
 
 interface DeviceItem {
@@ -48,6 +50,15 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   guarantor_resident: '보증인 등본',
   rider_id: '라이더(구매자) 신분증',
   rider_resident: '라이더(구매자) 등본',
+};
+
+const REVIEW_STATUSES = ['서류 검토 중', '보완 필요', '서류 확인 완료', '계약서 발송', '진행중'] as const;
+const REVIEW_STATUS_COLORS: Record<string, string> = {
+  '서류 검토 중': 'bg-slate-500/20 text-slate-300',
+  '보완 필요': 'bg-red-500/20 text-red-300',
+  '서류 확인 완료': 'bg-blue-500/20 text-blue-300',
+  '계약서 발송': 'bg-purple-500/20 text-purple-300',
+  '진행중': 'bg-green-500/20 text-green-300',
 };
 
 const CopyIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -71,6 +82,8 @@ export const DocumentStatus: React.FC<DocumentStatusProps> = ({ partners = [], c
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [filterDistributor, setFilterDistributor] = useState<string>('');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [memoEditingDocId, setMemoEditingDocId] = useState<string | null>(null);
+  const [memoText, setMemoText] = useState('');
   const [creatingContract, setCreatingContract] = useState<string | null>(null);
   const [createdContracts, setCreatedContracts] = useState<Set<string>>(new Set());
   const [hiddenContracts, setHiddenContracts] = useState<Set<string>>(new Set());
@@ -306,6 +319,55 @@ export const DocumentStatus: React.FC<DocumentStatusProps> = ({ partners = [], c
   // 접수 건 완료 처리 (목록에서 숨기기)
   const handleHideSubmission = (contractId: string) => {
     setHiddenContracts(prev => new Set(prev).add(contractId));
+  };
+
+  // 접수 건 상태 변경 (해당 contract_id의 모든 문서)
+  const handleStatusChange = async (contractId: string, newStatus: string) => {
+    if (!supabase) return;
+    try {
+      const { error } = await (supabase.from('uploaded_documents') as any)
+        .update({ review_status: newStatus })
+        .eq('contract_id', contractId);
+      if (error) throw error;
+      setDocuments(prev => prev.map(d => d.contract_id === contractId ? { ...d, review_status: newStatus } : d));
+    } catch (error: any) {
+      alert(`상태 변경 실패: ${error.message}`);
+    }
+  };
+
+  // 개별 서류 반려/메모 저장
+  const handleSaveMemo = async (docId: string) => {
+    if (!supabase) return;
+    try {
+      const { error } = await (supabase.from('uploaded_documents') as any)
+        .update({ review_memo: memoText, review_status: '보완 필요' })
+        .eq('id', docId);
+      if (error) throw error;
+      setDocuments(prev => prev.map(d => {
+        if (d.id === docId) return { ...d, review_memo: memoText, review_status: '보완 필요' };
+        // 같은 contract_id의 다른 문서도 상태 변경
+        if (d.contract_id === prev.find(dd => dd.id === docId)?.contract_id) return { ...d, review_status: '보완 필요' };
+        return d;
+      }));
+      setMemoEditingDocId(null);
+      setMemoText('');
+    } catch (error: any) {
+      alert(`메모 저장 실패: ${error.message}`);
+    }
+  };
+
+  // 메모 삭제
+  const handleClearMemo = async (docId: string) => {
+    if (!supabase) return;
+    try {
+      const { error } = await (supabase.from('uploaded_documents') as any)
+        .update({ review_memo: null })
+        .eq('id', docId);
+      if (error) throw error;
+      setDocuments(prev => prev.map(d => d.id === docId ? { ...d, review_memo: null } : d));
+    } catch (error: any) {
+      alert(`메모 삭제 실패: ${error.message}`);
+    }
   };
 
   const distributorNames = [...new Set(tokens.map(t => t.distributor_name))];
@@ -557,10 +619,17 @@ export const DocumentStatus: React.FC<DocumentStatusProps> = ({ partners = [], c
                         </>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 ml-3">
+                    <div className="flex items-center gap-2 ml-3 flex-wrap justify-end">
                       <span className="text-xs text-slate-400 whitespace-nowrap">
                         {new Date(firstDoc.uploaded_at).toLocaleString('ko-KR')}
                       </span>
+                      <select
+                        value={firstDoc.review_status || '서류 검토 중'}
+                        onChange={(e) => handleStatusChange(contractId, e.target.value)}
+                        className={`text-xs px-2 py-1 rounded-lg font-medium border-0 cursor-pointer ${REVIEW_STATUS_COLORS[firstDoc.review_status || '서류 검토 중'] || 'bg-slate-500/20 text-slate-300'}`}
+                      >
+                        {REVIEW_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
                       {createdContracts.has(contractId) ? (
                         <div className="flex items-center gap-2">
                           <span className="px-3 py-1.5 text-xs bg-green-500/20 text-green-400 rounded-lg font-medium">
@@ -590,31 +659,63 @@ export const DocumentStatus: React.FC<DocumentStatusProps> = ({ partners = [], c
                     {docs.map(doc => (
                       <div
                         key={doc.id}
-                        className="flex items-center gap-3 bg-slate-800/60 rounded-lg p-3"
+                        className={`bg-slate-800/60 rounded-lg p-3 ${doc.review_memo ? 'border border-red-500/30' : ''}`}
                       >
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-slate-200 truncate">
-                            {DOC_TYPE_LABELS[doc.doc_type] || doc.doc_type}
-                          </p>
-                          <p className="text-xs text-slate-500 truncate">{doc.file_name}</p>
+                        <div className="flex items-center gap-3">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-slate-200 truncate">
+                              {DOC_TYPE_LABELS[doc.doc_type] || doc.doc_type}
+                            </p>
+                            <p className="text-xs text-slate-500 truncate">{doc.file_name}</p>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => setPreviewUrl(doc.file_url)}
+                              className="px-2 py-1 text-xs bg-indigo-500/20 text-indigo-400 rounded hover:bg-indigo-500/30 transition-colors"
+                            >
+                              보기
+                            </button>
+                            <a
+                              href={doc.file_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              download
+                              className="px-2 py-1 text-xs bg-slate-600/50 text-slate-300 rounded hover:bg-slate-600 transition-colors"
+                            >
+                              다운
+                            </a>
+                            <button
+                              onClick={() => { setMemoEditingDocId(doc.id); setMemoText(doc.review_memo || ''); }}
+                              className={`px-2 py-1 text-xs rounded transition-colors ${doc.review_memo ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30' : 'bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30'}`}
+                            >
+                              {doc.review_memo ? '반려' : '메모'}
+                            </button>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => setPreviewUrl(doc.file_url)}
-                            className="px-2 py-1 text-xs bg-indigo-500/20 text-indigo-400 rounded hover:bg-indigo-500/30 transition-colors"
-                          >
-                            보기
-                          </button>
-                          <a
-                            href={doc.file_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            download
-                            className="px-2 py-1 text-xs bg-slate-600/50 text-slate-300 rounded hover:bg-slate-600 transition-colors"
-                          >
-                            다운
-                          </a>
-                        </div>
+                        {/* 반려 메모 표시 */}
+                        {doc.review_memo && memoEditingDocId !== doc.id && (
+                          <div className="mt-2 bg-red-900/20 border border-red-500/20 rounded p-2 flex items-start gap-2">
+                            <p className="text-xs text-red-300 flex-1">{doc.review_memo}</p>
+                            <button onClick={() => handleClearMemo(doc.id)} className="text-xs text-red-400 hover:text-red-300 shrink-0">삭제</button>
+                          </div>
+                        )}
+                        {/* 메모 편집 */}
+                        {memoEditingDocId === doc.id && (
+                          <div className="mt-2 space-y-2">
+                            <textarea
+                              value={memoText}
+                              onChange={(e) => setMemoText(e.target.value)}
+                              placeholder="보완/반려 사유를 입력하세요"
+                              className="w-full px-3 py-2 bg-slate-700 text-white text-xs rounded border border-slate-600 focus:outline-none focus:ring-1 focus:ring-red-500 resize-none"
+                              rows={2}
+                              autoFocus
+                            />
+                            <div className="flex justify-end gap-2">
+                              <button onClick={() => setMemoEditingDocId(null)} className="text-xs text-slate-400 hover:text-slate-300 px-2 py-1">취소</button>
+                              <button onClick={() => handleSaveMemo(doc.id)} className="text-xs bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700">반려 저장</button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
