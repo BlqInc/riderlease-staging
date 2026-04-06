@@ -29,7 +29,6 @@ const SAME_PERSON_SLOTS = [
   { key: 'supplier_id', label: '대표자(공급자) 신분증' },
   { key: 'supplier_resident', label: '대표자(공급자) 등본' },
   { key: 'biz_cert_original', label: '사업자등록증명 원본' },
-  { key: 'biz_cert_blq', label: '사업자등록증명 비엘큐용' },
   { key: 'guarantor_id', label: '보증인(구매자) 신분증' },
   { key: 'guarantor_resident', label: '보증인(구매자) 등본' },
 ];
@@ -37,7 +36,6 @@ const SAME_PERSON_SLOTS = [
 const DIFF_PERSON_SLOTS = [
   { key: 'business_registration', label: '사업자등록증' },
   { key: 'biz_cert_original', label: '사업자등록증명 원본' },
-  { key: 'biz_cert_blq', label: '사업자등록증명 비엘큐용' },
   { key: 'rider_id', label: '라이더(구매자) 신분증' },
   { key: 'rider_resident', label: '라이더(구매자) 등본' },
   { key: 'guarantor_id', label: '보증인(공급자) 신분증' },

@@ -44,7 +44,6 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   supplier_id: '대표자(공급자) 신분증',
   supplier_resident: '대표자(공급자) 등본',
   biz_cert_original: '사업자등록증명 원본',
-  biz_cert_blq: '사업자등록증명 비엘큐용',
   guarantor_id: '보증인 신분증',
   guarantor_resident: '보증인 등본',
   rider_id: '라이더(구매자) 신분증',
@@ -73,9 +72,18 @@ export const DocumentStatus: React.FC<DocumentStatusProps> = ({ partners = [], o
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [creatingContract, setCreatingContract] = useState<string | null>(null);
   const [createdContracts, setCreatedContracts] = useState<Set<string>>(new Set());
-  const [editingDevices, setEditingDevices] = useState<string | null>(null); // contract_id being edited
-  const [editDeviceList, setEditDeviceList] = useState<DeviceItem[]>([]);
-  const [savingDevices, setSavingDevices] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null); // contract_id being edited
+  const [editForm, setEditForm] = useState<{
+    supplier_name: string;
+    supplier_phone: string;
+    rider_name: string;
+    rider_phone: string;
+    guarantor_name: string;
+    guarantor_phone: string;
+    is_same_person: boolean;
+    devices: DeviceItem[];
+  }>({ supplier_name: '', supplier_phone: '', rider_name: '', rider_phone: '', guarantor_name: '', guarantor_phone: '', is_same_person: true, devices: [] });
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const fetchAll = useCallback(async () => {
     if (!supabase) return;
@@ -223,53 +231,54 @@ export const DocumentStatus: React.FC<DocumentStatusProps> = ({ partners = [], o
     }
   };
 
-  // 기기 정보 편집
-  const startEditDevices = (contractId: string, docs: UploadedDoc[]) => {
-    const firstDoc = docs[0];
+  // 전체 정보 편집
+  const startEditing = (contractId: string, docs: UploadedDoc[]) => {
+    const f = docs[0];
     let deviceList: DeviceItem[] = [];
-    if (firstDoc.devices_json) {
-      try { deviceList = JSON.parse(firstDoc.devices_json); } catch {}
-    }
+    if (f.devices_json) { try { deviceList = JSON.parse(f.devices_json); } catch {} }
     if (deviceList.length === 0) {
-      // fallback: 기존 단일 기기 데이터에서 생성
-      deviceList = [{
-        model: firstDoc.device_model || '',
-        capacity: firstDoc.device_capacity || '',
-        quantity: 1,
-        period: String(firstDoc.contract_period || 180),
-      }];
+      deviceList = [{ model: f.device_model || '', capacity: f.device_capacity || '', quantity: 1, period: String(f.contract_period || 180) }];
     }
-    setEditDeviceList(deviceList);
-    setEditingDevices(contractId);
+    setEditForm({
+      supplier_name: f.supplier_name || '',
+      supplier_phone: f.supplier_phone || '',
+      rider_name: f.rider_name || '',
+      rider_phone: f.rider_phone || '',
+      guarantor_name: f.guarantor_name || '',
+      guarantor_phone: f.guarantor_phone || '',
+      is_same_person: f.is_same_person ?? true,
+      devices: deviceList,
+    });
+    setEditingId(contractId);
   };
 
-  const saveEditDevices = async (contractId: string) => {
+  const saveEditing = async (contractId: string) => {
     if (!supabase) return;
-    setSavingDevices(true);
+    setSavingEdit(true);
     try {
-      const devicesJson = JSON.stringify(editDeviceList);
-      const deviceModelStr = editDeviceList.map(d => `${d.model} ${d.capacity} x${d.quantity}`).join(', ');
-      // 해당 contract_id의 모든 문서 업데이트
+      const devicesJson = JSON.stringify(editForm.devices);
+      const updateData = {
+        supplier_name: editForm.supplier_name,
+        supplier_phone: editForm.supplier_phone,
+        rider_name: editForm.rider_name || null,
+        rider_phone: editForm.rider_phone || null,
+        guarantor_name: editForm.guarantor_name,
+        guarantor_phone: editForm.guarantor_phone,
+        is_same_person: editForm.is_same_person,
+        devices_json: devicesJson,
+        device_model: editForm.devices.map(d => d.model).join(', '),
+        device_capacity: editForm.devices.map(d => d.capacity).join(', '),
+        contract_period: Number(editForm.devices[0]?.period) || 180,
+      };
       const { error } = await (supabase.from('uploaded_documents') as any)
-        .update({
-          devices_json: devicesJson,
-          device_model: editDeviceList.map(d => d.model).join(', '),
-          device_capacity: editDeviceList.map(d => d.capacity).join(', '),
-          contract_period: Number(editDeviceList[0]?.period) || 180,
-        })
-        .eq('contract_id', contractId);
+        .update(updateData).eq('contract_id', contractId);
       if (error) throw error;
-      // 로컬 상태 업데이트
-      setDocuments(prev => prev.map(d =>
-        d.contract_id === contractId
-          ? { ...d, devices_json: devicesJson, device_model: editDeviceList.map(dd => dd.model).join(', '), device_capacity: editDeviceList.map(dd => dd.capacity).join(', '), contract_period: Number(editDeviceList[0]?.period) || 180 }
-          : d
-      ));
-      setEditingDevices(null);
+      setDocuments(prev => prev.map(d => d.contract_id === contractId ? { ...d, ...updateData } : d));
+      setEditingId(null);
     } catch (error: any) {
       alert(`저장 실패: ${error.message}`);
     } finally {
-      setSavingDevices(false);
+      setSavingEdit(false);
     }
   };
 
@@ -410,74 +419,114 @@ export const DocumentStatus: React.FC<DocumentStatusProps> = ({ partners = [], o
                           <span className="text-sm text-slate-300">/ {firstDoc.supplier_name}</span>
                         )}
                       </div>
-                      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1">
-                        {firstDoc.supplier_phone && (
-                          <span className="text-xs text-slate-400">공급자: {firstDoc.supplier_phone}</span>
-                        )}
-                        {firstDoc.guarantor_name && (
-                          <span className="text-xs text-slate-400">보증인: {firstDoc.guarantor_name} ({firstDoc.guarantor_phone})</span>
-                        )}
-                        {firstDoc.rider_name && (
-                          <span className="text-xs text-slate-400">라이더: {firstDoc.rider_name} ({firstDoc.rider_phone})</span>
-                        )}
-                      </div>
-                      {/* 기기 정보 (편집 가능) */}
-                      {editingDevices === contractId ? (
-                        <div className="mt-3 bg-slate-800 rounded-lg p-3 space-y-2">
-                          {editDeviceList.map((dev, di) => (
-                            <div key={di} className="flex items-center gap-2">
-                              <input type="text" value={dev.model} onChange={(e) => { const n = [...editDeviceList]; n[di] = {...n[di], model: e.target.value}; setEditDeviceList(n); }}
-                                placeholder="기종" className="flex-1 px-2 py-1 bg-slate-700 text-white text-xs rounded border border-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
-                              <input type="text" value={dev.capacity} onChange={(e) => { const n = [...editDeviceList]; n[di] = {...n[di], capacity: e.target.value}; setEditDeviceList(n); }}
-                                placeholder="용량" className="w-20 px-2 py-1 bg-slate-700 text-white text-xs rounded border border-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
-                              <input type="number" min="1" value={dev.quantity} onChange={(e) => { const n = [...editDeviceList]; n[di] = {...n[di], quantity: Math.max(1, parseInt(e.target.value) || 1)}; setEditDeviceList(n); }}
-                                className="w-14 px-2 py-1 bg-slate-700 text-white text-xs rounded border border-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
-                              <select value={dev.period} onChange={(e) => { const n = [...editDeviceList]; n[di] = {...n[di], period: e.target.value}; setEditDeviceList(n); }}
-                                className="w-20 px-1 py-1 bg-slate-700 text-white text-xs rounded border border-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500">
-                                <option value="180">180일</option>
-                                <option value="210">210일</option>
-                              </select>
-                              {editDeviceList.length > 1 && (
-                                <button onClick={() => setEditDeviceList(prev => prev.filter((_, i) => i !== di))} className="text-red-400 hover:text-red-300 text-xs">✕</button>
-                              )}
+                      {/* 정보 표시 / 편집 */}
+                      {editingId === contractId ? (
+                        <div className="mt-3 bg-slate-800 rounded-lg p-4 space-y-3">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="text-xs text-slate-500">공급자 성명</label>
+                              <input type="text" value={editForm.supplier_name} onChange={(e) => setEditForm(p => ({...p, supplier_name: e.target.value}))}
+                                className="w-full px-2 py-1.5 bg-slate-700 text-white text-xs rounded border border-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 mt-0.5" />
                             </div>
-                          ))}
-                          <div className="flex gap-2 pt-1">
-                            <button onClick={() => setEditDeviceList(prev => [...prev, { model: '', capacity: '', quantity: 1, period: '180' }])}
-                              className="text-xs text-indigo-400 hover:text-indigo-300">+ 기기 추가</button>
-                            <div className="flex-1" />
-                            <button onClick={() => setEditingDevices(null)} className="text-xs text-slate-400 hover:text-slate-300 px-2 py-1">취소</button>
-                            <button onClick={() => saveEditDevices(contractId)} disabled={savingDevices}
-                              className="text-xs bg-indigo-600 text-white px-3 py-1 rounded hover:bg-indigo-700 disabled:opacity-50">{savingDevices ? '저장 중...' : '저장'}</button>
+                            <div>
+                              <label className="text-xs text-slate-500">공급자 연락처</label>
+                              <input type="text" value={editForm.supplier_phone} onChange={(e) => setEditForm(p => ({...p, supplier_phone: e.target.value}))}
+                                className="w-full px-2 py-1.5 bg-slate-700 text-white text-xs rounded border border-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 mt-0.5" />
+                            </div>
+                            <div>
+                              <label className="text-xs text-slate-500">보증인 성명</label>
+                              <input type="text" value={editForm.guarantor_name} onChange={(e) => setEditForm(p => ({...p, guarantor_name: e.target.value}))}
+                                className="w-full px-2 py-1.5 bg-slate-700 text-white text-xs rounded border border-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 mt-0.5" />
+                            </div>
+                            <div>
+                              <label className="text-xs text-slate-500">보증인 연락처</label>
+                              <input type="text" value={editForm.guarantor_phone} onChange={(e) => setEditForm(p => ({...p, guarantor_phone: e.target.value}))}
+                                className="w-full px-2 py-1.5 bg-slate-700 text-white text-xs rounded border border-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 mt-0.5" />
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <label className="text-xs text-slate-500">공급자=구매자</label>
+                            <button onClick={() => setEditForm(p => ({...p, is_same_person: !p.is_same_person}))}
+                              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${editForm.is_same_person ? 'bg-indigo-500' : 'bg-slate-600'}`}>
+                              <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${editForm.is_same_person ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                            </button>
+                          </div>
+                          {!editForm.is_same_person && (
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="text-xs text-slate-500">라이더 성명</label>
+                                <input type="text" value={editForm.rider_name} onChange={(e) => setEditForm(p => ({...p, rider_name: e.target.value}))}
+                                  className="w-full px-2 py-1.5 bg-slate-700 text-white text-xs rounded border border-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 mt-0.5" />
+                              </div>
+                              <div>
+                                <label className="text-xs text-slate-500">라이더 연락처</label>
+                                <input type="text" value={editForm.rider_phone} onChange={(e) => setEditForm(p => ({...p, rider_phone: e.target.value}))}
+                                  className="w-full px-2 py-1.5 bg-slate-700 text-white text-xs rounded border border-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 mt-0.5" />
+                              </div>
+                            </div>
+                          )}
+                          <div>
+                            <label className="text-xs text-slate-500 mb-1 block">기기 목록</label>
+                            {editForm.devices.map((dev, di) => (
+                              <div key={di} className="flex items-center gap-2 mb-1.5">
+                                <input type="text" value={dev.model} onChange={(e) => { const n = [...editForm.devices]; n[di] = {...n[di], model: e.target.value}; setEditForm(p => ({...p, devices: n})); }}
+                                  placeholder="기종" className="flex-1 px-2 py-1 bg-slate-700 text-white text-xs rounded border border-slate-600" />
+                                <input type="text" value={dev.capacity} onChange={(e) => { const n = [...editForm.devices]; n[di] = {...n[di], capacity: e.target.value}; setEditForm(p => ({...p, devices: n})); }}
+                                  placeholder="용량" className="w-20 px-2 py-1 bg-slate-700 text-white text-xs rounded border border-slate-600" />
+                                <input type="number" min="1" value={dev.quantity} onChange={(e) => { const n = [...editForm.devices]; n[di] = {...n[di], quantity: Math.max(1, parseInt(e.target.value) || 1)}; setEditForm(p => ({...p, devices: n})); }}
+                                  className="w-14 px-2 py-1 bg-slate-700 text-white text-xs rounded border border-slate-600" />
+                                <select value={dev.period} onChange={(e) => { const n = [...editForm.devices]; n[di] = {...n[di], period: e.target.value}; setEditForm(p => ({...p, devices: n})); }}
+                                  className="w-20 px-1 py-1 bg-slate-700 text-white text-xs rounded border border-slate-600">
+                                  <option value="180">180일</option><option value="210">210일</option>
+                                </select>
+                                {editForm.devices.length > 1 && (
+                                  <button onClick={() => setEditForm(p => ({...p, devices: p.devices.filter((_, i) => i !== di)}))} className="text-red-400 text-xs">✕</button>
+                                )}
+                              </div>
+                            ))}
+                            <button onClick={() => setEditForm(p => ({...p, devices: [...p.devices, { model: '', capacity: '', quantity: 1, period: '180' }]}))}
+                              className="text-xs text-indigo-400 hover:text-indigo-300 mt-1">+ 기기 추가</button>
+                          </div>
+                          <div className="flex justify-end gap-2 pt-2 border-t border-slate-700">
+                            <button onClick={() => setEditingId(null)} className="text-xs text-slate-400 hover:text-slate-300 px-3 py-1.5">취소</button>
+                            <button onClick={() => saveEditing(contractId)} disabled={savingEdit}
+                              className="text-xs bg-indigo-600 text-white px-4 py-1.5 rounded hover:bg-indigo-700 disabled:opacity-50">{savingEdit ? '저장 중...' : '저장'}</button>
                           </div>
                         </div>
                       ) : (
-                        <div className="mt-2 flex items-start gap-2">
-                          <div className="flex flex-wrap gap-x-3 gap-y-1 flex-1">
-                            {(() => {
-                              let deviceList: DeviceItem[] = [];
-                              if (firstDoc.devices_json) { try { deviceList = JSON.parse(firstDoc.devices_json); } catch {} }
-                              if (deviceList.length > 0) {
-                                return deviceList.map((d, i) => (
-                                  <span key={i} className="text-xs bg-slate-600/50 px-2 py-0.5 rounded text-slate-300">
-                                    {d.model} {d.capacity} x{d.quantity} ({d.period}일)
-                                  </span>
-                                ));
-                              }
-                              return (
-                                <>
-                                  {firstDoc.device_model && <span className="text-xs text-slate-400">기종: {firstDoc.device_model}</span>}
-                                  {firstDoc.device_capacity && <span className="text-xs text-slate-400">용량: {firstDoc.device_capacity}</span>}
-                                  {firstDoc.contract_period && <span className="text-xs text-slate-400">{firstDoc.contract_period}일</span>}
-                                </>
-                              );
-                            })()}
+                        <>
+                          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1">
+                            {firstDoc.supplier_phone && <span className="text-xs text-slate-400">공급자: {firstDoc.supplier_name} ({firstDoc.supplier_phone})</span>}
+                            {firstDoc.guarantor_name && <span className="text-xs text-slate-400">보증인: {firstDoc.guarantor_name} ({firstDoc.guarantor_phone})</span>}
+                            {firstDoc.rider_name && <span className="text-xs text-slate-400">라이더: {firstDoc.rider_name} ({firstDoc.rider_phone})</span>}
                           </div>
-                          <button onClick={() => startEditDevices(contractId, docs)}
-                            className="text-xs text-yellow-400 hover:text-yellow-300 px-2 py-0.5 rounded hover:bg-slate-600/50 transition-colors whitespace-nowrap">
-                            수정
-                          </button>
-                        </div>
+                          <div className="mt-2 flex items-start gap-2">
+                            <div className="flex flex-wrap gap-x-3 gap-y-1 flex-1">
+                              {(() => {
+                                let deviceList: DeviceItem[] = [];
+                                if (firstDoc.devices_json) { try { deviceList = JSON.parse(firstDoc.devices_json); } catch {} }
+                                if (deviceList.length > 0) {
+                                  return deviceList.map((d, i) => (
+                                    <span key={i} className="text-xs bg-slate-600/50 px-2 py-0.5 rounded text-slate-300">
+                                      {d.model} {d.capacity} x{d.quantity} ({d.period}일)
+                                    </span>
+                                  ));
+                                }
+                                return (
+                                  <>
+                                    {firstDoc.device_model && <span className="text-xs text-slate-400">{firstDoc.device_model}</span>}
+                                    {firstDoc.device_capacity && <span className="text-xs text-slate-400">{firstDoc.device_capacity}</span>}
+                                    {firstDoc.contract_period && <span className="text-xs text-slate-400">{firstDoc.contract_period}일</span>}
+                                  </>
+                                );
+                              })()}
+                            </div>
+                            <button onClick={() => startEditing(contractId, docs)}
+                              className="text-xs text-yellow-400 hover:text-yellow-300 px-2 py-0.5 rounded hover:bg-slate-600/50 transition-colors whitespace-nowrap">
+                              수정
+                            </button>
+                          </div>
+                        </>
                       )}
                     </div>
                     <div className="flex items-center gap-2 ml-3">
