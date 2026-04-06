@@ -29,6 +29,14 @@ interface UploadedDoc {
   device_capacity?: string;
   contract_period?: number;
   is_same_person?: boolean;
+  devices_json?: string;
+}
+
+interface DeviceItem {
+  model: string;
+  capacity: string;
+  quantity: number;
+  period: string;
 }
 
 const DOC_TYPE_LABELS: Record<string, string> = {
@@ -65,6 +73,9 @@ export const DocumentStatus: React.FC<DocumentStatusProps> = ({ partners = [], o
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [creatingContract, setCreatingContract] = useState<string | null>(null);
   const [createdContracts, setCreatedContracts] = useState<Set<string>>(new Set());
+  const [editingDevices, setEditingDevices] = useState<string | null>(null); // contract_id being edited
+  const [editDeviceList, setEditDeviceList] = useState<DeviceItem[]>([]);
+  const [savingDevices, setSavingDevices] = useState(false);
 
   const fetchAll = useCallback(async () => {
     if (!supabase) return;
@@ -212,6 +223,56 @@ export const DocumentStatus: React.FC<DocumentStatusProps> = ({ partners = [], o
     }
   };
 
+  // 기기 정보 편집
+  const startEditDevices = (contractId: string, docs: UploadedDoc[]) => {
+    const firstDoc = docs[0];
+    let deviceList: DeviceItem[] = [];
+    if (firstDoc.devices_json) {
+      try { deviceList = JSON.parse(firstDoc.devices_json); } catch {}
+    }
+    if (deviceList.length === 0) {
+      // fallback: 기존 단일 기기 데이터에서 생성
+      deviceList = [{
+        model: firstDoc.device_model || '',
+        capacity: firstDoc.device_capacity || '',
+        quantity: 1,
+        period: String(firstDoc.contract_period || 180),
+      }];
+    }
+    setEditDeviceList(deviceList);
+    setEditingDevices(contractId);
+  };
+
+  const saveEditDevices = async (contractId: string) => {
+    if (!supabase) return;
+    setSavingDevices(true);
+    try {
+      const devicesJson = JSON.stringify(editDeviceList);
+      const deviceModelStr = editDeviceList.map(d => `${d.model} ${d.capacity} x${d.quantity}`).join(', ');
+      // 해당 contract_id의 모든 문서 업데이트
+      const { error } = await (supabase.from('uploaded_documents') as any)
+        .update({
+          devices_json: devicesJson,
+          device_model: editDeviceList.map(d => d.model).join(', '),
+          device_capacity: editDeviceList.map(d => d.capacity).join(', '),
+          contract_period: Number(editDeviceList[0]?.period) || 180,
+        })
+        .eq('contract_id', contractId);
+      if (error) throw error;
+      // 로컬 상태 업데이트
+      setDocuments(prev => prev.map(d =>
+        d.contract_id === contractId
+          ? { ...d, devices_json: devicesJson, device_model: editDeviceList.map(dd => dd.model).join(', '), device_capacity: editDeviceList.map(dd => dd.capacity).join(', '), contract_period: Number(editDeviceList[0]?.period) || 180 }
+          : d
+      ));
+      setEditingDevices(null);
+    } catch (error: any) {
+      alert(`저장 실패: ${error.message}`);
+    } finally {
+      setSavingDevices(false);
+    }
+  };
+
   const distributorNames = [...new Set(tokens.map(t => t.distributor_name))];
 
   const filteredDocs = filterDistributor
@@ -350,15 +411,6 @@ export const DocumentStatus: React.FC<DocumentStatusProps> = ({ partners = [], o
                         )}
                       </div>
                       <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1">
-                        {firstDoc.device_model && (
-                          <span className="text-xs text-slate-400">기종: {firstDoc.device_model}</span>
-                        )}
-                        {firstDoc.device_capacity && (
-                          <span className="text-xs text-slate-400">용량: {firstDoc.device_capacity}</span>
-                        )}
-                        {firstDoc.contract_period && (
-                          <span className="text-xs text-slate-400">계약: {firstDoc.contract_period}일</span>
-                        )}
                         {firstDoc.supplier_phone && (
                           <span className="text-xs text-slate-400">공급자: {firstDoc.supplier_phone}</span>
                         )}
@@ -369,6 +421,64 @@ export const DocumentStatus: React.FC<DocumentStatusProps> = ({ partners = [], o
                           <span className="text-xs text-slate-400">라이더: {firstDoc.rider_name} ({firstDoc.rider_phone})</span>
                         )}
                       </div>
+                      {/* 기기 정보 (편집 가능) */}
+                      {editingDevices === contractId ? (
+                        <div className="mt-3 bg-slate-800 rounded-lg p-3 space-y-2">
+                          {editDeviceList.map((dev, di) => (
+                            <div key={di} className="flex items-center gap-2">
+                              <input type="text" value={dev.model} onChange={(e) => { const n = [...editDeviceList]; n[di] = {...n[di], model: e.target.value}; setEditDeviceList(n); }}
+                                placeholder="기종" className="flex-1 px-2 py-1 bg-slate-700 text-white text-xs rounded border border-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+                              <input type="text" value={dev.capacity} onChange={(e) => { const n = [...editDeviceList]; n[di] = {...n[di], capacity: e.target.value}; setEditDeviceList(n); }}
+                                placeholder="용량" className="w-20 px-2 py-1 bg-slate-700 text-white text-xs rounded border border-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+                              <input type="number" min="1" value={dev.quantity} onChange={(e) => { const n = [...editDeviceList]; n[di] = {...n[di], quantity: Math.max(1, parseInt(e.target.value) || 1)}; setEditDeviceList(n); }}
+                                className="w-14 px-2 py-1 bg-slate-700 text-white text-xs rounded border border-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+                              <select value={dev.period} onChange={(e) => { const n = [...editDeviceList]; n[di] = {...n[di], period: e.target.value}; setEditDeviceList(n); }}
+                                className="w-20 px-1 py-1 bg-slate-700 text-white text-xs rounded border border-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                                <option value="180">180일</option>
+                                <option value="210">210일</option>
+                              </select>
+                              {editDeviceList.length > 1 && (
+                                <button onClick={() => setEditDeviceList(prev => prev.filter((_, i) => i !== di))} className="text-red-400 hover:text-red-300 text-xs">✕</button>
+                              )}
+                            </div>
+                          ))}
+                          <div className="flex gap-2 pt-1">
+                            <button onClick={() => setEditDeviceList(prev => [...prev, { model: '', capacity: '', quantity: 1, period: '180' }])}
+                              className="text-xs text-indigo-400 hover:text-indigo-300">+ 기기 추가</button>
+                            <div className="flex-1" />
+                            <button onClick={() => setEditingDevices(null)} className="text-xs text-slate-400 hover:text-slate-300 px-2 py-1">취소</button>
+                            <button onClick={() => saveEditDevices(contractId)} disabled={savingDevices}
+                              className="text-xs bg-indigo-600 text-white px-3 py-1 rounded hover:bg-indigo-700 disabled:opacity-50">{savingDevices ? '저장 중...' : '저장'}</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="mt-2 flex items-start gap-2">
+                          <div className="flex flex-wrap gap-x-3 gap-y-1 flex-1">
+                            {(() => {
+                              let deviceList: DeviceItem[] = [];
+                              if (firstDoc.devices_json) { try { deviceList = JSON.parse(firstDoc.devices_json); } catch {} }
+                              if (deviceList.length > 0) {
+                                return deviceList.map((d, i) => (
+                                  <span key={i} className="text-xs bg-slate-600/50 px-2 py-0.5 rounded text-slate-300">
+                                    {d.model} {d.capacity} x{d.quantity} ({d.period}일)
+                                  </span>
+                                ));
+                              }
+                              return (
+                                <>
+                                  {firstDoc.device_model && <span className="text-xs text-slate-400">기종: {firstDoc.device_model}</span>}
+                                  {firstDoc.device_capacity && <span className="text-xs text-slate-400">용량: {firstDoc.device_capacity}</span>}
+                                  {firstDoc.contract_period && <span className="text-xs text-slate-400">{firstDoc.contract_period}일</span>}
+                                </>
+                              );
+                            })()}
+                          </div>
+                          <button onClick={() => startEditDevices(contractId, docs)}
+                            className="text-xs text-yellow-400 hover:text-yellow-300 px-2 py-0.5 rounded hover:bg-slate-600/50 transition-colors whitespace-nowrap">
+                            수정
+                          </button>
+                        </div>
+                      )}
                     </div>
                     <div className="flex items-center gap-2 ml-3">
                       <span className="text-xs text-slate-400 whitespace-nowrap">

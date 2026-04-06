@@ -75,9 +75,9 @@ export const DistributorUpload: React.FC = () => {
   const [riderPhone, setRiderPhone] = useState('');
   const [guarantorName, setGuarantorName] = useState('');
   const [guarantorPhone, setGuarantorPhone] = useState('');
-  const [deviceModel, setDeviceModel] = useState('');
-  const [deviceCapacity, setDeviceCapacity] = useState('');
-  const [contractPeriod, setContractPeriod] = useState<'180' | '210'>('180');
+  const [devices, setDevices] = useState<{ model: string; capacity: string; quantity: number; period: '180' | '210' }[]>([
+    { model: '', capacity: '', quantity: 1, period: '180' },
+  ]);
 
   // Upload state
   const [slots, setSlots] = useState<UploadSlot[]>([]);
@@ -184,6 +184,12 @@ export const DistributorUpload: React.FC = () => {
     })));
   }, [isSamePerson]);
 
+  const addDevice = () => setDevices(prev => [...prev, { model: '', capacity: '', quantity: 1, period: '180' }]);
+  const removeDevice = (idx: number) => setDevices(prev => prev.filter((_, i) => i !== idx));
+  const updateDevice = (idx: number, field: string, value: string | number) => {
+    setDevices(prev => prev.map((d, i) => i === idx ? { ...d, [field]: value } : d));
+  };
+
   const handleFileSelect = (slotKey: string, file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -232,11 +238,11 @@ export const DistributorUpload: React.FC = () => {
       setSubmitError('보증인 휴대폰번호를 입력해주세요.');
       return;
     }
-    if (!deviceModel.trim()) {
+    if (devices.some(d => !d.model.trim())) {
       setSubmitError('기종을 입력해주세요.');
       return;
     }
-    if (!deviceCapacity.trim()) {
+    if (devices.some(d => !d.capacity.trim())) {
       setSubmitError('용량을 입력해주세요.');
       return;
     }
@@ -294,10 +300,11 @@ export const DistributorUpload: React.FC = () => {
           rider_phone: !isSamePerson ? riderPhone : null,
           guarantor_name: guarantorName,
           guarantor_phone: guarantorPhone,
-          device_model: deviceModel,
-          device_capacity: deviceCapacity,
-          contract_period: parseInt(contractPeriod),
+          device_model: devices.map(d => d.model).join(', '),
+          device_capacity: devices.map(d => d.capacity).join(', '),
+          contract_period: Number(devices[0]?.period) || 180,
           is_same_person: isSamePerson,
+          devices_json: JSON.stringify(devices),
         });
 
         if (dbError) throw new Error(`${slot.label} 저장 실패: ${dbError.message}`);
@@ -328,9 +335,7 @@ export const DistributorUpload: React.FC = () => {
     setRiderPhone('');
     setGuarantorName('');
     setGuarantorPhone('');
-    setDeviceModel('');
-    setDeviceCapacity('');
-    setContractPeriod('180');
+    setDevices([{ model: '', capacity: '', quantity: 1, period: '180' }]);
     setIsSamePerson(true);
   };
 
@@ -450,7 +455,7 @@ export const DistributorUpload: React.FC = () => {
                         {sub.supplier_name || '이름 없음'}
                       </p>
                       <p className="text-sm text-gray-500 mt-0.5">
-                        {sub.device_model} {sub.device_capacity} · {sub.contract_period}일
+                        {sub.device_model} · {sub.contract_period}일
                       </p>
                       <p className="text-xs text-gray-400 mt-1">
                         {new Date(sub.uploaded_at).toLocaleDateString('ko-KR')} 제출 · 서류 {sub.documents.length}건
@@ -651,55 +656,78 @@ export const DistributorUpload: React.FC = () => {
 
         {/* Device & Contract Section */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-          <h2 className="text-base font-bold text-gray-800 mb-4">기기 / 계약 선택</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base font-bold text-gray-800">기기 / 계약 선택</h2>
+            <span className="text-xs text-gray-400">{devices.length}개 기기</span>
+          </div>
+
           <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-600 mb-1.5">기종</label>
-              <input
-                type="text"
-                value={deviceModel}
-                onChange={(e) => setDeviceModel(e.target.value)}
-                placeholder="예: iPhone 15 Pro"
-                className="w-full px-4 py-3 rounded-xl border border-gray-200 text-gray-800 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-600 mb-1.5">용량</label>
-              <input
-                type="text"
-                value={deviceCapacity}
-                onChange={(e) => setDeviceCapacity(e.target.value)}
-                placeholder="예: 256GB"
-                className="w-full px-4 py-3 rounded-xl border border-gray-200 text-gray-800 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-600 mb-2">계약기간</label>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setContractPeriod('180')}
-                  className={`py-3 rounded-xl text-base font-medium transition-all ${
-                    contractPeriod === '180'
-                      ? 'bg-blue-500 text-white shadow-sm'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-                >
-                  180일
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setContractPeriod('210')}
-                  className={`py-3 rounded-xl text-base font-medium transition-all ${
-                    contractPeriod === '210'
-                      ? 'bg-blue-500 text-white shadow-sm'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-                >
-                  210일
-                </button>
+            {devices.map((device, idx) => (
+              <div key={idx} className={`space-y-3 ${idx > 0 ? 'pt-4 border-t border-gray-100' : ''}`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold text-gray-600">기기 {idx + 1}</span>
+                  {devices.length > 1 && (
+                    <button type="button" onClick={() => removeDevice(idx)} className="text-red-400 hover:text-red-500 text-xs font-medium px-2 py-1 rounded-lg hover:bg-red-50 transition-colors">
+                      삭제
+                    </button>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">기종</label>
+                    <input
+                      type="text" value={device.model}
+                      onChange={(e) => updateDevice(idx, 'model', e.target.value)}
+                      placeholder="iPhone 16 Pro"
+                      className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">용량</label>
+                    <input
+                      type="text" value={device.capacity}
+                      onChange={(e) => updateDevice(idx, 'capacity', e.target.value)}
+                      placeholder="256GB"
+                      className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">수량</label>
+                    <input
+                      type="number" min="1" value={device.quantity}
+                      onChange={(e) => updateDevice(idx, 'quantity', Math.max(1, parseInt(e.target.value) || 1))}
+                      className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">계약기간</label>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button type="button" onClick={() => updateDevice(idx, 'period', '180')}
+                        className={`py-2.5 rounded-lg text-sm font-medium transition-all ${device.period === '180' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                        180일
+                      </button>
+                      <button type="button" onClick={() => updateDevice(idx, 'period', '210')}
+                        className={`py-2.5 rounded-lg text-sm font-medium transition-all ${device.period === '210' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                        210일
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
+            ))}
+
+            <button
+              type="button"
+              onClick={addDevice}
+              className="w-full py-3 rounded-xl border-2 border-dashed border-gray-200 text-gray-400 hover:border-blue-300 hover:text-blue-500 text-sm font-medium transition-colors flex items-center justify-center gap-1"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
+              기기 추가
+            </button>
           </div>
         </div>
 
