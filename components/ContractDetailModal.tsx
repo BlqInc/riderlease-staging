@@ -43,7 +43,7 @@ const DeductionStatusBadge: React.FC<{ status: DeductionStatus }> = ({ status })
 
 const ContractDetailModal: React.FC<ContractDetailModalProps> = ({ contract, partner, onClose, onEdit, onDelete, onDuplicate }) => {
 
-  if (!contract || !partner) return null;
+  if (!contract) return null;
 
   const totalPaid = (contract.daily_deductions || [])
     .filter(d => d.status === DeductionStatus.PAID || d.status === DeductionStatus.PARTIAL)
@@ -66,7 +66,7 @@ const ContractDetailModal: React.FC<ContractDetailModalProps> = ({ contract, par
         <header className="flex justify-between items-center p-6 border-b border-slate-700">
           <div>
             <h2 className="text-2xl font-bold text-white">[#<span className="text-indigo-400">{contract.contract_number}</span>] {contract.device_name}</h2>
-            <p className="text-slate-400">{partner.name} / {contract.color}</p>
+            <p className="text-slate-400">{partner?.name || '파트너 미지정'} / {contract.color}</p>
           </div>
           <button onClick={onClose} className="p-2 rounded-full hover:bg-slate-700 transition-colors">
             <CloseIcon className="w-6 h-6 text-slate-400" />

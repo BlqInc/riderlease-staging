@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 import { Contract, Partner, DeductionStatus } from '../types';
 import { formatDate, formatCurrency, getDaysDifference } from '../lib/utils';
@@ -41,14 +42,17 @@ const DeductionStatusBadge: React.FC<{ status: DeductionStatus }> = ({ status })
 };
 
 const ContractDetailModal: React.FC<ContractDetailModalProps> = ({ contract, partner, onClose, onEdit, onDelete, onDuplicate }) => {
-  if (!contract || !partner) return null;
+
+  if (!contract) return null;
 
   const totalPaid = (contract.daily_deductions || [])
     .filter(d => d.status === DeductionStatus.PAID || d.status === DeductionStatus.PARTIAL)
     .reduce((sum, d) => sum + d.paid_amount, 0);
 
   const remainingPrincipal = contract.total_amount - totalPaid;
-  const isOverdue = new Date(contract.expiry_date) < new Date() && contract.status !== '정산완료';
+  const today = new Date();
+  const todayStr = new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().split('T')[0];
+  const isOverdue = contract.expiry_date < todayStr && contract.status !== '정산완료';
 
   const handleDelete = () => {
     if (window.confirm(`[#${contract.contract_number}] '${contract.device_name}' 계약을 정말 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`)) {
@@ -62,7 +66,7 @@ const ContractDetailModal: React.FC<ContractDetailModalProps> = ({ contract, par
         <header className="flex justify-between items-center p-6 border-b border-slate-700">
           <div>
             <h2 className="text-2xl font-bold text-white">[#<span className="text-indigo-400">{contract.contract_number}</span>] {contract.device_name}</h2>
-            <p className="text-slate-400">{partner.name} / {contract.color}</p>
+            <p className="text-slate-400">{partner?.name || '파트너 미지정'} / {contract.color}</p>
           </div>
           <button onClick={onClose} className="p-2 rounded-full hover:bg-slate-700 transition-colors">
             <CloseIcon className="w-6 h-6 text-slate-400" />
@@ -93,6 +97,7 @@ const ContractDetailModal: React.FC<ContractDetailModalProps> = ({ contract, par
                         <DetailItem label="만료일" value={formatDate(contract.expiry_date)} />
                         <DetailItem label="계약 기간" value={`${contract.duration_days}일`} />
                         <DetailItem label="일차감" value={formatCurrency(contract.daily_deduction)} />
+                        <DetailItem label="계약서 일차감액" value={contract.contract_initial_deduction ? formatCurrency(contract.contract_initial_deduction) : 'N/A'} />
                         <DetailItem label="첨부된 계약서" value={contract.contract_file_url ? <a href={contract.contract_file_url} target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline">파일 보기</a> : '없음'} />
                     </DetailSection>
 
@@ -122,9 +127,12 @@ const ContractDetailModal: React.FC<ContractDetailModalProps> = ({ contract, par
 
                     <DetailSection title="총판 정보">
                         <DetailItem label="총판명" value={contract.distributor_name} />
+                        <DetailItem label="대표자 성명" value={contract.distributor_rep_name} />
                         <DetailItem label="연락처" value={contract.distributor_contact} />
                         <DetailItem label="사업자번호" value={contract.distributor_business_number} />
                         <DetailItem label="사업자주소" value={contract.distributor_address} className="col-span-2"/>
+                        <DetailItem label="대표자 성별" value={contract.distributor_gender} />
+                        <DetailItem label="대표자 생년월일" value={contract.distributor_ssn_prefix ? `${contract.distributor_ssn_prefix.substring(0,2)}.${contract.distributor_ssn_prefix.substring(2,4)}.${contract.distributor_ssn_prefix.substring(4,6)}` : null} />
                     </DetailSection>
 
                     <DetailSection title="계약자 정보">
@@ -132,12 +140,23 @@ const ContractDetailModal: React.FC<ContractDetailModalProps> = ({ contract, par
                         <DetailItem label="연락처" value={contract.lessee_contact} />
                         <DetailItem label="사업자번호" value={contract.lessee_business_number} />
                         <DetailItem label="사업자주소" value={contract.lessee_business_address} className="col-span-2"/>
+                        <DetailItem label="집주소" value={contract.lessee_home_address} className="col-span-2" />
+                        <DetailItem label="성별" value={contract.lessee_gender} />
+                        <DetailItem label="생년월일" value={contract.lessee_ssn_prefix ? `${contract.lessee_ssn_prefix.substring(0,2)}.${contract.lessee_ssn_prefix.substring(2,4)}.${contract.lessee_ssn_prefix.substring(4,6)}` : null} />
+                    </DetailSection>
+
+                    <DetailSection title="연대보증인 정보">
+                        <DetailItem label="이름" value={contract.guarantor_name} />
+                        <DetailItem label="성별" value={contract.guarantor_gender} />
+                        <DetailItem label="생년월일" value={contract.guarantor_ssn_prefix ? `${contract.guarantor_ssn_prefix.substring(0,2)}.${contract.guarantor_ssn_prefix.substring(2,4)}.${contract.guarantor_ssn_prefix.substring(4,6)}` : null} />
+                        <DetailItem label="연락처" value={contract.guarantor_phone} />
+                        <DetailItem label="주소" value={contract.guarantor_address} className="col-span-2" />
                     </DetailSection>
                 </div>
                  <div>
                     <h3 className="text-xl font-bold text-white mb-4">일일 차감 내역</h3>
                     <div className="space-y-2 max-h-96 overflow-y-auto pr-2">
-                        {(contract.daily_deductions || []).length > 0 ? [...(contract.daily_deductions || [])].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(d => (
+                        {(contract.daily_deductions || []).length > 0 ? [...(contract.daily_deductions || [])].sort((a,b) => b.date < a.date ? -1 : b.date > a.date ? 1 : 0).map(d => (
                             <div key={d.id} className="bg-slate-700 p-3 rounded-lg flex justify-between items-center">
                                 <div>
                                     <p className="font-semibold text-white">{formatDate(d.date)}</p>
@@ -157,7 +176,7 @@ const ContractDetailModal: React.FC<ContractDetailModalProps> = ({ contract, par
                 삭제
             </button>
             <div className="flex space-x-4">
-                <button onClick={() => onDuplicate(contract)} className="flex items-center bg-sky-600 hover:bg-sky-700 text-white font-bold py-2 px-4 rounded-lg transition-colors">
+<button onClick={() => onDuplicate(contract)} className="flex items-center bg-sky-600 hover:bg-sky-700 text-white font-bold py-2 px-4 rounded-lg transition-colors">
                     <DuplicateIcon className="w-5 h-5 mr-2" />
                     복제
                 </button>
@@ -171,6 +190,7 @@ const ContractDetailModal: React.FC<ContractDetailModalProps> = ({ contract, par
             </div>
         </footer>
       </div>
+
     </div>
   );
 };
