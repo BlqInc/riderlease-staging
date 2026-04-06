@@ -72,6 +72,7 @@ export const DocumentStatus: React.FC<DocumentStatusProps> = ({ partners = [], o
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [creatingContract, setCreatingContract] = useState<string | null>(null);
   const [createdContracts, setCreatedContracts] = useState<Set<string>>(new Set());
+  const [hiddenContracts, setHiddenContracts] = useState<Set<string>>(new Set());
   const [editingId, setEditingId] = useState<string | null>(null); // contract_id being edited
   const [editForm, setEditForm] = useState<{
     supplier_name: string;
@@ -199,8 +200,7 @@ export const DocumentStatus: React.FC<DocumentStatusProps> = ({ partners = [], o
 
     setCreatingContract(contractId);
     try {
-      const { error } = await (supabase.from('contracts') as any).insert({
-        partner_id: partnerId,
+      const insertData: any = {
         device_name: deviceName,
         color: '',
         contract_date: today,
@@ -217,7 +217,11 @@ export const DocumentStatus: React.FC<DocumentStatusProps> = ({ partners = [], o
         settlement_status: '준비중',
         is_lessee_contract_signed: false,
         unpaid_balance: 0,
-      });
+      };
+      // partner_id가 유효한 UUID일 때만 포함
+      if (partnerId && partnerId.length > 10) insertData.partner_id = partnerId;
+
+      const { error } = await (supabase.from('contracts') as any).insert(insertData);
 
       if (error) throw error;
 
@@ -282,18 +286,37 @@ export const DocumentStatus: React.FC<DocumentStatusProps> = ({ partners = [], o
     }
   };
 
+  // 접수 건 삭제
+  const handleDeleteSubmission = async (contractId: string) => {
+    if (!supabase || !confirm('이 접수 건을 삭제하시겠습니까?')) return;
+    try {
+      const { error } = await (supabase.from('uploaded_documents') as any).delete().eq('contract_id', contractId);
+      if (error) throw error;
+      setDocuments(prev => prev.filter(d => d.contract_id !== contractId));
+    } catch (error: any) {
+      alert(`삭제 실패: ${error.message}`);
+    }
+  };
+
+  // 접수 건 완료 처리 (목록에서 숨기기)
+  const handleHideSubmission = (contractId: string) => {
+    setHiddenContracts(prev => new Set(prev).add(contractId));
+  };
+
   const distributorNames = [...new Set(tokens.map(t => t.distributor_name))];
 
   const filteredDocs = filterDistributor
     ? documents.filter(d => d.distributor_name === filterDistributor)
     : documents;
 
-  // Group documents by contract_id
-  const groupedDocs = filteredDocs.reduce<Record<string, UploadedDoc[]>>((acc, doc) => {
-    if (!acc[doc.contract_id]) acc[doc.contract_id] = [];
-    acc[doc.contract_id].push(doc);
-    return acc;
-  }, {});
+  // Group documents by contract_id (숨긴 건 제외)
+  const groupedDocs = filteredDocs
+    .filter(d => !hiddenContracts.has(d.contract_id))
+    .reduce<Record<string, UploadedDoc[]>>((acc, doc) => {
+      if (!acc[doc.contract_id]) acc[doc.contract_id] = [];
+      acc[doc.contract_id].push(doc);
+      return acc;
+    }, {});
 
   return (
     <div className="p-6 space-y-8">
@@ -534,17 +557,25 @@ export const DocumentStatus: React.FC<DocumentStatusProps> = ({ partners = [], o
                         {new Date(firstDoc.uploaded_at).toLocaleString('ko-KR')}
                       </span>
                       {createdContracts.has(contractId) ? (
-                        <span className="px-3 py-1.5 text-xs bg-green-500/20 text-green-400 rounded-lg font-medium">
-                          등록 완료
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="px-3 py-1.5 text-xs bg-green-500/20 text-green-400 rounded-lg font-medium">
+                            등록 완료
+                          </span>
+                          <button onClick={() => handleHideSubmission(contractId)}
+                            className="px-2 py-1.5 text-xs text-slate-400 hover:text-slate-300 rounded-lg hover:bg-slate-600/50">완료</button>
+                        </div>
                       ) : (
-                        <button
-                          onClick={() => handleCreateContract(contractId, docs)}
-                          disabled={creatingContract === contractId}
-                          className="px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors whitespace-nowrap"
-                        >
-                          {creatingContract === contractId ? '등록 중...' : '계약 등록'}
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleCreateContract(contractId, docs)}
+                            disabled={creatingContract === contractId}
+                            className="px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors whitespace-nowrap"
+                          >
+                            {creatingContract === contractId ? '등록 중...' : '계약 등록'}
+                          </button>
+                          <button onClick={() => handleDeleteSubmission(contractId)}
+                            className="px-2 py-1.5 text-xs text-red-400 hover:text-red-300 rounded-lg hover:bg-red-500/10">삭제</button>
+                        </div>
                       )}
                     </div>
                   </div>
