@@ -65,6 +65,7 @@ export const DistributorUpload: React.FC = () => {
   const [previousSubmissions, setPreviousSubmissions] = useState<SubmissionGroup[]>([]);
   const [selectedSubmission, setSelectedSubmission] = useState<SubmissionGroup | null>(null);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [listSearch, setListSearch] = useState('');
 
   // Form state (consolidated)
   const [formState, setFormState] = useState({
@@ -416,78 +417,126 @@ export const DistributorUpload: React.FC = () => {
 
   // ─── 이전 제출 내역 목록 ───
   if (viewMode === 'list') {
+    // 보완 필요 건을 맨 위로 정렬
+    const sorted = [...previousSubmissions].sort((a, b) => {
+      if (a.review_status === '보완 필요' && b.review_status !== '보완 필요') return -1;
+      if (b.review_status === '보완 필요' && a.review_status !== '보완 필요') return 1;
+      return new Date(b.uploaded_at).getTime() - new Date(a.uploaded_at).getTime();
+    });
+
+    // 검색 필터
+    const filtered = listSearch
+      ? sorted.filter(sub =>
+          (sub.supplier_name || '').toLowerCase().includes(listSearch.toLowerCase()) ||
+          (sub.device_model || '').toLowerCase().includes(listSearch.toLowerCase())
+        )
+      : sorted;
+
+    // 삭제 핸들러
+    const handleDeleteSubmission = async (contractId: string, e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (!supabase || !confirm('이 제출 건을 삭제하시겠습니까?')) return;
+      try {
+        await (supabase.from('uploaded_documents') as any).delete().eq('contract_id', contractId);
+        setPreviousSubmissions(prev => prev.filter(s => s.contract_id !== contractId));
+      } catch { alert('삭제 실패'); }
+    };
+
     return (
       <div className="min-h-screen bg-gray-50">
         <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
-          <div className="max-w-lg mx-auto px-4 py-4">
-            <h1 className="text-lg font-bold text-gray-800">서류 관리</h1>
-            <p className="text-xs text-gray-500 mt-0.5">{tokenData?.distributor_name}</p>
+          <div className="max-w-lg mx-auto px-4 py-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-lg font-bold text-gray-800">서류 관리</h1>
+                <p className="text-xs text-gray-500">{tokenData?.distributor_name}</p>
+              </div>
+              <button
+                onClick={startNewSubmission}
+                className="bg-blue-500 text-white text-sm font-bold px-4 py-2 rounded-xl hover:bg-blue-600 active:bg-blue-700 transition-colors flex items-center gap-1"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
+                새 건 등록
+              </button>
+            </div>
+            {/* 검색 */}
+            {previousSubmissions.length > 0 && (
+              <div className="mt-3">
+                <input
+                  type="text"
+                  value={listSearch}
+                  onChange={(e) => setListSearch(e.target.value)}
+                  placeholder="이름, 기기명 검색..."
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50"
+                />
+              </div>
+            )}
           </div>
         </div>
 
-        <div className="max-w-lg mx-auto px-4 py-6 space-y-4">
-          <button
-            onClick={startNewSubmission}
-            className="w-full py-4 rounded-2xl bg-blue-500 text-white font-bold text-base hover:bg-blue-600 active:bg-blue-700 transition-colors shadow-sm flex items-center justify-center gap-2"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-            </svg>
-            새 건 등록하기
-          </button>
-
+        <div className="max-w-lg mx-auto px-4 py-4">
           {loadingHistory ? (
             <div className="text-center py-8">
               <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500 mx-auto"></div>
-              <p className="mt-3 text-gray-400 text-sm">불러오는 중...</p>
             </div>
-          ) : previousSubmissions.length === 0 ? (
+          ) : filtered.length === 0 ? (
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
-              <p className="text-gray-400 text-sm">아직 제출된 내역이 없습니다.</p>
+              <p className="text-gray-400 text-sm">{listSearch ? '검색 결과가 없습니다.' : '아직 제출된 내역이 없습니다.'}</p>
             </div>
           ) : (
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold text-gray-500">제출 내역 ({previousSubmissions.length}건)</h3>
-              {previousSubmissions.map((sub) => (
-                <button
-                  key={sub.contract_id}
-                  onClick={() => viewSubmissionDetail(sub)}
-                  className="w-full bg-white rounded-2xl shadow-sm border border-gray-100 p-4 text-left hover:border-blue-200 hover:shadow-md transition-all"
-                >
-                  <div className="flex items-center justify-between">
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden divide-y divide-gray-100">
+              {filtered.map((sub) => {
+                const hasIssue = sub.documents.some(d => d.review_memo);
+                const canDelete = sub.review_status === '서류 검토 중';
+                return (
+                  <div
+                    key={sub.contract_id}
+                    onClick={() => viewSubmissionDetail(sub)}
+                    className="flex items-center px-4 py-3 hover:bg-gray-50 active:bg-gray-100 cursor-pointer transition-colors"
+                  >
+                    {/* 상태 인디케이터 */}
+                    <div className={`w-2 h-2 rounded-full shrink-0 mr-3 ${
+                      hasIssue ? 'bg-red-500' :
+                      sub.review_status === '진행중' ? 'bg-green-500' :
+                      sub.review_status === '서류 확인 완료' ? 'bg-blue-500' :
+                      sub.review_status === '계약서 발송' ? 'bg-purple-500' :
+                      'bg-gray-300'
+                    }`} />
+                    {/* 정보 */}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="font-bold text-gray-800 text-base truncate">
-                          {sub.supplier_name || '이름 없음'}
-                        </p>
-                        {sub.documents.some(d => d.review_memo) && (
-                          <span className="flex items-center justify-center w-5 h-5 bg-red-500 rounded-full text-white text-[10px] font-bold shrink-0">!</span>
-                        )}
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-semibold text-gray-800 truncate">{sub.supplier_name || '이름 없음'}</span>
+                        {hasIssue && <span className="text-[10px] bg-red-500 text-white px-1 py-0.5 rounded font-bold shrink-0">보완</span>}
                       </div>
-                      <p className="text-sm text-gray-500 mt-0.5">
-                        {sub.device_model} · {sub.contract_period}일
-                      </p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
-                          sub.review_status === '보완 필요' ? 'bg-red-100 text-red-600' :
-                          sub.review_status === '서류 확인 완료' ? 'bg-blue-100 text-blue-600' :
-                          sub.review_status === '계약서 발송' ? 'bg-purple-100 text-purple-600' :
-                          sub.review_status === '진행중' ? 'bg-green-100 text-green-600' :
-                          'bg-gray-100 text-gray-500'
-                        }`}>{sub.review_status}</span>
-                        <span className="text-xs text-gray-400">
-                          {new Date(sub.uploaded_at).toLocaleDateString('ko-KR')} · {sub.documents.length}건
-                        </span>
-                      </div>
+                      <p className="text-xs text-gray-400 truncate">{sub.device_model} · {sub.contract_period}일 · {new Date(sub.uploaded_at).toLocaleDateString('ko-KR')}</p>
                     </div>
-                    <svg className="w-5 h-5 text-gray-300 ml-2 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                    </svg>
+                    {/* 상태 뱃지 */}
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ml-2 ${
+                      sub.review_status === '보완 필요' ? 'bg-red-100 text-red-600' :
+                      sub.review_status === '서류 확인 완료' ? 'bg-blue-100 text-blue-600' :
+                      sub.review_status === '계약서 발송' ? 'bg-purple-100 text-purple-600' :
+                      sub.review_status === '진행중' ? 'bg-green-100 text-green-600' :
+                      'bg-gray-100 text-gray-500'
+                    }`}>{sub.review_status}</span>
+                    {/* 삭제 버튼 */}
+                    {canDelete && (
+                      <button
+                        onClick={(e) => handleDeleteSubmission(sub.contract_id, e)}
+                        className="ml-2 text-gray-300 hover:text-red-400 shrink-0 p-1"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    )}
                   </div>
-                </button>
-              ))}
+                );
+              })}
             </div>
           )}
+          <p className="text-center text-xs text-gray-400 mt-4">{filtered.length}건</p>
         </div>
       </div>
     );
