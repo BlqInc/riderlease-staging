@@ -1,7 +1,7 @@
 
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Contract, Partner, ContractStatus, ShippingStatus, PriceTier, ProcurementStatus, SettlementStatus } from '../types';
+import { Contract, Partner, Creditor, ContractStatus, ShippingStatus, PriceTier, ProcurementStatus, SettlementStatus } from '../types';
 import { CloseIcon } from './icons/IconComponents';
 import { formatCurrency } from '../lib/utils';
 
@@ -12,6 +12,7 @@ interface ContractFormModalProps {
   partners: Partner[];
   contractToEdit: Contract | null;
   template?: Partial<Contract> | null;
+  creditors?: Creditor[];
 }
 
 type FormState = Omit<Contract, 'unpaid_balance' | 'device_name' | 'id' | 'contract_number'> & {
@@ -33,26 +34,13 @@ const initialFormState: FormState = {
   daily_deduction: 0,
   daily_deductions: null,
   contract_initial_deduction: null,
-  distributor_gender: null,
-  distributor_ssn_prefix: null,
-  lessee_gender: null,
-  lessee_ssn_prefix: null,
-  guarantor_name: null,
-  guarantor_gender: null,
-  guarantor_ssn_prefix: null,
-  guarantor_phone: null,
-  guarantor_address: null,
-  unit_price_a: null,
-  unit_price_b: null,
-  distributor_rep_name: null,
-  lessee_home_address: null,
-  unit_supply_price: null,
   status: ContractStatus.ACTIVE,
   is_lessee_contract_signed: false,
   shipping_status: ShippingStatus.PREPARING,
   procurement_status: ProcurementStatus.UNSECURED,
   units_required: 1,
   units_secured: 0,
+  creditor_id: null,
   settlement_round: null,
   execution_date: null,
   shipping_date: null,
@@ -72,7 +60,6 @@ const initialFormState: FormState = {
   procurement_source: null,
   procurement_cost: null,
   delivery_method_to_lessee: null,
-  is_lawsuit: null,
   settlement_request_date: null,
   settlement_status: SettlementStatus.NOT_READY,
   settlement_document_url: null,
@@ -94,7 +81,7 @@ const FormField: React.FC<{ label: string; children: React.ReactNode; className?
     </div>
 );
 
-export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, onClose, onSave, partners, contractToEdit, template }) => {
+export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, onClose, onSave, partners, contractToEdit, template, creditors = [] }) => {
   const [formState, setFormState] = useState<FormState>(initialFormState);
 
   const selectedPartner = useMemo(() => partners.find(p => p.id === formState.partner_id), [partners, formState.partner_id]);
@@ -196,7 +183,6 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
           ...prev,
           total_amount: priceTier.total_amount,
           daily_deduction: priceTier.daily_deduction,
-          ...(priceTier.supply_price != null ? { unit_supply_price: priceTier.supply_price } : {}),
         }));
       }
     } else {
@@ -231,7 +217,7 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
     const isCheckbox = type === 'checkbox';
     const checked = isCheckbox ? (e.target as HTMLInputElement).checked : undefined;
     
-    const numericFields = ['duration_days', 'total_amount', 'daily_deduction', 'settlement_round', 'procurement_cost', 'units_required', 'units_secured', 'contract_initial_deduction', 'unit_price_a', 'unit_price_b', 'unit_supply_price'];
+    const numericFields = ['duration_days', 'total_amount', 'daily_deduction', 'settlement_round', 'procurement_cost', 'units_required', 'units_secured', 'contract_initial_deduction'];
     const isNumeric = numericFields.includes(name);
 
     setFormState(prev => {
@@ -405,19 +391,6 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
             </FormSection>
 
             <FormSection title="총판 정보 (선택)">
-                <FormField label="대표자 성명">
-                  <input type="text" name="distributor_rep_name" value={formState.distributor_rep_name || ''} onChange={handleChange} placeholder="예: 김선민" className={inputClass} />
-                </FormField>
-                <FormField label="대표자 성별">
-                    <select name="distributor_gender" value={formState.distributor_gender || ''} onChange={handleChange} className={inputClass}>
-                        <option value="">선택</option>
-                        <option value="남">남</option>
-                        <option value="여">여</option>
-                    </select>
-                </FormField>
-                <FormField label="대표자 주민번호 앞 6자리">
-                    <input type="text" name="distributor_ssn_prefix" value={formState.distributor_ssn_prefix || ''} onChange={handleChange} placeholder="예: 801225" className={inputClass} />
-                </FormField>
                 <FormField label="총판명">
                      <input type="text" name="distributor_name" value={formState.distributor_name || ''} onChange={handleChange} className={inputClass} />
                 </FormField>
@@ -445,59 +418,20 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
                 <FormField label="사업자주소">
                     <input type="text" name="lessee_business_address" value={formState.lessee_business_address || ''} onChange={handleChange} className={inputClass} />
                 </FormField>
-                <FormField label="집주소 (사업장과 다를 경우)" className="md:col-span-2">
-                  <input type="text" name="lessee_home_address" value={formState.lessee_home_address || ''} onChange={handleChange} placeholder="주거지 주소 (사업장과 같으면 비워두세요)" className={inputClass} />
-                </FormField>
-                <FormField label="성별">
-                    <select name="lessee_gender" value={formState.lessee_gender || ''} onChange={handleChange} className={inputClass}>
-                        <option value="">선택</option>
-                        <option value="남">남</option>
-                        <option value="여">여</option>
-                    </select>
-                </FormField>
-                <FormField label="주민번호 앞 6자리">
-                    <input type="text" name="lessee_ssn_prefix" value={formState.lessee_ssn_prefix || ''} onChange={handleChange} placeholder="예: 001106" className={inputClass} />
-                </FormField>
-            </FormSection>
-
-            <FormSection title="연대보증인 정보">
-                <FormField label="이름">
-                    <input type="text" name="guarantor_name" value={formState.guarantor_name || ''} onChange={handleChange} className={inputClass} />
-                </FormField>
-                <FormField label="성별">
-                    <select name="guarantor_gender" value={formState.guarantor_gender || ''} onChange={handleChange} className={inputClass}>
-                        <option value="">선택</option>
-                        <option value="남">남</option>
-                        <option value="여">여</option>
-                    </select>
-                </FormField>
-                <FormField label="주민번호 앞 6자리">
-                    <input type="text" name="guarantor_ssn_prefix" value={formState.guarantor_ssn_prefix || ''} onChange={handleChange} placeholder="예: 810823" className={inputClass} />
-                </FormField>
-                <FormField label="연락처">
-                    <input type="text" name="guarantor_phone" value={formState.guarantor_phone || ''} onChange={handleChange} className={inputClass} />
-                </FormField>
-                <FormField label="주소" className="md:col-span-2">
-                    <input type="text" name="guarantor_address" value={formState.guarantor_address || ''} onChange={handleChange} className={inputClass} />
-                </FormField>
-            </FormSection>
-
-            <FormSection title="채권사 서류용 가격 정보">
-                <FormField label="1대가격 (A) - 원">
-                    <input type="number" name="unit_price_a" value={formState.unit_price_a || ''} onChange={handleChange} placeholder="예: 17744" className={inputClass} />
-                </FormField>
-                <FormField label="업무수수료 (B) - 원 (없으면 0)">
-                    <input type="number" name="unit_price_b" value={formState.unit_price_b ?? ''} onChange={handleChange} placeholder="예: 0" className={inputClass} />
-                </FormField>
-                <FormField label="1대 공급가 (원, 전체 계약기간 기준)">
-                  <input type="number" name="unit_supply_price" value={formState.unit_supply_price || ''} onChange={handleChange} placeholder="예: 2691357" className={inputClass} />
-                </FormField>
             </FormSection>
 
             <FormSection title="정산 및 기타 정보">
                  <FormField label="계약 상태">
                     <select name="status" value={formState.status} onChange={handleChange} required className={inputClass}>
                         {Object.values(ContractStatus).map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                </FormField>
+                <FormField label="채권사">
+                    <select name="creditor_id" value={formState.creditor_id || ''} onChange={handleChange} className={inputClass}>
+                        <option value="">선택 안함</option>
+                        {creditors.filter(c => c.is_active).map(c => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
                     </select>
                 </FormField>
                 <FormField label="정산차수">

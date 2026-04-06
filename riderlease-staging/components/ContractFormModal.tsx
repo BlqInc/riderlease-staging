@@ -1,7 +1,7 @@
 
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Contract, Partner, ContractStatus, ShippingStatus, PriceTier, ProcurementStatus, SettlementStatus } from '../types';
+import { Contract, Partner, Creditor, ContractStatus, ShippingStatus, PriceTier, ProcurementStatus, SettlementStatus } from '../types';
 import { CloseIcon } from './icons/IconComponents';
 import { formatCurrency } from '../lib/utils';
 
@@ -12,6 +12,7 @@ interface ContractFormModalProps {
   partners: Partner[];
   contractToEdit: Contract | null;
   template?: Partial<Contract> | null;
+  creditors?: Creditor[];
 }
 
 type FormState = Omit<Contract, 'unpaid_balance' | 'device_name' | 'id' | 'contract_number'> & {
@@ -39,6 +40,7 @@ const initialFormState: FormState = {
   procurement_status: ProcurementStatus.UNSECURED,
   units_required: 1,
   units_secured: 0,
+  creditor_id: null,
   settlement_round: null,
   execution_date: null,
   shipping_date: null,
@@ -79,7 +81,7 @@ const FormField: React.FC<{ label: string; children: React.ReactNode; className?
     </div>
 );
 
-export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, onClose, onSave, partners, contractToEdit, template }) => {
+export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, onClose, onSave, partners, contractToEdit, template, creditors = [] }) => {
   const [formState, setFormState] = useState<FormState>(initialFormState);
 
   const selectedPartner = useMemo(() => partners.find(p => p.id === formState.partner_id), [partners, formState.partner_id]);
@@ -422,6 +424,14 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
                  <FormField label="계약 상태">
                     <select name="status" value={formState.status} onChange={handleChange} required className={inputClass}>
                         {Object.values(ContractStatus).map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                </FormField>
+                <FormField label="채권사">
+                    <select name="creditor_id" value={formState.creditor_id || ''} onChange={handleChange} className={inputClass}>
+                        <option value="">선택 안함</option>
+                        {creditors.filter(c => c.is_active).map(c => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
                     </select>
                 </FormField>
                 <FormField label="정산차수">
