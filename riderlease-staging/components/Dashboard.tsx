@@ -2,7 +2,6 @@
 import React, { useState, useMemo } from 'react';
 import { Contract, Partner, DeductionStatus, SettlementStatus } from '../types';
 import { formatCurrency, formatDate } from '../lib/utils';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 interface DashboardProps {
   contracts: Contract[];
@@ -43,23 +42,29 @@ export const Dashboard: React.FC<DashboardProps> = ({ contracts = [], partners =
       return map;
   }, [safePartners]);
 
-  const chartData = useMemo(() => {
-      return safeContracts.map((c, index) => {
-          const paidAmount = (c.daily_deductions || [])
-            .filter(d => d.status === DeductionStatus.PAID)
-            .reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
-          const deviceName = String(c.device_name || '알 수 없는 기기');
-          // Handle potential NaN or Infinity
-          const totalAmount = Number(c.total_amount);
-          const safeTotalAmount = isNaN(totalAmount) || !isFinite(totalAmount) ? 0 : totalAmount;
-          
-          return {
-              name: deviceName.length > 8 ? deviceName.slice(0, 8) + '...' : deviceName,
-              '총 채권': safeTotalAmount,
-              '납부액': paidAmount,
-              key: c.id || `chart-item-${index}`
-          };
-      }).slice(0, 50); // Limit items to prevent rendering issues with too many bars
+  // 총판별 요약
+  const distributorSummary = useMemo(() => {
+    const map = new Map<string, { contracts: number; units: number; amount: number; paid: number; overdue: number }>();
+    safeContracts.forEach(c => {
+      const name = c.distributor_name || '미지정';
+      const prev = map.get(name) || { contracts: 0, units: 0, amount: 0, paid: 0, overdue: 0 };
+      const paidAmount = (c.daily_deductions || [])
+        .filter(d => d.status === DeductionStatus.PAID)
+        .reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
+      const today = new Date().toISOString().slice(0, 10);
+      const hasOverdue = (c.daily_deductions || []).some(d => d.date <= today && d.status !== DeductionStatus.PAID);
+      map.set(name, {
+        contracts: prev.contracts + 1,
+        units: prev.units + (Number(c.units_required) || 1),
+        amount: prev.amount + (Number(c.total_amount) || 0),
+        paid: prev.paid + paidAmount,
+        overdue: prev.overdue + (hasOverdue ? 1 : 0),
+      });
+    });
+    return Array.from(map.entries())
+      .map(([name, v]) => ({ name, ...v, rate: v.amount > 0 ? (v.paid / v.amount * 100) : 0 }))
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 20);
   }, [safeContracts]);
 
   // --- Search Logic ---
@@ -132,49 +137,49 @@ export const Dashboard: React.FC<DashboardProps> = ({ contracts = [], partners =
         </div>
       </div>
 
-      {/* Section 2: Charts */}
+      {/* Section 2: 총판별 요약 */}
       <div className="bg-slate-800 p-6 rounded-lg shadow-lg border border-slate-700">
-        <h3 className="text-xl font-bold text-white mb-4">계약별 현황 차트</h3>
-        <div style={{ width: '100%', height: 400 }}>
-            {chartData.length > 0 ? (
-             <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.1} vertical={false} />
-                    <XAxis 
-                        dataKey="name" 
-                        stroke="#94a3b8" 
-                        tick={{fontSize: 12}} 
-                        interval={0} 
-                        angle={-45} 
-                        textAnchor="end" 
-                        height={60}
-                    />
-                    <YAxis 
-                        stroke="#94a3b8" 
-                        tickFormatter={(value) => `${Number(value) / 10000}만`} 
-                        tick={{fontSize: 12}}
-                    />
-                    <Tooltip
-                        contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
-                        labelStyle={{ color: '#e2e8f0', fontWeight: 'bold', marginBottom: '4px' }}
-                        itemStyle={{ fontSize: '12px' }}
-                        formatter={(value: any) => [formatCurrency(Number(value)), '']}
-                        cursor={{fill: 'rgba(255,255,255,0.05)'}}
-                    />
-                    <Legend wrapperStyle={{ paddingTop: '10px' }} />
-                    <Bar dataKey="총 채권" fill="#6366f1" radius={[4, 4, 0, 0]} maxBarSize={50} />
-                    <Bar dataKey="납부액" fill="#22c55e" radius={[4, 4, 0, 0]} maxBarSize={50} />
-                </BarChart>
-            </ResponsiveContainer>
-            ) : (
-                <div className="h-full flex flex-col items-center justify-center text-slate-500">
-                    <svg className="w-12 h-12 mb-2 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2z" />
-                    </svg>
-                    <p>표시할 차트 데이터가 없습니다.</p>
-                </div>
-            )}
-        </div>
+        <h3 className="text-xl font-bold text-white mb-4">총판별 현황 (상위 20개)</h3>
+        {distributorSummary.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead className="bg-slate-700/50">
+                <tr>
+                  <th className="p-3 font-semibold text-slate-400 text-sm">총판명</th>
+                  <th className="p-3 font-semibold text-slate-400 text-sm text-center">계약 수</th>
+                  <th className="p-3 font-semibold text-slate-400 text-sm text-center">총 대수</th>
+                  <th className="p-3 font-semibold text-slate-400 text-sm text-right">총 채권액</th>
+                  <th className="p-3 font-semibold text-slate-400 text-sm text-right">납부액</th>
+                  <th className="p-3 font-semibold text-slate-400 text-sm text-center">납부율</th>
+                  <th className="p-3 font-semibold text-slate-400 text-sm text-center">연체</th>
+                </tr>
+              </thead>
+              <tbody>
+                {distributorSummary.map(d => (
+                  <tr key={d.name} className="border-b border-slate-700 last:border-b-0 hover:bg-slate-700/30">
+                    <td className="p-3 text-sm font-medium text-white">{d.name}</td>
+                    <td className="p-3 text-sm text-center text-slate-300">{d.contracts}건</td>
+                    <td className="p-3 text-sm text-center text-slate-300">{d.units}대</td>
+                    <td className="p-3 text-sm text-right text-slate-300">{formatCurrency(d.amount)}</td>
+                    <td className="p-3 text-sm text-right text-green-400">{formatCurrency(d.paid)}</td>
+                    <td className="p-3 text-sm text-center">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                        d.rate >= 80 ? 'bg-green-500/20 text-green-300' :
+                        d.rate >= 50 ? 'bg-yellow-500/20 text-yellow-300' :
+                        'bg-red-500/20 text-red-300'
+                      }`}>{d.rate.toFixed(1)}%</span>
+                    </td>
+                    <td className="p-3 text-sm text-center">
+                      {d.overdue > 0 ? <span className="text-red-400 font-medium">{d.overdue}건</span> : <span className="text-slate-500">-</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-slate-500 text-center py-8">데이터가 없습니다.</p>
+        )}
       </div>
 
       {/* Section 3: Advanced Search & Analysis */}

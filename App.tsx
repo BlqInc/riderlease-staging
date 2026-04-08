@@ -48,6 +48,7 @@ const calcUnpaidBalance = (daily_deductions: any[]): number => {
 
 const processContracts = (data: any[]): Contract[] => {
   if (!Array.isArray(data)) return [];
+  const today = getToday(); // 한 번만 계산
   return data.map(c => {
     const units = (c.units_required && !isNaN(Number(c.units_required))) ? Number(c.units_required) : 1;
     const rawTotalAmount = (c.total_amount && !isNaN(Number(c.total_amount))) ? Number(c.total_amount) : 0;
@@ -55,7 +56,12 @@ const processContracts = (data: any[]): Contract[] => {
     const total_amount = rawTotalAmount * units;
     const daily_deduction = rawDailyDeduction * units;
     const daily_deductions = Array.isArray(c.daily_deductions) ? c.daily_deductions : [];
-    const unpaid_balance = calcUnpaidBalance(daily_deductions);
+    let unpaid_balance = 0;
+    for (let i = 0; i < daily_deductions.length; i++) {
+      const d = daily_deductions[i];
+      if (d.date > today) break; // 정렬되어 있으므로 미래 날짜 이후는 스킵
+      unpaid_balance += (Number(d.amount) || 0) - (Number(d.paid_amount) || 0);
+    }
     return {
       ...c,
       units_required: units,

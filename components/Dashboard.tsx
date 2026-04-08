@@ -2,7 +2,6 @@
 import React, { useState, useMemo } from 'react';
 import { Contract, Partner, DeductionStatus, SettlementStatus } from '../types';
 import { formatCurrency, formatDate } from '../lib/utils';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 interface DashboardProps {
   contracts: Contract[];
@@ -22,25 +21,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ contracts = [], partners =
   const safeContracts = Array.isArray(contracts) ? contracts : [];
   const safePartners = Array.isArray(partners) ? partners : [];
 
-  const { totalReceivables, totalPaid, activeContracts, totalSettlementRequested } = useMemo(() => {
-    let totalReceivables = 0;
-    let totalPaid = 0;
-    let activeContracts = 0;
-    let totalSettlementRequested = 0;
-    for (const c of safeContracts) {
-      totalReceivables += Number(c.total_amount) || 0;
-      if (c.status === '진행중') activeContracts += 1;
-      if (c.settlement_status === SettlementStatus.REQUESTED || c.settlement_status === SettlementStatus.COMPLETED) {
-        totalSettlementRequested += Number(c.total_amount) || 0;
-      }
-      for (const d of (c.daily_deductions || [])) {
-        if (d.status === DeductionStatus.PAID) {
-          totalPaid += Number(d.amount) || 0;
-        }
-      }
-    }
-    return { totalReceivables, totalPaid, activeContracts, totalSettlementRequested };
-  }, [safeContracts]);
+  const totalReceivables = safeContracts.reduce((sum, c) => sum + (Number(c.total_amount) || 0), 0);
+  const totalPaid = safeContracts.reduce((sum, c) => {
+      const paidDeductions = (c.daily_deductions || [])
+          .filter(d => d.status === DeductionStatus.PAID)
+          .reduce((deductionSum, d) => deductionSum + (Number(d.amount) || 0), 0);
+      return sum + paidDeductions;
+  }, 0);
+  const activeContracts = safeContracts.filter(c => c.status === '진행중').length;
+  
+  const totalSettlementRequested = safeContracts
+    .filter(c => c.settlement_status === SettlementStatus.REQUESTED || c.settlement_status === SettlementStatus.COMPLETED)
+    .reduce((sum, c) => sum + (Number(c.total_amount) || 0), 0);
 
   const partnerMap = useMemo(() => {
       const map = new Map<string, string>();
@@ -50,18 +42,30 @@ export const Dashboard: React.FC<DashboardProps> = ({ contracts = [], partners =
       return map;
   }, [safePartners]);
 
-  const chartData = useMemo(() => safeContracts.map(c => {
-      let paidAmount = 0;
-      for (const d of (c.daily_deductions || [])) {
-        if (d.status === DeductionStatus.PAID) paidAmount += Number(d.amount) || 0;
-      }
-      const deviceName = String(c.device_name || '알 수 없는 기기');
-      return {
-          name: deviceName.length > 10 ? deviceName.slice(0, 10) + '...' : deviceName,
-          '총 채권': Number(c.total_amount) || 0,
-          '납부액': paidAmount,
-      };
-  }), [safeContracts]);
+  // 총판별 요약
+  const distributorSummary = useMemo(() => {
+    const map = new Map<string, { contracts: number; units: number; amount: number; paid: number; overdue: number }>();
+    safeContracts.forEach(c => {
+      const name = c.distributor_name || '미지정';
+      const prev = map.get(name) || { contracts: 0, units: 0, amount: 0, paid: 0, overdue: 0 };
+      const paidAmount = (c.daily_deductions || [])
+        .filter(d => d.status === DeductionStatus.PAID)
+        .reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
+      const today = new Date().toISOString().slice(0, 10);
+      const hasOverdue = (c.daily_deductions || []).some(d => d.date <= today && d.status !== DeductionStatus.PAID);
+      map.set(name, {
+        contracts: prev.contracts + 1,
+        units: prev.units + (Number(c.units_required) || 1),
+        amount: prev.amount + (Number(c.total_amount) || 0),
+        paid: prev.paid + paidAmount,
+        overdue: prev.overdue + (hasOverdue ? 1 : 0),
+      });
+    });
+    return Array.from(map.entries())
+      .map(([name, v]) => ({ name, ...v, rate: v.amount > 0 ? (v.paid / v.amount * 100) : 0 }))
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 20);
+  }, [safeContracts]);
 
   // --- Search Logic ---
   const [searchType, setSearchType] = useState<'contract_date' | 'execution_date'>('contract_date');
@@ -121,7 +125,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ contracts = [], partners =
 
 
   return (
-    <div className="p-8 space-y-8">
+    <div className="p-8 space-y-8 animate-fade-in">
       {/* Section 1: Global Overview */}
       <div>
         <h2 className="text-3xl font-bold text-white mb-6">대시보드</h2>
@@ -133,26 +137,49 @@ export const Dashboard: React.FC<DashboardProps> = ({ contracts = [], partners =
         </div>
       </div>
 
-      {/* Section 2: Charts */}
+      {/* Section 2: 총판별 요약 */}
       <div className="bg-slate-800 p-6 rounded-lg shadow-lg border border-slate-700">
-        <h3 className="text-xl font-bold text-white mb-4">계약별 현황 차트</h3>
-        <div style={{ width: '100%', height: 400 }}>
-             <ResponsiveContainer>
-                <BarChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.1} />
-                    <XAxis dataKey="name" stroke="#94a3b8" />
-                    <YAxis stroke="#94a3b8" tickFormatter={(value) => `${Number(value) / 10000}만`} />
-                    <Tooltip
-                        contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155' }}
-                        labelStyle={{ color: '#cbd5e1' }}
-                        formatter={(value: number) => formatCurrency(value)}
-                    />
-                    <Legend />
-                    <Bar dataKey="총 채권" fill="#4f46e5" />
-                    <Bar dataKey="납부액" fill="#22c55e" />
-                </BarChart>
-            </ResponsiveContainer>
-        </div>
+        <h3 className="text-xl font-bold text-white mb-4">총판별 현황 (상위 20개)</h3>
+        {distributorSummary.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead className="bg-slate-700/50">
+                <tr>
+                  <th className="p-3 font-semibold text-slate-400 text-sm">총판명</th>
+                  <th className="p-3 font-semibold text-slate-400 text-sm text-center">계약 수</th>
+                  <th className="p-3 font-semibold text-slate-400 text-sm text-center">총 대수</th>
+                  <th className="p-3 font-semibold text-slate-400 text-sm text-right">총 채권액</th>
+                  <th className="p-3 font-semibold text-slate-400 text-sm text-right">납부액</th>
+                  <th className="p-3 font-semibold text-slate-400 text-sm text-center">납부율</th>
+                  <th className="p-3 font-semibold text-slate-400 text-sm text-center">연체</th>
+                </tr>
+              </thead>
+              <tbody>
+                {distributorSummary.map(d => (
+                  <tr key={d.name} className="border-b border-slate-700 last:border-b-0 hover:bg-slate-700/30">
+                    <td className="p-3 text-sm font-medium text-white">{d.name}</td>
+                    <td className="p-3 text-sm text-center text-slate-300">{d.contracts}건</td>
+                    <td className="p-3 text-sm text-center text-slate-300">{d.units}대</td>
+                    <td className="p-3 text-sm text-right text-slate-300">{formatCurrency(d.amount)}</td>
+                    <td className="p-3 text-sm text-right text-green-400">{formatCurrency(d.paid)}</td>
+                    <td className="p-3 text-sm text-center">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                        d.rate >= 80 ? 'bg-green-500/20 text-green-300' :
+                        d.rate >= 50 ? 'bg-yellow-500/20 text-yellow-300' :
+                        'bg-red-500/20 text-red-300'
+                      }`}>{d.rate.toFixed(1)}%</span>
+                    </td>
+                    <td className="p-3 text-sm text-center">
+                      {d.overdue > 0 ? <span className="text-red-400 font-medium">{d.overdue}건</span> : <span className="text-slate-500">-</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-slate-500 text-center py-8">데이터가 없습니다.</p>
+        )}
       </div>
 
       {/* Section 3: Advanced Search & Analysis */}
@@ -236,16 +263,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ contracts = [], partners =
               <table className="w-full text-left">
                   <thead className="bg-slate-700/50 text-slate-400 text-xs uppercase font-semibold">
                       <tr>
-                          <th className="p-4">계약번호</th>
-                          <th className="p-4">파트너사</th>
-                          <th className="p-4">총판</th>
-                          <th className="p-4">계약자</th>
-                          <th className="p-4">기기명</th>
-                          <th className="p-4">계약일</th>
-                          <th className="p-4">실행일</th>
-                          <th className="p-4">만료일</th>
-                          <th className="p-4 text-center">수량</th>
-                          <th className="p-4 text-right">채권액</th>
+                          <th className="p-4 whitespace-nowrap">계약번호</th>
+                          <th className="p-4 whitespace-nowrap">파트너사</th>
+                          <th className="p-4 whitespace-nowrap">총판</th>
+                          <th className="p-4 whitespace-nowrap">계약자</th>
+                          <th className="p-4 whitespace-nowrap">기기명</th>
+                          <th className="p-4 whitespace-nowrap">계약일</th>
+                          <th className="p-4 whitespace-nowrap">실행일</th>
+                          <th className="p-4 whitespace-nowrap">만료일</th>
+                          <th className="p-4 whitespace-nowrap text-center">수량</th>
+                          <th className="p-4 whitespace-nowrap text-right">채권액</th>
                       </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-700 text-sm">
@@ -255,7 +282,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ contracts = [], partners =
                                   <td className="p-4 font-mono text-slate-400">#{c.contract_number}</td>
                                   <td className="p-4 text-slate-300">{(c.partner_id && partnerMap.has(c.partner_id) ? partnerMap.get(c.partner_id) : '-') || '-'}</td>
                                   <td className="p-4 text-white">{c.distributor_name || '-'}</td>
-                                  <td className="p-4 text-white">{c.lessee_name || '-'}</td>
+                                  <td className="p-4 text-white">{c.lessee_name}</td>
                                   <td className="p-4 text-slate-300">{c.device_name || '-'}</td>
                                   <td className="p-4 text-slate-400">{formatDate(c.contract_date)}</td>
                                   <td className="p-4 text-slate-400">{c.execution_date ? formatDate(c.execution_date) : '-'}</td>
