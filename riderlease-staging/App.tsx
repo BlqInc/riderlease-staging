@@ -75,15 +75,30 @@ const App: React.FC = () => {
     if (!supabase) return;
     setLoading(true);
     try {
-      const [contractsRes, partnersRes, eventsRes, creditorsRes, creditorSettlementsRes] = await Promise.all([
-        supabase.from('contracts').select('*').order('contract_date', { ascending: false }).limit(5000),
+      // 계약 데이터: 1000건 제한 우회 → 페이지네이션으로 전체 조회
+      const fetchAllContracts = async () => {
+        const allContracts: any[] = [];
+        const pageSize = 1000;
+        let from = 0;
+        while (true) {
+          const { data, error } = await supabase!.from('contracts').select('*').order('contract_date', { ascending: false }).range(from, from + pageSize - 1);
+          if (error || !data || data.length === 0) break;
+          allContracts.push(...data);
+          if (data.length < pageSize) break;
+          from += pageSize;
+        }
+        return allContracts;
+      };
+
+      const [allContracts, partnersRes, eventsRes, creditorsRes, creditorSettlementsRes] = await Promise.all([
+        fetchAllContracts(),
         supabase.from('partners').select('*').order('created_at', { ascending: false }),
         supabase.from('events').select('*').order('date', { ascending: true }),
         supabase.from('creditors').select('*').order('display_order', { ascending: true }),
         supabase.from('creditor_settlements').select('*').order('settlement_round', { ascending: false })
       ]);
 
-      if (contractsRes.data) setContracts(contractsRes.data as any);
+      setContracts(allContracts as any);
       if (partnersRes.data) setPartners(partnersRes.data);
       if (eventsRes.data) setEvents(eventsRes.data);
       if (creditorsRes.data) setCreditors(creditorsRes.data);
