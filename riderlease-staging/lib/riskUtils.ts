@@ -2,10 +2,10 @@ import { Contract, DeductionStatus } from '../types';
 
 export type RiskLevel = '정상' | '주의' | '위험' | '소송중';
 
-export function classifyRisk(paymentRate: number, isLawsuit: boolean | null): RiskLevel {
+export function classifyRisk(overdueDays: number, isLawsuit: boolean | null): RiskLevel {
   if (isLawsuit) return '소송중';
-  if (paymentRate >= 80) return '정상';
-  if (paymentRate >= 50) return '주의';
+  if (overdueDays <= 7) return '정상';
+  if (overdueDays <= 14) return '주의';
   return '위험';
 }
 
@@ -54,8 +54,9 @@ export function computeDistributorRisk(contracts: Contract[], distributorName: s
   const totalExpected = stats.reduce((s, st) => s + st.expectedByToday, 0);
   const totalPaid = stats.reduce((s, st) => s + st.totalPaid, 0);
   const rate = totalExpected > 0 ? (totalPaid / totalExpected) * 100 : 100;
+  const maxOverdueDays = Math.max(...stats.map(st => st.overdueDays), 0);
   const lawsuitCount = filtered.filter(c => c.is_lawsuit).length;
-  return { name: distributorName, rate, contractCount: filtered.length, lawsuitCount };
+  return { name: distributorName, rate, maxOverdueDays, contractCount: filtered.length, lawsuitCount };
 }
 
 export function computeLesseeRisk(contracts: Contract[], lesseeName: string) {
@@ -65,7 +66,8 @@ export function computeLesseeRisk(contracts: Contract[], lesseeName: string) {
   const totalExpected = stats.reduce((s, st) => s + st.expectedByToday, 0);
   const totalPaid = stats.reduce((s, st) => s + st.totalPaid, 0);
   const rate = totalExpected > 0 ? (totalPaid / totalExpected) * 100 : 100;
-  return { name: lesseeName, rate, contractCount: filtered.length };
+  const maxOverdueDays = Math.max(...stats.map(st => st.overdueDays), 0);
+  return { name: lesseeName, rate, maxOverdueDays, contractCount: filtered.length };
 }
 
 export const riskColors: Record<RiskLevel, string> = {

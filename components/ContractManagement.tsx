@@ -582,7 +582,7 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
                         {group.distributor_name}
                         {(() => {
                           const dr = computeDistributorRisk(contracts, group.distributor_name);
-                          return dr ? <MiniRiskBadge level={classifyRisk(dr.rate, dr.lawsuitCount > 0)} /> : null;
+                          return dr ? <MiniRiskBadge level={classifyRisk(dr.maxOverdueDays, dr.lawsuitCount > 0)} /> : null;
                         })()}
                       </td>
                       <td className="p-4 font-medium text-white">{group.lessee_name}</td>

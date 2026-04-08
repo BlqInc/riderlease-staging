@@ -34,7 +34,7 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
   const contractStats = useMemo(() => {
     return safeContracts.map(c => {
       const stats = computePaymentStats(c);
-      const risk = classifyRisk(stats.paymentRate, c.is_lawsuit);
+      const risk = classifyRisk(stats.overdueDays, c.is_lawsuit);
       return { contract: c, ...stats, risk };
     });
   }, [safeContracts]);
