@@ -76,7 +76,7 @@ const App: React.FC = () => {
     setLoading(true);
     try {
       const [contractsRes, partnersRes, eventsRes, creditorsRes, creditorSettlementsRes] = await Promise.all([
-        supabase.from('contracts').select('*').order('created_at', { ascending: false }),
+        supabase.from('contracts').select('*', { count: 'exact' }).order('created_at', { ascending: false }).range(0, 4999),
         supabase.from('partners').select('*').order('created_at', { ascending: false }),
         supabase.from('events').select('*').order('date', { ascending: true }),
         supabase.from('creditors').select('*').order('display_order', { ascending: true }),
