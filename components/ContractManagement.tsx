@@ -2,7 +2,7 @@ import React, { useState, useMemo, Fragment, useRef } from 'react';
 import { Contract, ContractStatus, Partner, DeductionStatus, SettlementStatus, ShippingStatus, ProcurementStatus } from '../types';
 import { formatDate, formatCurrency } from '../lib/utils';
 import { PlusIcon, ChevronDownIcon, DuplicateIcon, UserPlusIcon, UploadIcon } from './icons/IconComponents';
-import { computeDistributorRisk, computeLesseeRisk, classifyRisk, riskColors, RiskLevel } from '../lib/riskUtils';
+import { classifyRisk, riskColors, RiskLevel } from '../lib/riskUtils';
 
 interface ContractManagementProps {
   contracts: Contract[];
@@ -397,12 +397,7 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
     return searchFilteredGroups.map(group => {
         const totalUnits = group.contracts.reduce((sum, c) => sum + (c.units_required || 1), 0);
         const totalAmount = group.contracts.reduce((sum, c) => sum + c.total_amount, 0);
-        const totalRemaining = group.contracts.reduce((sum, c) => {
-          const totalPaid = (c.daily_deductions || [])
-            .filter(d => d.status === DeductionStatus.PAID)
-            .reduce((s, d) => s + d.amount, 0);
-          return sum + (c.total_amount - totalPaid);
-        }, 0);
+        const totalRemaining = group.contracts.reduce((sum, c) => sum + (c.unpaid_balance || 0), 0);
   
         return {
           ...group,
@@ -414,6 +409,31 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
       });
 
   }, [contracts, searchTerm, statusFilter, partnerMap]);
+
+  // 총판별 위험도 미리 계산 (렌더링 중 반복 계산 방지)
+  const distributorRiskMap = useMemo(() => {
+    const map = new Map<string, { maxOverdueDays: number; lawsuitCount: number }>();
+    contracts.forEach(c => {
+      const name = c.distributor_name || '총판 없음';
+      const prev = map.get(name);
+      const deductions = c.daily_deductions || [];
+      const today = new Date().toISOString().slice(0, 10);
+      const overdueDeductions = deductions.filter(d => d.date <= today && d.status !== DeductionStatus.PAID);
+      const overdueDays = overdueDeductions.length > 0
+        ? Math.max(0, Math.floor((Date.now() - new Date(overdueDeductions[0].date).getTime()) / (1000 * 3600 * 24)))
+        : 0;
+      const isLawsuit = c.is_lawsuit ? 1 : 0;
+      if (!prev) {
+        map.set(name, { maxOverdueDays: overdueDays, lawsuitCount: isLawsuit });
+      } else {
+        map.set(name, {
+          maxOverdueDays: Math.max(prev.maxOverdueDays, overdueDays),
+          lawsuitCount: prev.lawsuitCount + isLawsuit,
+        });
+      }
+    });
+    return map;
+  }, [contracts]);
 
   const handleToggleExpand = (key: string) => {
     setExpandedKeys(prev => {
@@ -581,7 +601,7 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
                       <td className="p-4 font-medium text-white">
                         {group.distributor_name}
                         {(() => {
-                          const dr = computeDistributorRisk(contracts, group.distributor_name);
+                          const dr = distributorRiskMap.get(group.distributor_name);
                           return dr ? <MiniRiskBadge level={classifyRisk(dr.maxOverdueDays, dr.lawsuitCount > 0)} /> : null;
                         })()}
                       </td>
