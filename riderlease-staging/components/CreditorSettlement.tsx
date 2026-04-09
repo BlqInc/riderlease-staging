@@ -23,6 +23,10 @@ export const CreditorSettlement: React.FC<CreditorSettlementProps> = ({
   const [selectedSettlementId, setSelectedSettlementId] = useState<string | null>(null);
   const [showCreditorMgmt, setShowCreditorMgmt] = useState(false);
   const [newCreditorName, setNewCreditorName] = useState('');
+  const [queryDate, setQueryDate] = useState<string>(() => {
+    const now = new Date();
+    return new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
+  });
 
   // 선택된 채권사 정보
   const selectedCreditor = useMemo(() => creditors.find(c => c.id === selectedCreditorId), [creditors, selectedCreditorId]);
@@ -65,6 +69,16 @@ export const CreditorSettlement: React.FC<CreditorSettlementProps> = ({
       return total;
     }, 0);
   }, [filteredSettlements, contracts, selectedCreditorId]);
+
+  // 특정 날짜 기준 정산 총액
+  const queryDateTotal = useMemo(() => {
+    return filteredSettlements.reduce((total, s) => {
+      if (queryDate >= s.start_date && queryDate <= s.end_date) {
+        return total + getSettlementTotal(s.settlement_round);
+      }
+      return total;
+    }, 0);
+  }, [filteredSettlements, contracts, selectedCreditorId, queryDate]);
 
   const selectedSettlement = useMemo(() => {
     if (!selectedSettlementId) return null;
@@ -178,6 +192,19 @@ export const CreditorSettlement: React.FC<CreditorSettlementProps> = ({
               <p className="text-sm font-semibold text-green-300">오늘의 {creditorName} 정산 총액</p>
               <p className="text-3xl font-bold text-white mt-1">{formatCurrency(todaysTotalSettlementAmount)}</p>
               <p className="text-xs text-slate-500 mt-1">{formatDate(new Date().toISOString())} 기준 (실시간 집계)</p>
+            </div>
+
+            {/* 날짜 조회 */}
+            <div className="bg-slate-800 p-4 rounded-lg border border-slate-700">
+              <p className="text-sm font-semibold text-slate-300 mb-2">날짜별 정산액 조회</p>
+              <input
+                type="date"
+                value={queryDate}
+                onChange={(e) => setQueryDate(e.target.value)}
+                className="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <p className="text-2xl font-bold text-yellow-400 mt-2">{formatCurrency(queryDateTotal)}</p>
+              <p className="text-xs text-slate-500 mt-1">{formatDate(queryDate)} 기준</p>
             </div>
 
             <div>
