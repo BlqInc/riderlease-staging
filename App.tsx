@@ -125,29 +125,16 @@ const App: React.FC = () => {
     setLoading(true);
     setFetchError(null);
     try {
-      // 계약 데이터: 1000건 제한 우회 → 페이지네이션으로 전체 조회
-      const fetchAllContracts = async () => {
-        const allContracts: any[] = [];
-        const pageSize = 1000;
-        let from = 0;
-        while (true) {
-          const { data, error } = await supabase!.from('contracts').select('*').order('contract_number', { ascending: false }).range(from, from + pageSize - 1);
-          if (error) throw new Error(`계약 데이터 로드 실패: ${error.message}`);
-          if (!data || data.length === 0) break;
-          allContracts.push(...data);
-          if (data.length < pageSize) break;
-          from += pageSize;
-        }
-        return allContracts;
-      };
-
-      const [allContracts, partnersRes, eventsRes, creditorsRes, creditorSettlementsRes] = await Promise.all([
-        fetchAllContracts(),
+      // 계약 데이터: 1000건 제한 우회 → 2회 병렬 조회
+      const [contractsRes1, contractsRes2, partnersRes, eventsRes, creditorsRes, creditorSettlementsRes] = await Promise.all([
+        supabase.from('contracts').select('*').order('contract_number', { ascending: false }).range(0, 999),
+        supabase.from('contracts').select('*').order('contract_number', { ascending: false }).range(1000, 2999),
         supabase.from('partners').select('*').order('name', { ascending: true }),
         supabase.from('events').select('*').order('date', { ascending: true }),
         (supabase.from('creditors') as any).select('*').order('display_order', { ascending: true }),
         (supabase.from('creditor_settlements') as any).select('*').order('settlement_round', { ascending: false }),
       ]);
+      const allContracts = [...(contractsRes1.data || []), ...(contractsRes2.data || [])];
       if (partnersRes.error) throw new Error(`파트너 데이터 로드 실패: ${partnersRes.error.message}`);
       if (eventsRes.error) throw new Error(`일정 데이터 로드 실패: ${eventsRes.error.message}`);
       setContracts(processContracts(allContracts));
