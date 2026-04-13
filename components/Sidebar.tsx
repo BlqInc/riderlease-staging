@@ -55,7 +55,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, onLog
         </div>
         <h1 className="text-xl font-bold text-white ml-3">리스 관리 시스템</h1>
       </div>
-      <nav>
+      <nav className="flex-1 overflow-y-auto min-h-0">
         <ul>
             {navItems.map(({ view, label, Icon }) => (
                 <NavItem
