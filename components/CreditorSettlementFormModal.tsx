@@ -8,6 +8,7 @@ interface CreditorSettlementFormModalProps {
   onSave: (data: Omit<CreditorSettlementRound, 'id' | 'created_at' | 'total_daily_deduction_amount' | 'creditor_id'> & { id?: string }) => void;
   settlementToEdit: Partial<CreditorSettlementRound> | null;
   creditorName: string;
+  settlementType: '180_only' | '180_210';
 }
 
 const addDays = (dateStr: string, days: number): string => {
@@ -18,7 +19,7 @@ const addDays = (dateStr: string, days: number): string => {
 };
 
 export const CreditorSettlementFormModal: React.FC<CreditorSettlementFormModalProps> = ({
-  isOpen, onClose, onSave, settlementToEdit, creditorName,
+  isOpen, onClose, onSave, settlementToEdit, creditorName, settlementType,
 }) => {
   const [settlement_round, setSettlementRound] = useState<number | ''>('');
   const [start_date, setStartDate] = useState('');
@@ -45,9 +46,9 @@ export const CreditorSettlementFormModal: React.FC<CreditorSettlementFormModalPr
     const saveData: any = {
       settlement_round: Number(settlement_round),
       start_date,
-      end_date: end_date_210, // 카드 표시용: 210일 기준 (더 긴 쪽)
+      end_date: settlementType === '180_only' ? end_date_180 : end_date_210,
       end_date_180,
-      end_date_210,
+      end_date_210: settlementType === '180_only' ? null : end_date_210,
     };
     if (settlementToEdit?.id) saveData.id = settlementToEdit.id;
     onSave(saveData);
@@ -90,16 +91,23 @@ export const CreditorSettlementFormModal: React.FC<CreditorSettlementFormModalPr
             {start_date && (
               <div className="bg-slate-900/50 rounded-lg p-4 space-y-3">
                 <p className="text-sm font-medium text-slate-400">자동 계산된 종료일</p>
-                <div className="grid grid-cols-2 gap-3">
+                {settlementType === '180_only' ? (
                   <div className="bg-slate-800 rounded-lg p-3">
-                    <p className="text-xs text-blue-400 font-medium">180일 계약 종료</p>
+                    <p className="text-xs text-blue-400 font-medium">180일 정산 종료</p>
                     <p className="text-lg font-bold text-white mt-1">{end_date_180}</p>
                   </div>
-                  <div className="bg-slate-800 rounded-lg p-3">
-                    <p className="text-xs text-purple-400 font-medium">210일 계약 종료</p>
-                    <p className="text-lg font-bold text-white mt-1">{end_date_210}</p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-slate-800 rounded-lg p-3">
+                      <p className="text-xs text-blue-400 font-medium">180일 계약 종료</p>
+                      <p className="text-lg font-bold text-white mt-1">{end_date_180}</p>
+                    </div>
+                    <div className="bg-slate-800 rounded-lg p-3">
+                      <p className="text-xs text-purple-400 font-medium">210일 계약 종료</p>
+                      <p className="text-lg font-bold text-white mt-1">{end_date_210}</p>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             )}
           </div>

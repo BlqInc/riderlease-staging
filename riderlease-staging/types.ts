@@ -112,6 +112,7 @@ export interface Creditor {
   name: string;
   display_order: number;
   is_active: boolean;
+  settlement_type: '180_only' | '180_210';
   created_at: string;
 }
 

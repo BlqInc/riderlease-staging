@@ -44,10 +44,30 @@ export const CreditorSettlement: React.FC<CreditorSettlementProps> = ({
     [settlements, selectedCreditorId]
   );
 
-  // 정산 총액 계산 (해당 채권사 + 해당 차수)
-  const getSettlementTotal = (roundNumber: number) => {
+  const settlementType = selectedCreditor?.settlement_type || '180_210';
+
+  // 정산 총액 계산 (해당 채권사 + 해당 차수, 날짜 기준 활성 계약만)
+  const getSettlementTotal = (roundNumber: number, asOfDate?: string) => {
+    const settlement = filteredSettlements.find(s => s.settlement_round === roundNumber);
+    if (!settlement) return 0;
     const roundContracts = contracts.filter(c => c.creditor_id === selectedCreditorId && c.settlement_round === roundNumber);
+
     return roundContracts.reduce((sum, c) => {
+      // 날짜 기준 필터: 해당 계약이 asOfDate 기준으로 아직 정산 중인지
+      if (asOfDate && settlement.start_date) {
+        let contractEndDate: string;
+        if (settlementType === '180_only') {
+          // 그린위치: 모든 계약 180일 기준
+          contractEndDate = settlement.end_date_180 || settlement.end_date;
+        } else {
+          // 다른 채권사: duration_days에 따라 180/210 종료일
+          contractEndDate = (c.duration_days === 210 && settlement.end_date_210)
+            ? settlement.end_date_210
+            : (settlement.end_date_180 || settlement.end_date);
+        }
+        if (asOfDate < settlement.start_date || asOfDate > contractEndDate) return sum;
+      }
+
       const units = c.units_required || 1;
       if (c.contract_initial_deduction && c.contract_initial_deduction > 0) {
         return sum + (c.contract_initial_deduction * units);
@@ -57,35 +77,31 @@ export const CreditorSettlement: React.FC<CreditorSettlementProps> = ({
   };
 
   // 오늘의 정산 총액
+  const todayStr = useMemo(() => {
+    const now = new Date();
+    return new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
+  }, []);
+
   const todaysTotalSettlementAmount = useMemo(() => {
-    const localToday = new Date();
-    const todayUTC = new Date(Date.UTC(localToday.getUTCFullYear(), localToday.getUTCMonth(), localToday.getUTCDate()));
-
     return filteredSettlements.reduce((total, settlement) => {
-      const startParts = settlement.start_date.split('-').map(Number);
-      const startDateUTC = new Date(Date.UTC(startParts[0], startParts[1] - 1, startParts[2]));
-      const endParts = settlement.end_date.split('-').map(Number);
-      const endDateUTC = new Date(Date.UTC(endParts[0], endParts[1] - 1, endParts[2]));
-
-      if (todayUTC >= startDateUTC && todayUTC <= endDateUTC) {
-        return total + getSettlementTotal(settlement.settlement_round);
+      if (todayStr >= settlement.start_date && todayStr <= settlement.end_date) {
+        return total + getSettlementTotal(settlement.settlement_round, todayStr);
       }
       return total;
     }, 0);
-  }, [filteredSettlements, contracts, selectedCreditorId]);
+  }, [filteredSettlements, contracts, selectedCreditorId, todayStr]);
 
   // 기간 범위 정산 총액 (일수 × 일일 정산액)
   const queryRangeResult = useMemo(() => {
     if (!queryDateFrom || !queryDateTo || queryDateFrom > queryDateTo) return { dailyTotal: 0, days: 0, rangeTotal: 0 };
 
+    // 날짜 기준으로 일일 정산액 합산 (from 날짜 기준)
     let dailyTotal = 0;
-    // 기간 내에 활성인 차수들의 일일 정산액 합산
     filteredSettlements.forEach(s => {
-      // 조회 기간과 정산 기간이 겹치는지 확인
       const overlapStart = s.start_date > queryDateFrom ? s.start_date : queryDateFrom;
       const overlapEnd = s.end_date < queryDateTo ? s.end_date : queryDateTo;
       if (overlapStart <= overlapEnd) {
-        dailyTotal += getSettlementTotal(s.settlement_round);
+        dailyTotal += getSettlementTotal(s.settlement_round, queryDateFrom);
       }
     });
 
@@ -250,7 +266,9 @@ export const CreditorSettlement: React.FC<CreditorSettlementProps> = ({
                       <div>
                         <h4 className="font-bold text-lg text-white">{s.settlement_round}차 정산</h4>
                         <p className="text-sm text-slate-400">{formatDate(s.start_date)} ~</p>
-                        {s.end_date_180 && s.end_date_210 ? (
+                        {settlementType === '180_only' ? (
+                          <p className="text-sm text-slate-400">~ {formatDate(s.end_date_180 || s.end_date)} (180일)</p>
+                        ) : s.end_date_180 && s.end_date_210 ? (
                           <div className="flex gap-2 mt-0.5">
                             <span className="text-xs bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded">180: {formatDate(s.end_date_180)}</span>
                             <span className="text-xs bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded">210: {formatDate(s.end_date_210)}</span>
@@ -381,6 +399,7 @@ export const CreditorSettlement: React.FC<CreditorSettlementProps> = ({
           onSave={handleSave}
           settlementToEdit={editingSettlement}
           creditorName={creditorName}
+          settlementType={selectedCreditor?.settlement_type || '180_210'}
         />
       )}
     </>
