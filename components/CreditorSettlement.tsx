@@ -23,7 +23,11 @@ export const CreditorSettlement: React.FC<CreditorSettlementProps> = ({
   const [selectedSettlementId, setSelectedSettlementId] = useState<string | null>(null);
   const [showCreditorMgmt, setShowCreditorMgmt] = useState(false);
   const [newCreditorName, setNewCreditorName] = useState('');
-  const [queryDate, setQueryDate] = useState<string>(() => {
+  const [queryDateFrom, setQueryDateFrom] = useState<string>(() => {
+    const now = new Date();
+    return new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
+  });
+  const [queryDateTo, setQueryDateTo] = useState<string>(() => {
     const now = new Date();
     return new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
   });
@@ -70,15 +74,27 @@ export const CreditorSettlement: React.FC<CreditorSettlementProps> = ({
     }, 0);
   }, [filteredSettlements, contracts, selectedCreditorId]);
 
-  // 특정 날짜 기준 정산 총액
-  const queryDateTotal = useMemo(() => {
-    return filteredSettlements.reduce((total, s) => {
-      if (queryDate >= s.start_date && queryDate <= s.end_date) {
-        return total + getSettlementTotal(s.settlement_round);
+  // 기간 범위 정산 총액 (일수 × 일일 정산액)
+  const queryRangeResult = useMemo(() => {
+    if (!queryDateFrom || !queryDateTo || queryDateFrom > queryDateTo) return { dailyTotal: 0, days: 0, rangeTotal: 0 };
+
+    let dailyTotal = 0;
+    // 기간 내에 활성인 차수들의 일일 정산액 합산
+    filteredSettlements.forEach(s => {
+      // 조회 기간과 정산 기간이 겹치는지 확인
+      const overlapStart = s.start_date > queryDateFrom ? s.start_date : queryDateFrom;
+      const overlapEnd = s.end_date < queryDateTo ? s.end_date : queryDateTo;
+      if (overlapStart <= overlapEnd) {
+        dailyTotal += getSettlementTotal(s.settlement_round);
       }
-      return total;
-    }, 0);
-  }, [filteredSettlements, contracts, selectedCreditorId, queryDate]);
+    });
+
+    const from = new Date(queryDateFrom);
+    const to = new Date(queryDateTo);
+    const days = Math.round((to.getTime() - from.getTime()) / (1000 * 3600 * 24)) + 1;
+
+    return { dailyTotal, days, rangeTotal: dailyTotal * days };
+  }, [filteredSettlements, contracts, selectedCreditorId, queryDateFrom, queryDateTo]);
 
   const selectedSettlement = useMemo(() => {
     if (!selectedSettlementId) return null;
@@ -194,17 +210,30 @@ export const CreditorSettlement: React.FC<CreditorSettlementProps> = ({
               <p className="text-xs text-slate-500 mt-1">{formatDate(new Date().toISOString())} 기준 (실시간 집계)</p>
             </div>
 
-            {/* 날짜 조회 */}
+            {/* 기간 정산액 조회 */}
             <div className="bg-slate-800 p-4 rounded-lg border border-slate-700">
-              <p className="text-sm font-semibold text-slate-300 mb-2">날짜별 정산액 조회</p>
-              <input
-                type="date"
-                value={queryDate}
-                onChange={(e) => setQueryDate(e.target.value)}
-                className="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-              <p className="text-2xl font-bold text-yellow-400 mt-2">{formatCurrency(queryDateTotal)}</p>
-              <p className="text-xs text-slate-500 mt-1">{formatDate(queryDate)} 기준</p>
+              <p className="text-sm font-semibold text-slate-300 mb-2">기간별 정산액 조회</p>
+              <div className="flex gap-2 items-center">
+                <input type="date" value={queryDateFrom} onChange={(e) => setQueryDateFrom(e.target.value)}
+                  className="flex-1 bg-slate-700 text-white rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                <span className="text-slate-500 text-xs">~</span>
+                <input type="date" value={queryDateTo} onChange={(e) => setQueryDateTo(e.target.value)}
+                  className="flex-1 bg-slate-700 text-white rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              </div>
+              <div className="mt-3 space-y-1">
+                <div className="flex justify-between text-xs text-slate-400">
+                  <span>일일 정산액</span>
+                  <span>{formatCurrency(queryRangeResult.dailyTotal)}</span>
+                </div>
+                <div className="flex justify-between text-xs text-slate-400">
+                  <span>조회 일수</span>
+                  <span>{queryRangeResult.days}일</span>
+                </div>
+                <div className="border-t border-slate-700 pt-2 mt-2 flex justify-between items-center">
+                  <span className="text-sm font-semibold text-slate-300">기간 합계</span>
+                  <span className="text-xl font-bold text-yellow-400">{formatCurrency(queryRangeResult.rangeTotal)}</span>
+                </div>
+              </div>
             </div>
 
             <div>
@@ -242,11 +271,36 @@ export const CreditorSettlement: React.FC<CreditorSettlementProps> = ({
             {selectedSettlement ? (
               <div className="bg-slate-800 rounded-lg p-6 animate-fade-in">
                 <h3 className="text-2xl font-bold text-white mb-4">{creditorName} {selectedSettlement.settlement_round}차 정산 상세 정보</h3>
-                <div className="bg-slate-900/50 p-4 rounded-lg mb-6 space-y-2">
-                  <p><span className="font-semibold text-slate-400">정산 기간:</span> <span className="text-white">{formatDate(selectedSettlement.start_date)} ~ {formatDate(selectedSettlement.end_date)}</span></p>
-                  <p><span className="font-semibold text-slate-400">일일 총 차감액:</span> <span className="font-bold text-2xl text-yellow-400 ml-2">{formatCurrency(getSettlementTotal(selectedSettlement.settlement_round))}</span></p>
-                  <p><span className="font-semibold text-slate-400">포함된 계약 수:</span> <span className="text-white">{contractsForSelectedRound.length}건</span></p>
-                </div>
+                {(() => {
+                  const c180 = contractsForSelectedRound.filter(c => c.duration_days === 180 || (!c.duration_days));
+                  const c210 = contractsForSelectedRound.filter(c => c.duration_days === 210);
+                  const calcTotal = (list: typeof contractsForSelectedRound) => list.reduce((sum, c) => {
+                    const units = c.units_required || 1;
+                    if (c.contract_initial_deduction && c.contract_initial_deduction > 0) return sum + (c.contract_initial_deduction * units);
+                    return sum + c.daily_deduction;
+                  }, 0);
+                  const total180 = calcTotal(c180);
+                  const total210 = calcTotal(c210);
+                  return (
+                    <div className="bg-slate-900/50 p-4 rounded-lg mb-6 space-y-2">
+                      <p><span className="font-semibold text-slate-400">정산 기간:</span> <span className="text-white">{formatDate(selectedSettlement.start_date)} ~ {formatDate(selectedSettlement.end_date)}</span></p>
+                      <p><span className="font-semibold text-slate-400">일일 총 차감액:</span> <span className="font-bold text-2xl text-yellow-400 ml-2">{formatCurrency(getSettlementTotal(selectedSettlement.settlement_round))}</span></p>
+                      <p><span className="font-semibold text-slate-400">포함된 계약 수:</span> <span className="text-white">{contractsForSelectedRound.length}건</span></p>
+                      {c180.length > 0 && c210.length > 0 && (
+                        <div className="border-t border-slate-700 pt-2 mt-2 grid grid-cols-2 gap-4">
+                          <div className="bg-slate-800 rounded-lg p-3">
+                            <p className="text-xs text-slate-400">180일 계약 ({c180.length}건)</p>
+                            <p className="text-lg font-bold text-blue-400">{formatCurrency(total180)}/일</p>
+                          </div>
+                          <div className="bg-slate-800 rounded-lg p-3">
+                            <p className="text-xs text-slate-400">210일 계약 ({c210.length}건)</p>
+                            <p className="text-lg font-bold text-purple-400">{formatCurrency(total210)}/일</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 <div>
                   <h4 className="font-semibold text-white mb-3">포함된 계약 목록</h4>
@@ -258,6 +312,8 @@ export const CreditorSettlement: React.FC<CreditorSettlementProps> = ({
                           <th className="p-3 font-semibold text-slate-400 text-sm">계약자</th>
                           <th className="p-3 font-semibold text-slate-400 text-sm">기기명</th>
                           <th className="p-3 font-semibold text-slate-400 text-sm text-center">수량</th>
+                          <th className="p-3 font-semibold text-slate-400 text-sm text-center">계약기간</th>
+                          <th className="p-3 font-semibold text-slate-400 text-sm text-center">만료일</th>
                           <th className="p-3 font-semibold text-slate-400 text-sm text-right">일차감액</th>
                         </tr>
                       </thead>
@@ -278,6 +334,12 @@ export const CreditorSettlement: React.FC<CreditorSettlementProps> = ({
                               <td className="p-3 text-sm font-medium text-white">{c.lessee_name || 'N/A'}</td>
                               <td className="p-3 text-sm">{c.device_name}</td>
                               <td className="p-3 text-sm text-center">{units}</td>
+                              <td className="p-3 text-sm text-center">
+                                <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${c.duration_days === 210 ? 'bg-purple-500/20 text-purple-300' : 'bg-blue-500/20 text-blue-300'}`}>
+                                  {c.duration_days || 180}일
+                                </span>
+                              </td>
+                              <td className="p-3 text-sm text-center text-slate-400">{c.expiry_date ? formatDate(c.expiry_date) : '-'}</td>
                               <td className="p-3 text-sm text-right">
                                 <div className="font-semibold text-green-300">{formatCurrency(deductionAmount)}</div>
                                 <div className="text-xs text-slate-500">{basis}</div>
@@ -287,7 +349,7 @@ export const CreditorSettlement: React.FC<CreditorSettlementProps> = ({
                         })}
                         {contractsForSelectedRound.length === 0 && (
                           <tr>
-                            <td colSpan={5} className="p-8 text-center text-slate-400">이 정산 차수에 포함된 계약이 없습니다.</td>
+                            <td colSpan={7} className="p-8 text-center text-slate-400">이 정산 차수에 포함된 계약이 없습니다.</td>
                           </tr>
                         )}
                       </tbody>
