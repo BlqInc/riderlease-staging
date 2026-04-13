@@ -249,7 +249,15 @@ export const CreditorSettlement: React.FC<CreditorSettlementProps> = ({
                     <div className="flex justify-between items-start">
                       <div>
                         <h4 className="font-bold text-lg text-white">{s.settlement_round}차 정산</h4>
-                        <p className="text-sm text-slate-400">{formatDate(s.start_date)} ~ {formatDate(s.end_date)}</p>
+                        <p className="text-sm text-slate-400">{formatDate(s.start_date)} ~</p>
+                        {s.end_date_180 && s.end_date_210 ? (
+                          <div className="flex gap-2 mt-0.5">
+                            <span className="text-xs bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded">180: {formatDate(s.end_date_180)}</span>
+                            <span className="text-xs bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded">210: {formatDate(s.end_date_210)}</span>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-slate-400">~ {formatDate(s.end_date)}</p>
+                        )}
                       </div>
                       <div className="flex space-x-2">
                         <button onClick={(e) => { e.stopPropagation(); handleOpenModal(s); }} className="p-1 text-yellow-400 hover:text-yellow-300"><EditIcon className="w-4 h-4" /></button>

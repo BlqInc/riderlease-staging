@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { CreditorSettlementRound } from '../types';
 import { CloseIcon } from './icons/IconComponents';
 
@@ -10,33 +10,44 @@ interface CreditorSettlementFormModalProps {
   creditorName: string;
 }
 
+const addDays = (dateStr: string, days: number): string => {
+  const parts = dateStr.split('-').map(Number);
+  const d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+  d.setUTCDate(d.getUTCDate() + days - 1);
+  return d.toISOString().split('T')[0];
+};
+
 export const CreditorSettlementFormModal: React.FC<CreditorSettlementFormModalProps> = ({
   isOpen, onClose, onSave, settlementToEdit, creditorName,
 }) => {
   const [settlement_round, setSettlementRound] = useState<number | ''>('');
   const [start_date, setStartDate] = useState('');
-  const [end_date, setEndDate] = useState('');
 
   useEffect(() => {
     if (isOpen) {
       setSettlementRound(settlementToEdit?.settlement_round || '');
       setStartDate(settlementToEdit?.start_date || '');
-      setEndDate(settlementToEdit?.end_date || '');
     }
   }, [settlementToEdit, isOpen]);
+
+  // 자동 계산
+  const end_date_180 = useMemo(() => start_date ? addDays(start_date, 180) : '', [start_date]);
+  const end_date_210 = useMemo(() => start_date ? addDays(start_date, 210) : '', [start_date]);
 
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (settlement_round === '' || !start_date || !end_date) {
-      alert('모든 필드를 입력해주세요.');
+    if (settlement_round === '' || !start_date) {
+      alert('정산 차수와 시작일을 입력해주세요.');
       return;
     }
-    const saveData: Omit<CreditorSettlementRound, 'id' | 'created_at' | 'total_daily_deduction_amount' | 'creditor_id'> & { id?: string } = {
+    const saveData: any = {
       settlement_round: Number(settlement_round),
       start_date,
-      end_date,
+      end_date: end_date_210, // 카드 표시용: 210일 기준 (더 긴 쪽)
+      end_date_180,
+      end_date_210,
     };
     if (settlementToEdit?.id) saveData.id = settlementToEdit.id;
     onSave(saveData);
@@ -75,15 +86,22 @@ export const CreditorSettlementFormModal: React.FC<CreditorSettlementFormModalPr
                 required
               />
             </div>
-            <div>
-              <label htmlFor="end_date" className="block text-sm font-medium text-slate-400 mb-2">정산 종료일</label>
-              <input
-                id="end_date" type="date" value={end_date}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="w-full bg-slate-700 text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                required
-              />
-            </div>
+            {/* 자동 계산된 종료일 표시 */}
+            {start_date && (
+              <div className="bg-slate-900/50 rounded-lg p-4 space-y-3">
+                <p className="text-sm font-medium text-slate-400">자동 계산된 종료일</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-slate-800 rounded-lg p-3">
+                    <p className="text-xs text-blue-400 font-medium">180일 계약 종료</p>
+                    <p className="text-lg font-bold text-white mt-1">{end_date_180}</p>
+                  </div>
+                  <div className="bg-slate-800 rounded-lg p-3">
+                    <p className="text-xs text-purple-400 font-medium">210일 계약 종료</p>
+                    <p className="text-lg font-bold text-white mt-1">{end_date_210}</p>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
           <footer className="p-6 bg-slate-800/50 flex justify-end items-center">
             <div className="flex space-x-4">

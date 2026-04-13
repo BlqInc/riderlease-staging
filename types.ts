@@ -121,6 +121,8 @@ export interface CreditorSettlementRound {
   settlement_round: number;
   start_date: string;
   end_date: string;
+  end_date_180: string | null;
+  end_date_210: string | null;
   total_daily_deduction_amount: number;
   created_at: string;
 }
