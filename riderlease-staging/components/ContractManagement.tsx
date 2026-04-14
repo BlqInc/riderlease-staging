@@ -355,83 +355,110 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
     }
   };
 
-  const groupedAndFilteredContracts = useMemo(() => {
-    const groups: { [key: string]: { key: string; distributor_name: string; lessee_name: string; contracts: Contract[] } } = {};
-
-    contracts.forEach(c => {
-      const key = `${c.distributor_name || '총판 없음'}-${c.lessee_name || '계약자 없음'}`;
-      if (!groups[key]) {
-        groups[key] = {
-          key,
-          distributor_name: c.distributor_name || '총판 없음',
-          lessee_name: c.lessee_name || '계약자 없음',
-          contracts: [],
-        };
+  // 1) 그룹핑 (contracts만 의존)
+  const groups = useMemo(() => {
+    const map: { [key: string]: { key: string; distributor_name: string; lessee_name: string; contracts: Contract[] } } = {};
+    for (let i = 0; i < contracts.length; i++) {
+      const c = contracts[i];
+      const distributor = c.distributor_name || '총판 없음';
+      const lessee = c.lessee_name || '계약자 없음';
+      const key = `${distributor}-${lessee}`;
+      let g = map[key];
+      if (!g) {
+        g = map[key] = { key, distributor_name: distributor, lessee_name: lessee, contracts: [] };
       }
-      groups[key].contracts.push(c);
-    });
+      g.contracts.push(c);
+    }
+    return Object.values(map);
+  }, [contracts]);
 
-    const statusFilteredGroups = Object.values(groups)
-      .map(group => {
-        const filteredContracts = group.contracts.filter(c => statusFilter === 'all' || c.status === statusFilter);
-        if (filteredContracts.length === 0) return null;
-        return { ...group, contracts: filteredContracts };
-      })
-      .filter((g): g is NonNullable<typeof g> => g !== null);
+  // 2) 상태 필터 (groups + statusFilter 의존)
+  const statusFilteredGroups = useMemo(() => {
+    if (statusFilter === 'all') return groups;
+    const out: typeof groups = [];
+    for (let i = 0; i < groups.length; i++) {
+      const g = groups[i];
+      const filtered = g.contracts.filter(c => c.status === statusFilter);
+      if (filtered.length > 0) out.push({ ...g, contracts: filtered });
+    }
+    return out;
+  }, [groups, statusFilter]);
 
-    const searchFilteredGroups = statusFilteredGroups.filter(group => {
-      const lowerSearchTerm = searchTerm.toLowerCase();
-      const groupMatch =
+  // 3) 검색 필터 (statusFilteredGroups + searchTerm + partnerMap 의존)
+  const searchFilteredGroups = useMemo(() => {
+    if (!searchTerm) return statusFilteredGroups;
+    const lowerSearchTerm = searchTerm.toLowerCase();
+    const out: typeof statusFilteredGroups = [];
+    for (let i = 0; i < statusFilteredGroups.length; i++) {
+      const group = statusFilteredGroups[i];
+      // early return: 그룹 헤더가 매치되면 즉시 포함
+      if (
         group.distributor_name.toLowerCase().includes(lowerSearchTerm) ||
-        group.lessee_name.toLowerCase().includes(lowerSearchTerm);
-
-      if (groupMatch) return true;
-
-      return group.contracts.some(c =>
-        c.device_name.toLowerCase().includes(lowerSearchTerm) ||
-        String(c.contract_number).includes(searchTerm) ||
-        (partnerMap.get(c.partner_id) || '').toLowerCase().includes(lowerSearchTerm)
-      );
-    });
-    
-    return searchFilteredGroups.map(group => {
-        const totalUnits = group.contracts.reduce((sum, c) => sum + (c.units_required || 1), 0);
-        const totalAmount = group.contracts.reduce((sum, c) => sum + c.total_amount, 0);
-        const totalRemaining = group.contracts.reduce((sum, c) => sum + (c.unpaid_balance || 0), 0);
-  
-        return {
-          ...group,
-          contractCount: group.contracts.length,
-          totalUnits,
-          totalAmount,
-          totalRemaining,
-        };
+        group.lessee_name.toLowerCase().includes(lowerSearchTerm)
+      ) {
+        out.push(group);
+        continue;
+      }
+      // 개별 계약 매치 검사 (early exit via some)
+      const contractMatch = group.contracts.some(c => {
+        if (c.device_name.toLowerCase().includes(lowerSearchTerm)) return true;
+        if (String(c.contract_number).includes(searchTerm)) return true;
+        const partnerName = partnerMap.get(c.partner_id);
+        return partnerName ? partnerName.toLowerCase().includes(lowerSearchTerm) : false;
       });
+      if (contractMatch) out.push(group);
+    }
+    return out;
+  }, [statusFilteredGroups, searchTerm, partnerMap]);
 
-  }, [contracts, searchTerm, statusFilter, partnerMap]);
+  // 4) 집계 (searchFilteredGroups 의존) - 3개의 reduce를 단일 for 루프로 결합
+  const groupedAndFilteredContracts = useMemo(() => {
+    return searchFilteredGroups.map(group => {
+      let totalUnits = 0, totalAmount = 0, totalRemaining = 0;
+      for (let i = 0; i < group.contracts.length; i++) {
+        const c = group.contracts[i];
+        totalUnits += (c.units_required || 1);
+        totalAmount += c.total_amount;
+        totalRemaining += (c.unpaid_balance || 0);
+      }
+      return {
+        ...group,
+        contractCount: group.contracts.length,
+        totalUnits,
+        totalAmount,
+        totalRemaining,
+      };
+    });
+  }, [searchFilteredGroups]);
 
   // 총판별 위험도 미리 계산 (렌더링 중 반복 계산 방지)
+  // today는 한 번만 계산; Date.now도 한 번만
   const distributorRiskMap = useMemo(() => {
     const map = new Map<string, { maxOverdueDays: number; lawsuitCount: number }>();
-    contracts.forEach(c => {
+    const today = new Date().toISOString().slice(0, 10);
+    const now = Date.now();
+    for (let i = 0; i < contracts.length; i++) {
+      const c = contracts[i];
       const name = c.distributor_name || '총판 없음';
-      const prev = map.get(name);
       const deductions = c.daily_deductions || [];
-      const today = new Date().toISOString().slice(0, 10);
-      const overdueDeductions = deductions.filter(d => d.date <= today && d.status !== DeductionStatus.PAID);
-      const overdueDays = overdueDeductions.length > 0
-        ? Math.max(0, Math.floor((Date.now() - new Date(overdueDeductions[0].date).getTime()) / (1000 * 3600 * 24)))
+      // 연체 차감 첫 항목 찾기 (find → early exit)
+      let firstOverdueDate: string | null = null;
+      for (let j = 0; j < deductions.length; j++) {
+        const d = deductions[j];
+        if (d.date <= today && d.status !== DeductionStatus.PAID) { firstOverdueDate = d.date; break; }
+      }
+      const overdueDays = firstOverdueDate
+        ? Math.max(0, Math.floor((now - new Date(firstOverdueDate).getTime()) / 86400000))
         : 0;
       const isLawsuit = c.is_lawsuit ? 1 : 0;
+      const prev = map.get(name);
       if (!prev) {
         map.set(name, { maxOverdueDays: overdueDays, lawsuitCount: isLawsuit });
       } else {
-        map.set(name, {
-          maxOverdueDays: Math.max(prev.maxOverdueDays, overdueDays),
-          lawsuitCount: prev.lawsuitCount + isLawsuit,
-        });
+        if (overdueDays > prev.maxOverdueDays) prev.maxOverdueDays = overdueDays;
+        prev.lawsuitCount += isLawsuit;
       }
-    });
+    }
     return map;
   }, [contracts]);
 

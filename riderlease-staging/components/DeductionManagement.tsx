@@ -1,6 +1,6 @@
 
 
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useCallback, memo } from 'react';
 import { Contract, Partner, DeductionStatus, ContractStatus } from '../types';
 import { formatDate, formatCurrency } from '../lib/utils';
 import { exportToCsv } from '../lib/csvUtils';
@@ -95,17 +95,17 @@ const DeductionStatusBadge: React.FC<{ status: DeductionStatus }> = ({ status })
   return <span className={`${baseClasses} ${statusClasses[status]}`}>{status}</span>;
 };
 
-const ContractDeductionCard: React.FC<{
+const ContractDeductionCard = memo<{
     contract: Contract;
     partnerName: string;
     isOpen: boolean;
-    onToggle: () => void;
+    onToggle: (contractId: string) => void;
     onOpenPaymentModal: (contract: Contract) => void;
     onSettleDeduction: (contractId: string, deductionId: string) => void;
     onCancelDeduction: (contractId: string, deductionId: string) => void;
-    onToggleLawsuit: () => void;
-    onBulkSettle: (deductionIds: string[]) => void;
-}> = ({ contract, partnerName, isOpen, onToggle, onOpenPaymentModal, onSettleDeduction, onCancelDeduction, onToggleLawsuit, onBulkSettle }) => {
+    onToggleLawsuit: (contractId: string) => void;
+    onBulkSettle: (contractId: string, deductionIds: string[]) => void;
+}>(({ contract, partnerName, isOpen, onToggle, onOpenPaymentModal, onSettleDeduction, onCancelDeduction, onToggleLawsuit, onBulkSettle }) => {
 
     const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
 
@@ -113,29 +113,46 @@ const ContractDeductionCard: React.FC<{
         if (!isOpen) setCheckedIds(new Set());
     }, [isOpen]);
 
-    const totalPaid = (contract.daily_deductions || []).reduce((sum, d) => sum + d.paid_amount, 0);
-    const balance = contract.total_amount - totalPaid;
+    const handleToggleClick = useCallback(() => onToggle(contract.id), [contract.id, onToggle]);
+    const handleLawsuitClick = useCallback((e: React.MouseEvent) => {
+        e.stopPropagation();
+        onToggleLawsuit(contract.id);
+    }, [contract.id, onToggleLawsuit]);
+    const handlePaymentClick = useCallback((e: React.MouseEvent) => {
+        e.stopPropagation();
+        onOpenPaymentModal(contract);
+    }, [contract, onOpenPaymentModal]);
 
-    const toggleCheck = (id: string) => {
+    // 정렬된 deductions와 balance를 한 번에 계산 (매 렌더 재정렬 방지)
+    const { balance, sortedDeductions } = useMemo(() => {
+      const deductions = contract.daily_deductions || [];
+      let paid = 0;
+      for (let i = 0; i < deductions.length; i++) paid += deductions[i].paid_amount;
+      // YYYY-MM-DD 형식은 문자열 비교로 날짜 정렬 가능 → Date 객체 생성 불필요
+      const sorted = deductions.slice().sort((a, b) => b.date < a.date ? -1 : b.date > a.date ? 1 : 0);
+      return { balance: contract.total_amount - paid, sortedDeductions: sorted };
+    }, [contract.daily_deductions, contract.total_amount]);
+
+    const toggleCheck = useCallback((id: string) => {
         setCheckedIds(prev => {
             const next = new Set(prev);
             if (next.has(id)) next.delete(id);
             else next.add(id);
             return next;
         });
-    };
+    }, []);
 
-    const handleBulkSettle = () => {
+    const handleBulkSettle = useCallback(() => {
         if (checkedIds.size === 0) return;
-        onBulkSettle(Array.from(checkedIds));
+        onBulkSettle(contract.id, Array.from(checkedIds));
         setCheckedIds(new Set());
-    };
+    }, [checkedIds, contract.id, onBulkSettle]);
 
     return (
         <div className="bg-slate-800 rounded-lg shadow-lg overflow-hidden transition-all duration-300">
             <div
                 className="flex justify-between items-center p-4 cursor-pointer hover:bg-slate-700/50"
-                onClick={onToggle}
+                onClick={handleToggleClick}
             >
                 <div className="flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -158,7 +175,7 @@ const ContractDeductionCard: React.FC<{
                 </div>
                 <div className="flex items-center space-x-2 px-4">
                     <button
-                        onClick={(e) => { e.stopPropagation(); onToggleLawsuit(); }}
+                        onClick={handleLawsuitClick}
                         className={`text-xs font-bold py-1.5 px-3 rounded-lg transition-colors ${
                             contract.is_lawsuit
                                 ? 'bg-red-700 hover:bg-red-800 text-white'
@@ -168,7 +185,7 @@ const ContractDeductionCard: React.FC<{
                         {contract.is_lawsuit ? '고소건 해제' : '고소건 지정'}
                     </button>
                     <button
-                        onClick={(e) => { e.stopPropagation(); onOpenPaymentModal(contract); }}
+                        onClick={handlePaymentClick}
                         className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition-colors text-sm"
                     >
                         입금 처리
@@ -193,8 +210,8 @@ const ContractDeductionCard: React.FC<{
                         )}
                     </div>
                     <div className="max-h-80 overflow-y-auto space-y-2 pr-2">
-                        {(contract.daily_deductions || []).length > 0 ? (
-                            [...(contract.daily_deductions || [])].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(deduction => (
+                        {sortedDeductions.length > 0 ? (
+                            sortedDeductions.map(deduction => (
                                 <div key={deduction.id} className={`flex justify-between items-center p-3 rounded-md transition-colors ${checkedIds.has(deduction.id) ? 'bg-indigo-900/40 border border-indigo-500/50' : 'bg-slate-700/80'}`}>
                                     <div className="flex items-center gap-3">
                                         {deduction.status !== DeductionStatus.PAID ? (
@@ -248,7 +265,7 @@ const ContractDeductionCard: React.FC<{
             )}
         </div>
     );
-};
+});
 
 
 export const DeductionManagement: React.FC<DeductionManagementProps> = ({ contracts, partners, onAddPayment, onSettleDeduction, onCancelDeduction, onToggleLawsuit, onBulkSettleDeductions }) => {
@@ -302,24 +319,24 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({ contra
 
     const lawsuitCount = useMemo(() => contracts.filter(c => !!c.is_lawsuit).length, [contracts]);
 
-    const handleToggleCard = (contractId: string) => {
+    const handleToggleCard = useCallback((contractId: string) => {
         setOpenContractId(prevId => (prevId === contractId ? null : contractId));
-    };
+    }, []);
 
-    const handleOpenPaymentModal = (contract: Contract) => {
+    const handleOpenPaymentModal = useCallback((contract: Contract) => {
       setPaymentModalContract(contract);
-    };
+    }, []);
 
-    const handleClosePaymentModal = () => {
+    const handleClosePaymentModal = useCallback(() => {
         setPaymentModalContract(null);
-    };
+    }, []);
 
-    const handlePaymentSubmit = (amount: number) => {
-        if (paymentModalContract) {
-            onAddPayment(paymentModalContract.id, amount);
-        }
-        handleClosePaymentModal();
-    };
+    const handlePaymentSubmit = useCallback((amount: number) => {
+        setPaymentModalContract(prev => {
+            if (prev) onAddPayment(prev.id, amount);
+            return null;
+        });
+    }, [onAddPayment]);
 
     const handleExport = () => {
         const header = ['계약번호', '파트너사', '총판명', '계약자', '기기명', '차감일', '차감액', '납부액', '미납액', '상태'];
@@ -408,12 +425,12 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({ contra
                         contract={contract}
                         partnerName={partnerMap.get(contract.partner_id) || '알 수 없음'}
                         isOpen={openContractId === contract.id}
-                        onToggle={() => handleToggleCard(contract.id)}
+                        onToggle={handleToggleCard}
                         onOpenPaymentModal={handleOpenPaymentModal}
                         onSettleDeduction={onSettleDeduction}
                         onCancelDeduction={onCancelDeduction}
-                        onToggleLawsuit={() => onToggleLawsuit(contract.id)}
-                        onBulkSettle={(ids) => onBulkSettleDeductions(contract.id, ids)}
+                        onToggleLawsuit={onToggleLawsuit}
+                        onBulkSettle={onBulkSettleDeductions}
                     />
                 ))}
                  {contractsToList.length === 0 && (

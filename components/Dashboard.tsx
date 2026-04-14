@@ -21,18 +21,28 @@ export const Dashboard: React.FC<DashboardProps> = ({ contracts = [], partners =
   const safeContracts = Array.isArray(contracts) ? contracts : [];
   const safePartners = Array.isArray(partners) ? partners : [];
 
-  const totalReceivables = safeContracts.reduce((sum, c) => sum + (Number(c.total_amount) || 0), 0);
-  const totalPaid = safeContracts.reduce((sum, c) => {
-      const paidDeductions = (c.daily_deductions || [])
-          .filter(d => d.status === DeductionStatus.PAID)
-          .reduce((deductionSum, d) => deductionSum + (Number(d.amount) || 0), 0);
-      return sum + paidDeductions;
-  }, 0);
-  const activeContracts = safeContracts.filter(c => c.status === '진행중').length;
-  
-  const totalSettlementRequested = safeContracts
-    .filter(c => c.settlement_status === SettlementStatus.REQUESTED || c.settlement_status === SettlementStatus.COMPLETED)
-    .reduce((sum, c) => sum + (Number(c.total_amount) || 0), 0);
+  // 상위 통계 — 단일 패스 reduce로 결합 (기존: 4번 순회 → 1번)
+  const { totalReceivables, totalPaid, activeContracts, totalSettlementRequested } = useMemo(() => {
+    let totalReceivables = 0;
+    let totalPaid = 0;
+    let activeContracts = 0;
+    let totalSettlementRequested = 0;
+    for (let i = 0; i < safeContracts.length; i++) {
+      const c = safeContracts[i];
+      const amount = Number(c.total_amount) || 0;
+      totalReceivables += amount;
+      if (c.status === '진행중') activeContracts++;
+      if (c.settlement_status === SettlementStatus.REQUESTED || c.settlement_status === SettlementStatus.COMPLETED) {
+        totalSettlementRequested += amount;
+      }
+      const deductions = c.daily_deductions || [];
+      for (let j = 0; j < deductions.length; j++) {
+        const d = deductions[j];
+        if (d.status === DeductionStatus.PAID) totalPaid += (Number(d.amount) || 0);
+      }
+    }
+    return { totalReceivables, totalPaid, activeContracts, totalSettlementRequested };
+  }, [safeContracts]);
 
   const partnerMap = useMemo(() => {
       const map = new Map<string, string>();
@@ -42,29 +52,39 @@ export const Dashboard: React.FC<DashboardProps> = ({ contracts = [], partners =
       return map;
   }, [safePartners]);
 
-  // 총판별 요약
+  // 총판별 요약 — today는 루프 외부에서 한 번만 계산; 모든 집계를 단일 패스로
   const distributorSummary = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
     const map = new Map<string, { contracts: number; units: number; amount: number; paid: number; overdue: number }>();
-    safeContracts.forEach(c => {
+    for (let i = 0; i < safeContracts.length; i++) {
+      const c = safeContracts[i];
       const name = c.distributor_name || '미지정';
-      const prev = map.get(name) || { contracts: 0, units: 0, amount: 0, paid: 0, overdue: 0 };
-      const paidAmount = (c.daily_deductions || [])
-        .filter(d => d.status === DeductionStatus.PAID)
-        .reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
-      const today = new Date().toISOString().slice(0, 10);
-      const hasOverdue = (c.daily_deductions || []).some(d => d.date <= today && d.status !== DeductionStatus.PAID);
-      map.set(name, {
-        contracts: prev.contracts + 1,
-        units: prev.units + (Number(c.units_required) || 1),
-        amount: prev.amount + (Number(c.total_amount) || 0),
-        paid: prev.paid + paidAmount,
-        overdue: prev.overdue + (hasOverdue ? 1 : 0),
-      });
+      let prev = map.get(name);
+      if (!prev) {
+        prev = { contracts: 0, units: 0, amount: 0, paid: 0, overdue: 0 };
+        map.set(name, prev);
+      }
+      // 일차감 반복: 납부금액 합계 + 연체 여부를 단일 패스로
+      const deductions = c.daily_deductions || [];
+      let paidAmount = 0;
+      let hasOverdue = false;
+      for (let j = 0; j < deductions.length; j++) {
+        const d = deductions[j];
+        if (d.status === DeductionStatus.PAID) paidAmount += (Number(d.amount) || 0);
+        else if (!hasOverdue && d.date <= today) hasOverdue = true;
+      }
+      prev.contracts += 1;
+      prev.units += (Number(c.units_required) || 1);
+      prev.amount += (Number(c.total_amount) || 0);
+      prev.paid += paidAmount;
+      if (hasOverdue) prev.overdue += 1;
+    }
+    const arr: { name: string; contracts: number; units: number; amount: number; paid: number; overdue: number; rate: number }[] = [];
+    map.forEach((v, name) => {
+      arr.push({ name, ...v, rate: v.amount > 0 ? (v.paid / v.amount * 100) : 0 });
     });
-    return Array.from(map.entries())
-      .map(([name, v]) => ({ name, ...v, rate: v.amount > 0 ? (v.paid / v.amount * 100) : 0 }))
-      .sort((a, b) => b.amount - a.amount)
-      .slice(0, 20);
+    arr.sort((a, b) => b.amount - a.amount);
+    return arr.slice(0, 20);
   }, [safeContracts]);
 
   // --- Search Logic ---

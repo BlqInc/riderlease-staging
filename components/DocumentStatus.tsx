@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { Contract, Partner } from '../types';
 
@@ -370,20 +370,39 @@ export const DocumentStatus: React.FC<DocumentStatusProps> = ({ partners = [], c
     }
   };
 
-  const distributorNames = [...new Set(tokens.map(t => t.distributor_name))];
+  const distributorNames = useMemo(
+    () => Array.from(new Set(tokens.map(t => t.distributor_name))),
+    [tokens]
+  );
 
-  const filteredDocs = filterDistributor
-    ? documents.filter(d => d.distributor_name === filterDistributor)
-    : documents;
+  // 필터 + 그룹핑 + devices_json 파싱을 한 번에 수행
+  const groupedDocs = useMemo(() => {
+    const out: Record<string, UploadedDoc[]> = {};
+    for (let i = 0; i < documents.length; i++) {
+      const d = documents[i];
+      if (filterDistributor && d.distributor_name !== filterDistributor) continue;
+      if (hiddenContracts.has(d.contract_id)) continue;
+      let arr = out[d.contract_id];
+      if (!arr) { arr = []; out[d.contract_id] = arr; }
+      arr.push(d);
+    }
+    return out;
+  }, [documents, filterDistributor, hiddenContracts]);
 
-  // Group documents by contract_id (숨긴 건 제외)
-  const groupedDocs = filteredDocs
-    .filter(d => !hiddenContracts.has(d.contract_id))
-    .reduce<Record<string, UploadedDoc[]>>((acc, doc) => {
-      if (!acc[doc.contract_id]) acc[doc.contract_id] = [];
-      acc[doc.contract_id].push(doc);
-      return acc;
-    }, {});
+  // 각 그룹의 기기 목록 미리 파싱 (render마다 JSON.parse 방지)
+  const parsedDevicesByContract = useMemo(() => {
+    const out: Record<string, DeviceItem[]> = {};
+    for (const contractId in groupedDocs) {
+      const firstDoc = groupedDocs[contractId][0];
+      if (firstDoc && firstDoc.devices_json) {
+        try {
+          const parsed = JSON.parse(firstDoc.devices_json);
+          if (Array.isArray(parsed)) out[contractId] = parsed;
+        } catch {}
+      }
+    }
+    return out;
+  }, [groupedDocs]);
 
   return (
     <div className="p-6 space-y-8">
@@ -593,9 +612,8 @@ export const DocumentStatus: React.FC<DocumentStatusProps> = ({ partners = [], c
                           <div className="mt-2 flex items-start gap-2">
                             <div className="flex flex-wrap gap-x-3 gap-y-1 flex-1">
                               {(() => {
-                                let deviceList: DeviceItem[] = [];
-                                if (firstDoc.devices_json) { try { deviceList = JSON.parse(firstDoc.devices_json); } catch {} }
-                                if (deviceList.length > 0) {
+                                const deviceList = parsedDevicesByContract[contractId];
+                                if (deviceList && deviceList.length > 0) {
                                   return deviceList.map((d, i) => (
                                     <span key={i} className="text-xs bg-slate-600/50 px-2 py-0.5 rounded text-slate-300">
                                       {d.model} {d.capacity} x{d.quantity} ({d.period}일)
