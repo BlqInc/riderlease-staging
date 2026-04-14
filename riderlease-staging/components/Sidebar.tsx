@@ -49,11 +49,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, onLog
 
   return (
     <aside className="w-64 bg-slate-800 p-4 flex flex-col h-screen fixed top-0 left-0">
-      <div className="flex items-center mb-10 p-2">
-        <div className="bg-indigo-500 p-2 rounded-lg">
-          <ContractsIcon className="w-8 h-8 text-white" />
+      <div className="flex items-center gap-3 mb-6 p-2">
+        <div className="bg-indigo-500 p-2 rounded-lg shrink-0">
+          <ContractsIcon className="w-7 h-7 text-white" />
         </div>
-        <h1 className="text-xl font-bold text-white ml-3">리스 관리 시스템</h1>
+        <h1 className="text-base font-bold text-white leading-tight">렌탈 관리<br/>시스템</h1>
       </div>
       <nav className="flex-1 overflow-y-auto min-h-0">
         <ul>
