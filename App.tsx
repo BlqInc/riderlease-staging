@@ -120,9 +120,9 @@ const App: React.FC = () => {
   const [editingEvent, setEditingEvent] = useState<Partial<CalendarEvent> | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (options?: { silent?: boolean }) => {
     if (!supabase) return;
-    setLoading(true);
+    if (!options?.silent) setLoading(true);
     setFetchError(null);
     try {
       // 계약 데이터: 1000건 제한 우회 → 2회 병렬 조회
@@ -172,7 +172,8 @@ const App: React.FC = () => {
 
     const { data: { subscription } } = supabase!.auth.onAuthStateChange((_event, session) => {
       setSession(session);
-      if (session) {
+      // TOKEN_REFRESHED, USER_UPDATED 등은 재조회 불필요 (이 경우 화면 깜빡임 방지)
+      if (session && (_event === 'SIGNED_IN' || _event === 'INITIAL_SESSION')) {
         fetchData();
       }
     });
@@ -257,7 +258,8 @@ const App: React.FC = () => {
       subscription.unsubscribe();
       supabase!.removeChannel(realtimeChannel);
     };
-  }, [fetchData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // --- Contract Handlers ---
 
@@ -374,7 +376,7 @@ const App: React.FC = () => {
     try {
       const { error } = await (supabase.from('contracts') as any).insert(contractsWithNumbers);
       if (error) throw error;
-      fetchData();
+      fetchData({ silent: true });
     } catch (error: any) {
       console.error('Error importing contracts:', error);
       throw error;
@@ -789,7 +791,7 @@ const App: React.FC = () => {
                 <h2 className="text-2xl font-bold text-red-400 mb-2">데이터 로딩 실패</h2>
                 <p className="text-slate-300 mb-4">{fetchError}</p>
                 <button
-                  onClick={fetchData}
+                  onClick={() => fetchData()}
                   className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg transition-colors"
                 >
                   다시 시도
@@ -849,7 +851,7 @@ const App: React.FC = () => {
               )}
               {currentView === 'creditorSettlementData' && <CreditorSettlementData contracts={contracts} />}
               {currentView === 'creditorBatch' && <CreditorBatch contracts={contracts} />}
-              {currentView === 'documentStatus' && <DocumentStatus partners={partners} contracts={contracts} onContractCreated={() => fetchData()} />}
+              {currentView === 'documentStatus' && <DocumentStatus partners={partners} contracts={contracts} onContractCreated={() => fetchData({ silent: true })} />}
               {currentView === 'contractDocGenerator' && <ContractDocGenerator />}
               {currentView === 'partners' && (
                 <PartnersManagement

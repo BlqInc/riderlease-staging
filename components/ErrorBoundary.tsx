@@ -25,6 +25,10 @@ export class ErrorBoundary extends Component<Props, State> {
     console.error('Uncaught error:', error, errorInfo);
   }
 
+  public resetError = () => {
+    this.setState({ hasError: false, error: null });
+  };
+
   public render() {
     if (this.state.hasError) {
         if (this.props.fallback) {
@@ -50,12 +54,20 @@ export class ErrorBoundary extends Component<Props, State> {
                         </p>
                     </div>
 
-                    <button 
-                        onClick={() => window.location.reload()} 
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded-lg transition-colors w-full"
-                    >
-                        페이지 새로고침
-                    </button>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={this.resetError}
+                            className="bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-6 rounded-lg transition-colors flex-1"
+                        >
+                            다시 시도
+                        </button>
+                        <button
+                            onClick={() => window.location.reload()}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded-lg transition-colors flex-1"
+                        >
+                            새로고침
+                        </button>
+                    </div>
                 </div>
             </div>
         );

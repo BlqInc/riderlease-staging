@@ -65,7 +65,7 @@ const App: React.FC = () => {
 
     const { data: { subscription } } = supabase!.auth.onAuthStateChange((_event, session) => {
       setSession(session);
-      if (session) fetchData();
+      if (session && (_event === 'SIGNED_IN' || _event === 'INITIAL_SESSION')) fetchData();
     });
 
     return () => subscription.unsubscribe();
