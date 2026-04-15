@@ -10,25 +10,40 @@ export function classifyRisk(overdueDays: number, isLawsuit: boolean | null): Ri
 }
 
 export function computePaymentStats(contract: Contract) {
+  const totalAmount = Number(contract.total_amount) || 0;
+
+  // 뷰에서 사전계산된 값이 있으면 사용 (성능 최적화)
+  const c = contract as any;
+  if (c.expected_by_today !== undefined && c.total_paid !== undefined) {
+    const expectedByToday = Number(c.expected_by_today) || 0;
+    const totalPaid = Number(c.total_paid) || 0;
+    const paymentRate = expectedByToday > 0 ? (totalPaid / expectedByToday) * 100 : 100;
+    const balance = expectedByToday - totalPaid;
+    return {
+      totalPaid,
+      expectedByToday,
+      totalAmount,
+      paymentRate,
+      balance,
+      overdueDays: Number(c.overdue_days) || 0,
+      lastPaymentDate: c.last_payment_date || null,
+      overdueCount: Number(c.overdue_count) || 0,
+    };
+  }
+
+  // 폴백: daily_deductions로 직접 계산 (계약 상세 모달 등)
   const deductions = contract.daily_deductions || [];
   const today = new Date().toISOString().slice(0, 10);
 
-  // 오늘까지 내야 할 금액 (오늘 이전 날짜의 차감 합계)
   const expectedByToday = deductions
     .filter(d => d.date <= today)
     .reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
 
-  // 실제 납부한 금액 (오늘까지 기준)
   const totalPaid = deductions
     .filter(d => d.status === DeductionStatus.PAID)
     .reduce((sum, d) => sum + (Number(d.paid_amount) || Number(d.amount) || 0), 0);
 
-  const totalAmount = Number(contract.total_amount) || 0;
-
-  // 납부율: 오늘까지 내야 할 금액 대비 실제 납부액 (둘 다 0이면 아직 차감 전이므로 100%)
   const paymentRate = expectedByToday > 0 ? (totalPaid / expectedByToday) * 100 : 100;
-
-  // 잔액: 오늘까지 내야 할 금액 - 실제 납부액
   const balance = expectedByToday - totalPaid;
 
   const overdueDeductions = deductions.filter(

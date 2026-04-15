@@ -48,19 +48,25 @@ const calcUnpaidBalance = (daily_deductions: any[]): number => {
 
 const processContracts = (data: any[]): Contract[] => {
   if (!Array.isArray(data)) return [];
-  const today = getToday(); // 한 번만 계산
+  const today = getToday();
   return data.map(c => {
     const units = (c.units_required && !isNaN(Number(c.units_required))) ? Number(c.units_required) : 1;
     const rawTotalAmount = (c.total_amount && !isNaN(Number(c.total_amount))) ? Number(c.total_amount) : 0;
     const rawDailyDeduction = (c.daily_deduction && !isNaN(Number(c.daily_deduction))) ? Number(c.daily_deduction) : 0;
     const total_amount = rawTotalAmount * units;
     const daily_deduction = rawDailyDeduction * units;
-    const daily_deductions = Array.isArray(c.daily_deductions) ? c.daily_deductions : [];
+    const daily_deductions = Array.isArray(c.daily_deductions) ? c.daily_deductions : null;
+
+    // 미납 잔액: 뷰의 사전계산값 우선, 없으면 daily_deductions로 폴백
     let unpaid_balance = 0;
-    for (let i = 0; i < daily_deductions.length; i++) {
-      const d = daily_deductions[i];
-      if (d.date > today) break; // 정렬되어 있으므로 미래 날짜 이후는 스킵
-      unpaid_balance += (Number(d.amount) || 0) - (Number(d.paid_amount) || 0);
+    if (c.unpaid_balance_calc !== undefined && c.unpaid_balance_calc !== null) {
+      unpaid_balance = Number(c.unpaid_balance_calc) || 0;
+    } else if (daily_deductions) {
+      for (let i = 0; i < daily_deductions.length; i++) {
+        const d = daily_deductions[i];
+        if (d.date > today) break;
+        unpaid_balance += (Number(d.amount) || 0) - (Number(d.paid_amount) || 0);
+      }
     }
     return {
       ...c,
@@ -125,10 +131,11 @@ const App: React.FC = () => {
     if (!options?.silent) setLoading(true);
     setFetchError(null);
     try {
-      // 계약 데이터: 1000건 제한 우회 → 2회 병렬 조회
+      // 계약 데이터: contracts_summary_light 뷰 사용 (daily_deductions 제외, 사전계산된 집계값 포함)
+      // 1000건 제한 우회 → 2회 병렬 조회
       const [contractsRes1, contractsRes2, partnersRes, eventsRes, creditorsRes, creditorSettlementsRes] = await Promise.all([
-        supabase.from('contracts').select('*').order('contract_number', { ascending: false }).range(0, 999),
-        supabase.from('contracts').select('*').order('contract_number', { ascending: false }).range(1000, 2999),
+        (supabase.from('contracts_summary_light') as any).select('*').order('contract_number', { ascending: false }).range(0, 999),
+        (supabase.from('contracts_summary_light') as any).select('*').order('contract_number', { ascending: false }).range(1000, 2999),
         supabase.from('partners').select('*').order('name', { ascending: true }),
         supabase.from('events').select('*').order('date', { ascending: true }),
         (supabase.from('creditors') as any).select('*').order('display_order', { ascending: true }),
@@ -138,6 +145,7 @@ const App: React.FC = () => {
       if (partnersRes.error) throw new Error(`파트너 데이터 로드 실패: ${partnersRes.error.message}`);
       if (eventsRes.error) throw new Error(`일정 데이터 로드 실패: ${eventsRes.error.message}`);
       setContracts(processContracts(allContracts));
+      setDeductionsLoaded(false); // 새 fetch 시 일차감 데이터도 다시 로드 필요
       setPartners(partnersRes.data || []);
       setEvents(eventsRes.data || []);
       if (creditorsRes.data) setCreditors(creditorsRes.data);
@@ -352,6 +360,36 @@ const App: React.FC = () => {
       alert(`계약 저장 실패: ${error.message}`);
     }
   }, [contracts]);
+
+  // 상세 모달 열 때 daily_deductions를 풀로 가져옴 (뷰에는 없으므로)
+  const selectContractWithDeductions = useCallback(async (c: Contract) => {
+    if (!c.daily_deductions && supabase) {
+      const { data } = await (supabase.from('contracts') as any).select('daily_deductions').eq('id', c.id).single();
+      setSelectedContract({ ...c, daily_deductions: data?.daily_deductions || [] } as any);
+    } else {
+      setSelectedContract(c);
+    }
+  }, []);
+
+  // 일차감 관리 진입 시 모든 contracts의 daily_deductions를 풀로 가져와 보강
+  const [deductionsLoaded, setDeductionsLoaded] = useState(false);
+  const loadAllDeductions = useCallback(async () => {
+    if (deductionsLoaded || !supabase) return;
+    const [r1, r2] = await Promise.all([
+      (supabase.from('contracts') as any).select('id, daily_deductions').range(0, 999),
+      (supabase.from('contracts') as any).select('id, daily_deductions').range(1000, 2999),
+    ]);
+    const all = [...(r1.data || []), ...(r2.data || [])];
+    const map = new Map(all.map((c: any) => [c.id, c.daily_deductions]));
+    setContracts(prev => prev.map(c => ({ ...c, daily_deductions: map.get(c.id) || c.daily_deductions || [] })));
+    setDeductionsLoaded(true);
+  }, [deductionsLoaded]);
+
+  useEffect(() => {
+    if (currentView === 'deductionManagement' && !deductionsLoaded) {
+      loadAllDeductions();
+    }
+  }, [currentView, deductionsLoaded, loadAllDeductions]);
 
   const handleDeleteContract = useCallback(async (id: string) => {
     if (!supabase) return;
@@ -805,7 +843,7 @@ const App: React.FC = () => {
                 <ContractManagement
                   contracts={contracts}
                   partners={partners}
-                  onSelectContract={(c) => { setSelectedContract(c); }}
+                  onSelectContract={selectContractWithDeductions}
                   onAddContract={(template) => {
                     setEditingContract(null);
                     setContractFormTemplate(template || null);
@@ -835,13 +873,13 @@ const App: React.FC = () => {
                 />
               )}
               {currentView === 'shippingManagement' && (
-                <ShippingManagement contracts={contracts} partners={partners} onSelectContract={setSelectedContract} />
+                <ShippingManagement contracts={contracts} partners={partners} onSelectContract={selectContractWithDeductions} />
               )}
               {currentView === 'settlementManagement' && (
                 <SettlementManagement
                   contracts={contracts}
                   partners={partners}
-                  onSelectContract={setSelectedContract}
+                  onSelectContract={selectContractWithDeductions}
                   onRequestSettlement={handleRequestSettlement}
                   onCompleteSettlement={handleCompleteSettlement}
                   onUpdatePrerequisites={handleUpdatePrerequisites}
