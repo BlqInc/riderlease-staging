@@ -40,7 +40,7 @@ export const Login: React.FC = () => {
                   <ContractsIcon className="w-8 h-8 text-white" />
                 </div>
             </div>
-          <h1 className="text-3xl font-bold text-white">리스 관리 시스템</h1>
+          <h1 className="text-3xl font-bold text-white">렌탈 관리 시스템</h1>
           <p className="mt-2 text-slate-400">관리자 계정으로 로그인하세요.</p>
         </div>
         <form className="space-y-6" onSubmit={handleLogin}>
