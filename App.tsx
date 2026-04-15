@@ -98,7 +98,25 @@ const AppRouter: React.FC = () => {
 
 const App: React.FC = () => {
   const [session, setSession] = useState<any>(null);
-  const [currentView, setCurrentView] = useState<View>('dashboard');
+  // URL 해시에서 현재 탭 복원 (새로고침 후에도 유지)
+  const [currentView, setCurrentViewRaw] = useState<View>(() => {
+    const hash = window.location.hash.slice(1);
+    return (hash || 'dashboard') as View;
+  });
+  const setCurrentView = useCallback((view: View) => {
+    setCurrentViewRaw(view);
+    window.location.hash = view;
+  }, []);
+
+  // 브라우저 뒤로가기/앞으로가기 지원
+  useEffect(() => {
+    const handlePopState = () => {
+      const hash = window.location.hash.slice(1);
+      setCurrentViewRaw((hash || 'dashboard') as View);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Data States
   const [contracts, setContracts] = useState<Contract[]>([]);
