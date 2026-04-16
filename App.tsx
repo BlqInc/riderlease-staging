@@ -292,7 +292,13 @@ const App: React.FC = () => {
   const handleSaveContract = useCallback(async (contractData: any) => {
     if (!supabase) return;
 
-    const { id, unpaid_balance, daily_deductions: _ignored, ...dataToSave } = contractData;
+    const {
+      id, unpaid_balance, daily_deductions: _ignored,
+      // 뷰(contracts_summary_light)에서 추가된 집계 컬럼 제거
+      expected_by_today: _e, total_paid: _tp, unpaid_balance_calc: _ub,
+      overdue_days: _od, overdue_count: _oc, last_payment_date: _lp, paid_count: _pc,
+      ...dataToSave
+    } = contractData;
 
     const units = Number(dataToSave.units_required || 1);
     const unitDailyDeduction = Number(dataToSave.daily_deduction || 0);
