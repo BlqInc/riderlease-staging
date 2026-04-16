@@ -591,10 +591,11 @@ const App: React.FC = () => {
   ) => {
     if (!supabase) return;
 
-    // 해당 파트너사의 계약 중 제외 건 + 실행일 미래 건을 뺀 목록
+    // 해당 파트너사(복수 가능)의 계약 중 제외 건 + 실행일 미래 건을 뺀 목록
     const today = getToday();
+    const partnerIdSet = new Set(partnerId.split(','));
     const targetContracts = contracts.filter(c =>
-      c.partner_id === partnerId &&
+      partnerIdSet.has(c.partner_id) &&
       !excludeContractIds.includes(c.id) &&
       c.status === '진행중' &&
       (!c.execution_date || c.execution_date <= today)

@@ -343,7 +343,7 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({
   const [activeTab, setActiveTab] = useState<ActiveTab>('전체');
 
   // 총판별 일괄 납부 모달
-  const [bulkPayModal, setBulkPayModal] = useState<{ partnerId: string; partnerName: string } | null>(null);
+  const [bulkPayModal, setBulkPayModal] = useState<{ partnerIds: string[]; partnerNames: string[] } | null>(null);
   const [bulkPayForm, setBulkPayForm] = useState({ dateFrom: '', dateTo: '', amount: '' });
   const [bulkPayExclude, setBulkPayExclude] = useState<Set<string>>(new Set());
   const [bulkPayProcessing, setBulkPayProcessing] = useState(false);
@@ -481,10 +481,10 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({
           <div className="flex items-center gap-2">
             <select
               id="deduction-bulk-pay-distributor"
-              defaultValue=""
-              className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              multiple
+              size={Math.min(partners.length, 5)}
+              className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 min-w-[180px]"
             >
-              <option value="" disabled>파트너사 선택</option>
               {partners.map(p => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
@@ -492,10 +492,11 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({
             <button
               onClick={() => {
                 const select = document.getElementById('deduction-bulk-pay-distributor') as HTMLSelectElement;
-                const partnerId = select?.value;
-                if (!partnerId) { alert('파트너사를 선택해주세요.'); return; }
-                const partnerName = partners.find(p => p.id === partnerId)?.name || '';
-                setBulkPayModal({ partnerId, partnerName });
+                const selectedOptions = Array.from(select.selectedOptions);
+                if (selectedOptions.length === 0) { alert('파트너사를 선택해주세요. (Ctrl+클릭으로 복수 선택)'); return; }
+                const partnerIds = selectedOptions.map(o => o.value);
+                const partnerNames = selectedOptions.map(o => o.text);
+                setBulkPayModal({ partnerIds, partnerNames });
                 setBulkPayForm({ dateFrom: '', dateTo: '', amount: '' });
                 setBulkPayExclude(new Set());
                 setBulkPayResult(null);
@@ -577,8 +578,9 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({
       {/* 총판 일괄 납부 모달 */}
       {bulkPayModal && onBulkDistributorPayment && (() => {
         const today = new Date().toISOString().slice(0, 10);
+        const partnerIdSet = new Set(bulkPayModal.partnerIds);
         const distContracts = contracts.filter(c =>
-          c.partner_id === bulkPayModal.partnerId &&
+          partnerIdSet.has(c.partner_id) &&
           c.status === '진행중' &&
           (!c.execution_date || c.execution_date <= today)
         );
@@ -607,7 +609,7 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({
                 <div className="flex justify-between items-center">
                   <div>
                     <h2 className="text-xl font-bold text-white">파트너사 일괄 납부</h2>
-                    <p className="text-slate-400 text-sm mt-1">{bulkPayModal.partnerName} · {distContracts.length}건</p>
+                    <p className="text-slate-400 text-sm mt-1">{bulkPayModal.partnerNames.join(', ')} · {distContracts.length}건</p>
                   </div>
                   <button onClick={() => setBulkPayModal(null)} className="text-slate-400 hover:text-white text-2xl">&times;</button>
                 </div>
@@ -671,7 +673,7 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({
                       if (!bulkPayForm.dateFrom || !bulkPayForm.dateTo) { alert('정산 기간을 입력해주세요.'); return; }
                       if (!inputAmt) { alert('입금액을 입력해주세요.'); return; }
                       setBulkPayProcessing(true);
-                      const result = await onBulkDistributorPayment(bulkPayModal.partnerId, bulkPayForm.dateFrom, bulkPayForm.dateTo, inputAmt, Array.from(bulkPayExclude));
+                      const result = await onBulkDistributorPayment(bulkPayModal.partnerIds.join(','), bulkPayForm.dateFrom, bulkPayForm.dateTo, inputAmt, Array.from(bulkPayExclude));
                       setBulkPayResult(result || { processed: 0, remaining: inputAmt });
                       setBulkPayProcessing(false);
                     }}
