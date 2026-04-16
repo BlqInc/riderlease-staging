@@ -293,7 +293,12 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
       )}
       {/* 총판 일괄 납부 모달 */}
       {bulkPayModal && onBulkDistributorPayment && (() => {
-        const distContracts = safeContracts.filter(c => c.distributor_name === bulkPayModal.distributor);
+        const today = new Date().toISOString().slice(0, 10);
+        const distContracts = safeContracts.filter(c =>
+          c.distributor_name === bulkPayModal.distributor &&
+          c.status === '진행중' &&
+          (!c.execution_date || c.execution_date <= today)
+        );
         const expectedTotal = distContracts
           .filter(c => !bulkPayExclude.has(c.id))
           .reduce((sum, c) => {

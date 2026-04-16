@@ -591,10 +591,13 @@ const App: React.FC = () => {
   ) => {
     if (!supabase) return;
 
-    // 해당 총판의 계약 중 제외 건을 뺀 목록
+    // 해당 총판의 계약 중 제외 건 + 실행일 미래 건을 뺀 목록
+    const today = getToday();
     const targetContracts = contracts.filter(c =>
       c.distributor_name === distributorName &&
-      !excludeContractIds.includes(c.id)
+      !excludeContractIds.includes(c.id) &&
+      c.status === '진행중' &&
+      (!c.execution_date || c.execution_date <= today)
     );
 
     // daily_deductions가 없으면 먼저 로드
