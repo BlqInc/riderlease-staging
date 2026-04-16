@@ -583,7 +583,7 @@ const App: React.FC = () => {
 
   // 총판별 기간 일괄 납부 처리
   const handleBulkDistributorPayment = useCallback(async (
-    distributorName: string,
+    partnerId: string,
     dateFrom: string,
     dateTo: string,
     inputAmount: number,
@@ -591,10 +591,10 @@ const App: React.FC = () => {
   ) => {
     if (!supabase) return;
 
-    // 해당 총판의 계약 중 제외 건 + 실행일 미래 건을 뺀 목록
+    // 해당 파트너사의 계약 중 제외 건 + 실행일 미래 건을 뺀 목록
     const today = getToday();
     const targetContracts = contracts.filter(c =>
-      c.distributor_name === distributorName &&
+      c.partner_id === partnerId &&
       !excludeContractIds.includes(c.id) &&
       c.status === '진행중' &&
       (!c.execution_date || c.execution_date <= today)
