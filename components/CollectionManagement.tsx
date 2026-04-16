@@ -220,20 +220,32 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
           value={keyword} onChange={e => setKeyword(e.target.value)}
           className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 flex-1 max-w-xs" />
         {onBulkDistributorPayment && (
-          <button
-            onClick={() => {
-              const name = prompt('총판명을 입력하세요:');
-              if (name?.trim()) {
-                setBulkPayModal({ distributor: name.trim() });
+          <div className="flex items-center gap-2">
+            <select
+              id="bulk-pay-distributor"
+              defaultValue=""
+              className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+            >
+              <option value="" disabled>총판 선택</option>
+              {[...new Set(safeContracts.map(c => c.distributor_name).filter(Boolean))].sort().map(name => (
+                <option key={name} value={name!}>{name}</option>
+              ))}
+            </select>
+            <button
+              onClick={() => {
+                const select = document.getElementById('bulk-pay-distributor') as HTMLSelectElement;
+                const name = select?.value;
+                if (!name) { alert('총판을 선택해주세요.'); return; }
+                setBulkPayModal({ distributor: name });
                 setBulkPayForm({ dateFrom: '', dateTo: '', amount: '' });
                 setBulkPayExclude(new Set());
                 setBulkPayResult(null);
-              }
-            }}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold px-4 py-1.5 rounded-lg transition-colors whitespace-nowrap"
-          >
-            총판 일괄 납부
-          </button>
+              }}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold px-4 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+            >
+              일괄 납부
+            </button>
+          </div>
         )}
       </div>
 
