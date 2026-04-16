@@ -581,6 +581,77 @@ const App: React.FC = () => {
     }
   }, [contracts]);
 
+  // 총판별 기간 일괄 납부 처리
+  const handleBulkDistributorPayment = useCallback(async (
+    distributorName: string,
+    dateFrom: string,
+    dateTo: string,
+    inputAmount: number,
+    excludeContractIds: string[]
+  ) => {
+    if (!supabase) return;
+
+    // 해당 총판의 계약 중 제외 건을 뺀 목록
+    const targetContracts = contracts.filter(c =>
+      c.distributor_name === distributorName &&
+      !excludeContractIds.includes(c.id)
+    );
+
+    // daily_deductions가 없으면 먼저 로드
+    const contractsToProcess: Contract[] = [];
+    for (const c of targetContracts) {
+      if (c.daily_deductions) {
+        contractsToProcess.push(c);
+      } else {
+        const { data } = await (supabase.from('contracts') as any).select('daily_deductions').eq('id', c.id).single();
+        contractsToProcess.push({ ...c, daily_deductions: data?.daily_deductions || [] });
+      }
+    }
+
+    // 기간 내 미납 차감분을 오래된 순서대로 모아서 금액 배분
+    let remaining = inputAmount;
+    const updates: { contractId: string; deductions: any[] }[] = [];
+
+    for (const contract of contractsToProcess) {
+      const deductions = [...(contract.daily_deductions || [])].sort(
+        (a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0
+      );
+      let changed = false;
+      const updated = deductions.map(d => {
+        if (remaining <= 0 || d.status === '납부완료') return d;
+        if (d.date < dateFrom || d.date > dateTo) return d;
+        const unpaid = d.amount - d.paid_amount;
+        if (unpaid <= 0) return d;
+        const payment = Math.min(remaining, unpaid);
+        remaining -= payment;
+        changed = true;
+        const newPaid = d.paid_amount + payment;
+        return { ...d, paid_amount: newPaid, status: newPaid >= d.amount ? '납부완료' : '부분납부' };
+      });
+      if (changed) updates.push({ contractId: contract.id, deductions: updated });
+    }
+
+    // DB 업데이트
+    try {
+      for (const u of updates) {
+        await (supabase.from('contracts') as any)
+          .update({ daily_deductions: u.deductions })
+          .eq('id', u.contractId);
+      }
+      // 로컬 상태 업데이트
+      const updateMap = new Map(updates.map(u => [u.contractId, u.deductions]));
+      setContracts(prev => prev.map(c => {
+        const newDed = updateMap.get(c.id);
+        if (!newDed) return c;
+        return { ...c, daily_deductions: newDed, unpaid_balance: calcUnpaidBalance(newDed) };
+      }) as Contract[]);
+      return { processed: updates.length, remaining };
+    } catch (error: any) {
+      alert(`일괄 납부 처리 실패: ${error.message}`);
+      return { processed: 0, remaining: inputAmount };
+    }
+  }, [contracts]);
+
   const handleSettleDeduction = useCallback(async (contractId: string, deductionId: string) => {
     if (!supabase) return;
     const contract = contracts.find(c => c.id === contractId);
@@ -877,7 +948,7 @@ const App: React.FC = () => {
                   }}
                 />
               )}
-              {currentView === 'collectionManagement' && <CollectionManagement contracts={contracts} partners={partners} />}
+              {currentView === 'collectionManagement' && <CollectionManagement contracts={contracts} partners={partners} onBulkDistributorPayment={handleBulkDistributorPayment} />}
               {currentView === 'deductionManagement' && (
                 <DeductionManagement
                   contracts={contracts}
