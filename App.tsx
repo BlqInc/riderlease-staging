@@ -951,7 +951,7 @@ const App: React.FC = () => {
                   }}
                 />
               )}
-              {currentView === 'collectionManagement' && <CollectionManagement contracts={contracts} partners={partners} onBulkDistributorPayment={handleBulkDistributorPayment} />}
+              {currentView === 'collectionManagement' && <CollectionManagement contracts={contracts} partners={partners} />}
               {currentView === 'deductionManagement' && (
                 <DeductionManagement
                   contracts={contracts}
@@ -962,6 +962,7 @@ const App: React.FC = () => {
                   onToggleLawsuit={handleToggleLawsuit}
                   onBulkSettleDeductions={handleBulkSettleDeductions}
                   onBulkCancelDeductions={handleBulkCancelDeductions}
+                  onBulkDistributorPayment={handleBulkDistributorPayment}
                 />
               )}
               {currentView === 'shippingManagement' && (

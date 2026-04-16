@@ -18,6 +18,7 @@ interface DeductionManagementProps {
   onToggleLawsuit: (contractId: string) => void;
   onBulkSettleDeductions: (contractId: string, deductionIds: string[]) => void;
   onBulkCancelDeductions: (contractId: string, deductionIds: string[]) => void;
+  onBulkDistributorPayment?: (distributorName: string, dateFrom: string, dateTo: string, inputAmount: number, excludeContractIds: string[]) => Promise<{ processed: number; remaining: number } | undefined>;
 }
 
 const PaymentModal: React.FC<{
@@ -334,11 +335,19 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({
   contracts, partners,
   onAddPayment, onSettleDeduction, onCancelDeduction,
   onToggleLawsuit, onBulkSettleDeductions, onBulkCancelDeductions,
+  onBulkDistributorPayment,
 }) => {
   const [openContractId, setOpenContractId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [paymentModalContract, setPaymentModalContract] = useState<Contract | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>('전체');
+
+  // 총판별 일괄 납부 모달
+  const [bulkPayModal, setBulkPayModal] = useState<{ distributor: string } | null>(null);
+  const [bulkPayForm, setBulkPayForm] = useState({ dateFrom: '', dateTo: '', amount: '' });
+  const [bulkPayExclude, setBulkPayExclude] = useState<Set<string>>(new Set());
+  const [bulkPayProcessing, setBulkPayProcessing] = useState(false);
+  const [bulkPayResult, setBulkPayResult] = useState<{ processed: number; remaining: number } | null>(null);
   const outerListRef = useRef<HTMLDivElement>(null);
 
   const partnerMap = useMemo(() => new Map(partners.map(p => [p.id, p.name])), [partners]);
@@ -460,14 +469,42 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({
         ))}
       </div>
 
-      <div className="flex items-center space-x-4 bg-slate-800 p-4 rounded-lg mb-6">
+      <div className="flex items-center gap-4 bg-slate-800 p-4 rounded-lg mb-6">
         <input
           type="text"
           placeholder="총판명, 계약자명, 기기명, 파트너사 검색..."
-          className="bg-slate-700 text-white placeholder-slate-400 rounded-lg px-4 py-2 w-full md:w-2/5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          className="bg-slate-700 text-white placeholder-slate-400 rounded-lg px-4 py-2 flex-1 max-w-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
         />
+        {onBulkDistributorPayment && (
+          <div className="flex items-center gap-2">
+            <select
+              id="deduction-bulk-pay-distributor"
+              defaultValue=""
+              className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              <option value="" disabled>총판 선택</option>
+              {[...new Set(contracts.map(c => c.distributor_name).filter(Boolean))].sort().map(name => (
+                <option key={name} value={name!}>{name}</option>
+              ))}
+            </select>
+            <button
+              onClick={() => {
+                const select = document.getElementById('deduction-bulk-pay-distributor') as HTMLSelectElement;
+                const name = select?.value;
+                if (!name) { alert('총판을 선택해주세요.'); return; }
+                setBulkPayModal({ distributor: name });
+                setBulkPayForm({ dateFrom: '', dateTo: '', amount: '' });
+                setBulkPayExclude(new Set());
+                setBulkPayResult(null);
+              }}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold px-4 py-2 rounded-lg transition-colors whitespace-nowrap"
+            >
+              총판 일괄 납부
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="bg-slate-900/50 p-4 rounded-lg mb-6 grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
@@ -535,6 +572,118 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({
           contract={paymentModalContract}
         />
       )}
+
+      {/* 총판 일괄 납부 모달 */}
+      {bulkPayModal && onBulkDistributorPayment && (() => {
+        const today = new Date().toISOString().slice(0, 10);
+        const distContracts = contracts.filter(c =>
+          c.distributor_name === bulkPayModal.distributor &&
+          c.status === '진행중' &&
+          (!c.execution_date || c.execution_date <= today)
+        );
+        const inputAmt = Number(bulkPayForm.amount) || 0;
+        const expectedTotal = distContracts
+          .filter(c => !bulkPayExclude.has(c.id))
+          .reduce((sum, c) => {
+            if (!bulkPayForm.dateFrom || !bulkPayForm.dateTo) return sum;
+            const days = (c.daily_deductions || []).filter(d =>
+              d.date >= bulkPayForm.dateFrom && d.date <= bulkPayForm.dateTo && d.status !== '납부완료'
+            ).reduce((s, d) => s + (d.amount - d.paid_amount), 0);
+            if (!c.daily_deductions || c.daily_deductions.length === 0) {
+              const from = new Date(bulkPayForm.dateFrom);
+              const to = new Date(bulkPayForm.dateTo);
+              const numDays = Math.round((to.getTime() - from.getTime()) / 86400000) + 1;
+              return sum + (c.daily_deduction || 0) * numDays;
+            }
+            return sum + days;
+          }, 0);
+        const diff = inputAmt - expectedTotal;
+
+        return (
+          <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+            <div className="bg-slate-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+              <div className="p-6 border-b border-slate-700">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h2 className="text-xl font-bold text-white">총판 일괄 납부</h2>
+                    <p className="text-slate-400 text-sm mt-1">{bulkPayModal.distributor} · {distContracts.length}건</p>
+                  </div>
+                  <button onClick={() => setBulkPayModal(null)} className="text-slate-400 hover:text-white text-2xl">&times;</button>
+                </div>
+              </div>
+              <div className="p-6 space-y-5">
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="text-xs text-slate-400 mb-1 block">정산 시작일</label>
+                    <input type="date" value={bulkPayForm.dateFrom}
+                      onChange={e => setBulkPayForm(p => ({ ...p, dateFrom: e.target.value }))}
+                      className="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-400 mb-1 block">정산 종료일</label>
+                    <input type="date" value={bulkPayForm.dateTo}
+                      onChange={e => setBulkPayForm(p => ({ ...p, dateTo: e.target.value }))}
+                      className="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-400 mb-1 block">입금액</label>
+                    <input type="number" value={bulkPayForm.amount} placeholder="0"
+                      onChange={e => setBulkPayForm(p => ({ ...p, amount: e.target.value }))}
+                      className="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  </div>
+                </div>
+                {bulkPayForm.dateFrom && bulkPayForm.dateTo && (
+                  <div className="grid grid-cols-3 gap-3 bg-slate-900/50 rounded-lg p-4">
+                    <div><p className="text-xs text-slate-400">예상 청구액</p><p className="text-lg font-bold text-white">{formatCurrency(expectedTotal)}</p></div>
+                    <div><p className="text-xs text-slate-400">입금액</p><p className="text-lg font-bold text-white">{formatCurrency(inputAmt)}</p></div>
+                    <div><p className="text-xs text-slate-400">차액</p>
+                      <p className={`text-lg font-bold ${diff === 0 ? 'text-green-400' : diff > 0 ? 'text-blue-400' : 'text-red-400'}`}>{diff === 0 ? '일치' : formatCurrency(diff)}</p></div>
+                  </div>
+                )}
+                <div>
+                  <p className="text-sm font-semibold text-slate-300 mb-2">포함 계약 ({distContracts.length - bulkPayExclude.size}건)</p>
+                  <div className="max-h-48 overflow-y-auto space-y-1">
+                    {distContracts.map(c => (
+                      <label key={c.id} className={`flex items-center gap-3 p-2 rounded-lg hover:bg-slate-700/50 cursor-pointer ${bulkPayExclude.has(c.id) ? 'opacity-40' : ''}`}>
+                        <input type="checkbox" checked={!bulkPayExclude.has(c.id)}
+                          onChange={() => setBulkPayExclude(prev => { const n = new Set(prev); if (n.has(c.id)) n.delete(c.id); else n.add(c.id); return n; })}
+                          className="h-4 w-4 rounded border-slate-500 bg-slate-700 text-indigo-600" />
+                        <span className="text-sm text-white flex-1">{c.lessee_name || '미지정'}</span>
+                        <span className="text-xs text-slate-400">{c.device_name}</span>
+                        <span className="text-xs text-slate-400">{formatCurrency(c.daily_deduction)}/일</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                {bulkPayResult && (
+                  <div className={`rounded-lg p-4 ${bulkPayResult.remaining === 0 ? 'bg-green-900/30 border border-green-700/50' : 'bg-yellow-900/30 border border-yellow-700/50'}`}>
+                    <p className="text-sm font-semibold text-white">처리 완료: {bulkPayResult.processed}건 계약 납부 반영</p>
+                    {bulkPayResult.remaining > 0 && <p className="text-xs text-yellow-300 mt-1">미배분 잔액: {formatCurrency(bulkPayResult.remaining)}</p>}
+                  </div>
+                )}
+              </div>
+              <div className="p-6 border-t border-slate-700 flex justify-end gap-3">
+                <button onClick={() => setBulkPayModal(null)} className="bg-slate-600 hover:bg-slate-700 text-white font-bold py-2 px-6 rounded-lg transition-colors">닫기</button>
+                {!bulkPayResult ? (
+                  <button onClick={async () => {
+                      if (!bulkPayForm.dateFrom || !bulkPayForm.dateTo) { alert('정산 기간을 입력해주세요.'); return; }
+                      if (!inputAmt) { alert('입금액을 입력해주세요.'); return; }
+                      setBulkPayProcessing(true);
+                      const result = await onBulkDistributorPayment(bulkPayModal.distributor, bulkPayForm.dateFrom, bulkPayForm.dateTo, inputAmt, Array.from(bulkPayExclude));
+                      setBulkPayResult(result || { processed: 0, remaining: inputAmt });
+                      setBulkPayProcessing(false);
+                    }}
+                    disabled={bulkPayProcessing || !bulkPayForm.dateFrom || !bulkPayForm.dateTo || !inputAmt}
+                    className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold py-2 px-6 rounded-lg transition-colors"
+                  >{bulkPayProcessing ? '처리 중...' : inputAmt === expectedTotal ? '전액 납부 처리' : '입금액 기준 처리'}</button>
+                ) : (
+                  <button onClick={() => setBulkPayModal(null)} className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-lg transition-colors">확인</button>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };
