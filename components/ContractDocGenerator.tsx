@@ -123,100 +123,115 @@ function fillTransferDocument(xml: string, group: GroupedContract): string {
   let doc = xml;
   const data = group.base;
 
+  // 테이블 셀 교체 (안전한 방식: setValueByLabel / setValueByRowByOccurrence 사용)
   // Row 4: 회사명 → 공급자 회사명
   doc = setValueByLabel(doc, '회사명', 1, data.공급자_회사명);
-  // Row 5: 사업자 등록번호 → 공급자 사업자번호 (두 번째 occurrence, 첫 번째는 BLQ)
+  // Row 5: 사업자 등록번호 (두 번째) → 공급자 사업자번호
   doc = setValueByRowByOccurrence(doc, '사업자 등록번호', 1, 1, data.공급자_사업자번호);
   // Row 6: 설치 주소 → 이용자 집주소
   doc = setValueByLabel(doc, '설치 주소', 1, data.이용자_집주소);
-  // Row 7: 담당자명 (두 번째 occurrence) → 이용자 성명, 연락처 → 이용자 휴대전화
+  // Row 7: 담당자명 (두 번째) → 이용자 성명
   doc = setValueByRowByOccurrence(doc, '담당자명', 1, 1, data.이용자_성명);
+  // Row 7: 연락처 (두 번째) → 이용자 휴대전화
   doc = setValueByRowByOccurrence(doc, '연락처', 1, 1, data.이용자_휴대전화);
 
-  // Row 8: 납품 일자 → 계약일 포맷팅
-  const dateStr = data.계약일 || '';
-  const dateParts = dateStr.split('-');
-  const formattedNapDate = dateParts.length === 3
-    ? `${dateParts[0].slice(2)}.${dateParts[1]}.${dateParts[2]}`
-    : dateStr;
-  // 납품 일자 행의 텍스트를 직접 교체
-  const napRegex = /(납품 일자)([\s\S]*?)(<\/w:t>)/;
-  doc = doc.replace(napRegex, `납품 일자${formattedNapDate} </w:t>`);
-
-  // Row 10~13: 품목 테이블 (1~8번 행에 상품명+수량 채우기)
+  // Row 10~13: 품목 테이블 (품번 1,2,3,4... 행의 제품명+수량 교체)
   const trRegex = /(<w:tr\b[^>]*>)([\s\S]*?)(<\/w:tr>)/g;
   let trMatch;
   let rowIdx = 0;
   let itemIdx = 0;
-  const newDoc: string[] = [];
-  let lastIdx = 0;
+  const parts: string[] = [];
+  let lastEnd = 0;
 
   while ((trMatch = trRegex.exec(doc)) !== null) {
-    newDoc.push(doc.substring(lastIdx, trMatch.index));
-    const fullRow = trMatch[0];
+    parts.push(doc.substring(lastEnd, trMatch.index));
+    const row = trMatch[0];
     const cellTexts: string[] = [];
-    const cellRegex2 = /(<w:tc\b[^>]*>)([\s\S]*?)(<\/w:tc>)/g;
+    const cr = /(<w:tc\b[^>]*>)([\s\S]*?)(<\/w:tc>)/g;
     let cm;
-    while ((cm = cellRegex2.exec(fullRow)) !== null) {
+    while ((cm = cr.exec(row)) !== null) {
       cellTexts.push(cm[2].replace(/<[^>]+>/g, '').trim());
     }
 
-    // 품번 행 (1,2,3,4...) 감지
     if (cellTexts.length === 3 && /^\d+$/.test(cellTexts[0]) && rowIdx >= 10) {
+      let modRow = row;
       if (itemIdx < group.items.length) {
         const item = group.items[itemIdx];
-        let modifiedRow = fullRow;
-        // 제품명 셀 교체
-        modifiedRow = replaceNthCellValue(modifiedRow, 1, item.상품명);
-        // 수량 셀 교체
-        modifiedRow = replaceNthCellValue(modifiedRow, 2, String(item.수량 || ''));
-        newDoc.push(modifiedRow);
+        modRow = replaceNthCellFirstT(modRow, 1, item.상품명);
+        modRow = replaceNthCellFirstT(modRow, 2, String(item.수량 || ''));
       } else {
-        // 빈 행 유지
-        let modifiedRow = fullRow;
-        modifiedRow = replaceNthCellValue(modifiedRow, 1, '');
-        modifiedRow = replaceNthCellValue(modifiedRow, 2, '');
-        newDoc.push(modifiedRow);
+        modRow = replaceNthCellFirstT(modRow, 1, '');
+        modRow = replaceNthCellFirstT(modRow, 2, '');
       }
+      parts.push(modRow);
       itemIdx++;
     } else {
-      newDoc.push(fullRow);
+      parts.push(row);
     }
-    lastIdx = trMatch.index + trMatch[0].length;
+    lastEnd = trMatch.index + trMatch[0].length;
     rowIdx++;
   }
-  newDoc.push(doc.substring(lastIdx));
-  doc = newDoc.join('');
+  parts.push(doc.substring(lastEnd));
+  doc = parts.join('');
 
-  // 제품수령날짜 교체
-  const yearStr = dateParts[0] || '2026';
-  const monthStr = dateParts[1] || '01';
-  const dayStr = dateParts[2] || '01';
-  // "제품수령날짜:" 이후의 날짜 부분을 통째로 교체 (여러 w:r에 걸쳐 있으므로 패턴 매칭)
-  doc = doc.replace(
-    /(제품수령날짜:<\/w:t>)([\s\S]*?)(년[\s\S]*?월[\s\S]*?일)/,
-    `$1</w:r><w:r><w:rPr><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve"> ${yearStr}년 ${monthStr}월 ${dayStr}일`
-  );
+  // 납품 일자 행 (Row 8) - 단일 셀 안의 여러 w:t를 하나로 합쳐서 교체
+  const dateStr = data.계약일 || '';
+  const dp = dateStr.split('-');
+  const napDate = dp.length === 3 ? `${dp[0].slice(2)}.${dp[1]}.${dp[2]}` : dateStr;
+  doc = replaceMultiRunText(doc, '납품 일자', `납품 일자${napDate}`);
+
+  // 제품수령날짜 - 여러 w:r에 걸친 날짜를 교체
+  if (dp.length === 3) {
+    doc = replaceMultiRunText(doc, '제품수령날짜', `제품수령날짜: ${dp[0]}년 ${dp[1]}월 ${dp[2]}일`);
+  }
 
   // 수령확인자 이름 교체
-  doc = doc.replace(
-    /(수령확인자\s*<\/w:t>)([\s\S]*?)(<\/w:r>[\s\S]*?<w:rPr>[\s\S]*?Noto Sans KR Black[\s\S]*?<w:t[\s\S]*?>)([\s\S]*?)(<\/w:t>)/,
-    `$1$2$3${escapeXml(data.이용자_성명)} $5`
-  );
+  doc = replaceMultiRunText(doc, '수령확인자', `수령확인자       ${data.이용자_성명}          (인)`);
 
   return doc;
 }
 
-function replaceNthCellValue(rowXml: string, cellIndex: number, value: string): string {
+/** n번째 셀의 첫 번째 w:t 값만 교체 (XML 구조 유지) */
+function replaceNthCellFirstT(rowXml: string, cellIndex: number, value: string): string {
   const cellRegex = /(<w:tc\b[^>]*>)([\s\S]*?)(<\/w:tc>)/g;
   let idx = 0;
   return rowXml.replace(cellRegex, (match, open, content, close) => {
     if (idx++ === cellIndex) {
-      // 기존 <w:t> 값만 교체
-      const replaced = content.replace(/(<w:t[^>]*>)([\s\S]*?)(<\/w:t>)/, `$1${escapeXml(value)}$3`);
-      return open + replaced + close;
+      let replaced = false;
+      const newContent = content.replace(/(<w:t[^>]*>)([\s\S]*?)(<\/w:t>)/, (_m: string, a: string, _b: string, c: string) => {
+        if (!replaced) { replaced = true; return `${a}${escapeXml(value)}${c}`; }
+        return _m;
+      });
+      return open + newContent + close;
     }
     return match;
+  });
+}
+
+/** 특정 텍스트가 포함된 단락(w:p)을 찾아서, 해당 단락의 모든 w:t를 하나로 합친 뒤 첫 번째 w:r에 새 텍스트를 넣고 나머지 w:r은 제거 */
+function replaceMultiRunText(doc: string, searchText: string, newText: string): string {
+  const pRegex = /(<w:p\b[^>]*>)([\s\S]*?)(<\/w:p>)/g;
+  return doc.replace(pRegex, (match, open, content, close) => {
+    const plainText = content.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ');
+    if (!plainText.includes(searchText)) return match;
+
+    // 첫 번째 w:r의 w:t에 전체 텍스트를 넣고, 나머지 w:r은 유지하되 w:t 비우기
+    let firstRun = true;
+    const newContent = content.replace(/(<w:r\b[^>]*>)([\s\S]*?)(<\/w:r>)/g, (rMatch: string, rOpen: string, rContent: string, rClose: string) => {
+      if (firstRun) {
+        firstRun = false;
+        // 첫 번째 w:r 안의 w:t에 전체 텍스트 넣기
+        const newRContent = rContent.replace(
+          /(<w:t[^>]*>)([\s\S]*?)(<\/w:t>)/,
+          `<w:t xml:space="preserve">${escapeXml(newText)}</w:t>`
+        );
+        return rOpen + newRContent + rClose;
+      }
+      // 나머지 w:r의 w:t를 비우기
+      const cleared = rContent.replace(/(<w:t[^>]*>)([\s\S]*?)(<\/w:t>)/g, '$1$3');
+      return rOpen + cleared + rClose;
+    });
+    return open + newContent + close;
   });
 }
 
