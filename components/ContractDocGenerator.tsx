@@ -119,120 +119,37 @@ function formatCurrency(val: string | number): string {
 
 // ─── 인수인도확인서 XML 생성 ───
 
-function fillTransferDocument(xml: string, group: GroupedContract): string {
-  let doc = xml;
+/**
+ * 인수인도확인서 XML 채우기
+ * 안전한 방식: >원본값< → >새값< 패턴으로 w:t 내부 텍스트만 1:1 치환
+ * XML 태그 구조를 절대 건드리지 않음
+ */
+function fillTransferDocument(templateXml: string, group: GroupedContract): string {
+  let doc = templateXml;
   const data = group.base;
 
-  // 테이블 셀 교체 (안전한 방식: setValueByLabel / setValueByRowByOccurrence 사용)
-  // Row 4: 회사명 → 공급자 회사명
-  doc = setValueByLabel(doc, '회사명', 1, data.공급자_회사명);
-  // Row 5: 사업자 등록번호 (두 번째) → 공급자 사업자번호
-  doc = setValueByRowByOccurrence(doc, '사업자 등록번호', 1, 1, data.공급자_사업자번호);
-  // Row 6: 설치 주소 → 이용자 집주소
-  doc = setValueByLabel(doc, '설치 주소', 1, data.이용자_집주소);
-  // Row 7: 담당자명 (두 번째) → 이용자 성명
-  doc = setValueByRowByOccurrence(doc, '담당자명', 1, 1, data.이용자_성명);
-  // Row 7: 연락처 (두 번째) → 이용자 휴대전화
-  doc = setValueByRowByOccurrence(doc, '연락처', 1, 1, data.이용자_휴대전화);
+  // 원본 템플릿 고정값 → 새 값으로 1:1 교체
+  doc = doc.replace(/>생각대로마전지사</, `>${escapeXml(data.공급자_회사명)}<`);
+  doc = doc.replace(/>421-02-03611</, `>${escapeXml(data.공급자_사업자번호)}<`);
+  doc = doc.replace(/>인천광역시 서구 가현로42번길 68, B동 212호</, `>${escapeXml(data.이용자_집주소)}<`);
+  doc = doc.replace(/>010-5962-5674</, `>${escapeXml(data.이용자_휴대전화)}<`);
+  // 이영석은 여러 곳 (담당자명, 수령확인자 등)
+  doc = doc.split('>이영석<').join(`>${escapeXml(data.이용자_성명)}<`);
 
-  // Row 10~13: 품목 테이블 (품번 1,2,3,4... 행의 제품명+수량 교체)
-  const trRegex = /(<w:tr\b[^>]*>)([\s\S]*?)(<\/w:tr>)/g;
-  let trMatch;
-  let rowIdx = 0;
-  let itemIdx = 0;
-  const parts: string[] = [];
-  let lastEnd = 0;
-
-  while ((trMatch = trRegex.exec(doc)) !== null) {
-    parts.push(doc.substring(lastEnd, trMatch.index));
-    const row = trMatch[0];
-    const cellTexts: string[] = [];
-    const cr = /(<w:tc\b[^>]*>)([\s\S]*?)(<\/w:tc>)/g;
-    let cm;
-    while ((cm = cr.exec(row)) !== null) {
-      cellTexts.push(cm[2].replace(/<[^>]+>/g, '').trim());
+  // 품목 교체 (원본 4개 → 새 품목)
+  const origItems = ['아이폰17프로맥스1TB', '아이폰17프로맥스512', '아이폰17_256', '아이폰17프로맥스256'];
+  const origQtys = ['>3<', '>3<', '>3<', '>1<'];
+  for (let i = 0; i < origItems.length; i++) {
+    const newName = i < group.items.length ? group.items[i].상품명 : '';
+    const newQty = i < group.items.length ? String(group.items[i].수량 || '') : '';
+    doc = doc.replace(`>${origItems[i]}<`, `>${escapeXml(newName)}<`);
+    // 수량: 품목 행 내 해당 수량값 교체 (첫 번째 매칭만)
+    if (i < group.items.length) {
+      doc = doc.replace(origQtys[i], `>${escapeXml(newQty)}<`);
     }
-
-    if (cellTexts.length === 3 && /^\d+$/.test(cellTexts[0]) && rowIdx >= 10) {
-      let modRow = row;
-      if (itemIdx < group.items.length) {
-        const item = group.items[itemIdx];
-        modRow = replaceNthCellFirstT(modRow, 1, item.상품명);
-        modRow = replaceNthCellFirstT(modRow, 2, String(item.수량 || ''));
-      } else {
-        modRow = replaceNthCellFirstT(modRow, 1, '');
-        modRow = replaceNthCellFirstT(modRow, 2, '');
-      }
-      parts.push(modRow);
-      itemIdx++;
-    } else {
-      parts.push(row);
-    }
-    lastEnd = trMatch.index + trMatch[0].length;
-    rowIdx++;
   }
-  parts.push(doc.substring(lastEnd));
-  doc = parts.join('');
-
-  // 납품 일자 행 (Row 8) - 단일 셀 안의 여러 w:t를 하나로 합쳐서 교체
-  const dateStr = data.계약일 || '';
-  const dp = dateStr.split('-');
-  const napDate = dp.length === 3 ? `${dp[0].slice(2)}.${dp[1]}.${dp[2]}` : dateStr;
-  doc = replaceMultiRunText(doc, '납품 일자', `납품 일자${napDate}`);
-
-  // 제품수령날짜 - 여러 w:r에 걸친 날짜를 교체
-  if (dp.length === 3) {
-    doc = replaceMultiRunText(doc, '제품수령날짜', `제품수령날짜: ${dp[0]}년 ${dp[1]}월 ${dp[2]}일`);
-  }
-
-  // 수령확인자 이름 교체
-  doc = replaceMultiRunText(doc, '수령확인자', `수령확인자       ${data.이용자_성명}          (인)`);
 
   return doc;
-}
-
-/** n번째 셀의 첫 번째 w:t 값만 교체 (XML 구조 유지) */
-function replaceNthCellFirstT(rowXml: string, cellIndex: number, value: string): string {
-  const cellRegex = /(<w:tc\b[^>]*>)([\s\S]*?)(<\/w:tc>)/g;
-  let idx = 0;
-  return rowXml.replace(cellRegex, (match, open, content, close) => {
-    if (idx++ === cellIndex) {
-      let replaced = false;
-      const newContent = content.replace(/(<w:t[^>]*>)([\s\S]*?)(<\/w:t>)/, (_m: string, a: string, _b: string, c: string) => {
-        if (!replaced) { replaced = true; return `${a}${escapeXml(value)}${c}`; }
-        return _m;
-      });
-      return open + newContent + close;
-    }
-    return match;
-  });
-}
-
-/** 특정 텍스트가 포함된 단락(w:p)을 찾아서, 해당 단락의 모든 w:t를 하나로 합친 뒤 첫 번째 w:r에 새 텍스트를 넣고 나머지 w:r은 제거 */
-function replaceMultiRunText(doc: string, searchText: string, newText: string): string {
-  const pRegex = /(<w:p\b[^>]*>)([\s\S]*?)(<\/w:p>)/g;
-  return doc.replace(pRegex, (match, open, content, close) => {
-    const plainText = content.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ');
-    if (!plainText.includes(searchText)) return match;
-
-    // 첫 번째 w:r의 w:t에 전체 텍스트를 넣고, 나머지 w:r은 유지하되 w:t 비우기
-    let firstRun = true;
-    const newContent = content.replace(/(<w:r\b[^>]*>)([\s\S]*?)(<\/w:r>)/g, (rMatch: string, rOpen: string, rContent: string, rClose: string) => {
-      if (firstRun) {
-        firstRun = false;
-        // 첫 번째 w:r 안의 w:t에 전체 텍스트 넣기
-        const newRContent = rContent.replace(
-          /(<w:t[^>]*>)([\s\S]*?)(<\/w:t>)/,
-          `<w:t xml:space="preserve">${escapeXml(newText)}</w:t>`
-        );
-        return rOpen + newRContent + rClose;
-      }
-      // 나머지 w:r의 w:t를 비우기
-      const cleared = rContent.replace(/(<w:t[^>]*>)([\s\S]*?)(<\/w:t>)/g, '$1$3');
-      return rOpen + cleared + rClose;
-    });
-    return open + newContent + close;
-  });
 }
 
 // ─── XML cell insertion helpers ───
