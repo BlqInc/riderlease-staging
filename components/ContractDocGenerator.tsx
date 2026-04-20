@@ -117,6 +117,109 @@ function formatCurrency(val: string | number): string {
   return num.toLocaleString('ko-KR');
 }
 
+// ─── 인수인도확인서 XML 생성 ───
+
+function fillTransferDocument(xml: string, group: GroupedContract): string {
+  let doc = xml;
+  const data = group.base;
+
+  // Row 4: 회사명 → 공급자 회사명
+  doc = setValueByLabel(doc, '회사명', 1, data.공급자_회사명);
+  // Row 5: 사업자 등록번호 → 공급자 사업자번호 (두 번째 occurrence, 첫 번째는 BLQ)
+  doc = setValueByRowByOccurrence(doc, '사업자 등록번호', 1, 1, data.공급자_사업자번호);
+  // Row 6: 설치 주소 → 이용자 집주소
+  doc = setValueByLabel(doc, '설치 주소', 1, data.이용자_집주소);
+  // Row 7: 담당자명 (두 번째 occurrence) → 이용자 성명, 연락처 → 이용자 휴대전화
+  doc = setValueByRowByOccurrence(doc, '담당자명', 1, 1, data.이용자_성명);
+  doc = setValueByRowByOccurrence(doc, '연락처', 1, 1, data.이용자_휴대전화);
+
+  // Row 8: 납품 일자 → 계약일 포맷팅
+  const dateStr = data.계약일 || '';
+  const dateParts = dateStr.split('-');
+  const formattedNapDate = dateParts.length === 3
+    ? `${dateParts[0].slice(2)}.${dateParts[1]}.${dateParts[2]}`
+    : dateStr;
+  // 납품 일자 행의 텍스트를 직접 교체
+  const napRegex = /(납품 일자)([\s\S]*?)(<\/w:t>)/;
+  doc = doc.replace(napRegex, `납품 일자${formattedNapDate} </w:t>`);
+
+  // Row 10~13: 품목 테이블 (1~8번 행에 상품명+수량 채우기)
+  const trRegex = /(<w:tr\b[^>]*>)([\s\S]*?)(<\/w:tr>)/g;
+  let trMatch;
+  let rowIdx = 0;
+  let itemIdx = 0;
+  const newDoc: string[] = [];
+  let lastIdx = 0;
+
+  while ((trMatch = trRegex.exec(doc)) !== null) {
+    newDoc.push(doc.substring(lastIdx, trMatch.index));
+    const fullRow = trMatch[0];
+    const cellTexts: string[] = [];
+    const cellRegex2 = /(<w:tc\b[^>]*>)([\s\S]*?)(<\/w:tc>)/g;
+    let cm;
+    while ((cm = cellRegex2.exec(fullRow)) !== null) {
+      cellTexts.push(cm[2].replace(/<[^>]+>/g, '').trim());
+    }
+
+    // 품번 행 (1,2,3,4...) 감지
+    if (cellTexts.length === 3 && /^\d+$/.test(cellTexts[0]) && rowIdx >= 10) {
+      if (itemIdx < group.items.length) {
+        const item = group.items[itemIdx];
+        let modifiedRow = fullRow;
+        // 제품명 셀 교체
+        modifiedRow = replaceNthCellValue(modifiedRow, 1, item.상품명);
+        // 수량 셀 교체
+        modifiedRow = replaceNthCellValue(modifiedRow, 2, String(item.수량 || ''));
+        newDoc.push(modifiedRow);
+      } else {
+        // 빈 행 유지
+        let modifiedRow = fullRow;
+        modifiedRow = replaceNthCellValue(modifiedRow, 1, '');
+        modifiedRow = replaceNthCellValue(modifiedRow, 2, '');
+        newDoc.push(modifiedRow);
+      }
+      itemIdx++;
+    } else {
+      newDoc.push(fullRow);
+    }
+    lastIdx = trMatch.index + trMatch[0].length;
+    rowIdx++;
+  }
+  newDoc.push(doc.substring(lastIdx));
+  doc = newDoc.join('');
+
+  // 제품수령날짜 교체
+  const yearStr = dateParts[0] || '2026';
+  const monthStr = dateParts[1] || '01';
+  const dayStr = dateParts[2] || '01';
+  // "제품수령날짜:" 이후의 날짜 부분을 통째로 교체 (여러 w:r에 걸쳐 있으므로 패턴 매칭)
+  doc = doc.replace(
+    /(제품수령날짜:<\/w:t>)([\s\S]*?)(년[\s\S]*?월[\s\S]*?일)/,
+    `$1</w:r><w:r><w:rPr><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve"> ${yearStr}년 ${monthStr}월 ${dayStr}일`
+  );
+
+  // 수령확인자 이름 교체
+  doc = doc.replace(
+    /(수령확인자\s*<\/w:t>)([\s\S]*?)(<\/w:r>[\s\S]*?<w:rPr>[\s\S]*?Noto Sans KR Black[\s\S]*?<w:t[\s\S]*?>)([\s\S]*?)(<\/w:t>)/,
+    `$1$2$3${escapeXml(data.이용자_성명)} $5`
+  );
+
+  return doc;
+}
+
+function replaceNthCellValue(rowXml: string, cellIndex: number, value: string): string {
+  const cellRegex = /(<w:tc\b[^>]*>)([\s\S]*?)(<\/w:tc>)/g;
+  let idx = 0;
+  return rowXml.replace(cellRegex, (match, open, content, close) => {
+    if (idx++ === cellIndex) {
+      // 기존 <w:t> 값만 교체
+      const replaced = content.replace(/(<w:t[^>]*>)([\s\S]*?)(<\/w:t>)/, `$1${escapeXml(value)}$3`);
+      return open + replaced + close;
+    }
+    return match;
+  });
+}
+
 // ─── XML cell insertion helpers ───
 
 function makeRun(text: string, rPrTemplate?: string): string {
@@ -572,28 +675,52 @@ export const ContractDocGenerator: React.FC = () => {
       const templateZip = await JSZip.loadAsync(templateFile);
       const originalXml = await templateZip.file('word/document.xml')!.async('string');
 
-      if (selected.length === 1) {
+      // 인수인도확인서 템플릿 로드
+      let transferXml: string | null = null;
+      let transferTemplateFile: ArrayBuffer | null = null;
+      try {
+        const transferRes = await fetch('/transfer_template.docx');
+        if (transferRes.ok) {
+          transferTemplateFile = await transferRes.arrayBuffer();
+          const transferZip = await JSZip.loadAsync(transferTemplateFile);
+          transferXml = await transferZip.file('word/document.xml')!.async('string');
+        }
+      } catch { /* 인수인도확인서 템플릿 없으면 계약서만 생성 */ }
+
+      const outerZip = new JSZip();
+      for (const group of selected) {
+        // 계약서 생성
+        const filledXml = fillDocument(originalXml, group);
+        const newZip = await JSZip.loadAsync(templateFile);
+        newZip.file('word/document.xml', filledXml);
+        const docBlob = await newZip.generateAsync({ type: 'blob' });
+        const dateStr = group.base.계약일.replace(/-/g, '').slice(2);
+        const contractFileName = `BLQ_rental_contract_${dateStr}_${group.base.이용자_성명}.docx`;
+        outerZip.file(contractFileName, docBlob);
+
+        // 인수인도확인서 생성
+        if (transferXml && transferTemplateFile) {
+          const filledTransferXml = fillTransferDocument(transferXml, group);
+          const transferNewZip = await JSZip.loadAsync(transferTemplateFile);
+          transferNewZip.file('word/document.xml', filledTransferXml);
+          const transferBlob = await transferNewZip.generateAsync({ type: 'blob' });
+          const transferFileName = `인수인도확인서_${dateStr}_${group.base.이용자_성명}.docx`;
+          outerZip.file(transferFileName, transferBlob);
+        }
+      }
+
+      if (selected.length === 1 && !transferXml) {
+        // 인수인도확인서 없이 계약서 1건만이면 단일 파일 다운로드
         const group = selected[0];
         const filledXml = fillDocument(originalXml, group);
         const newZip = await JSZip.loadAsync(templateFile);
         newZip.file('word/document.xml', filledXml);
         const blob = await newZip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
         const dateStr = group.base.계약일.replace(/-/g, '').slice(2);
-        const fileName = `BLQ_rental_contract_${dateStr}_${group.base.이용자_성명}.docx`;
-        downloadBlob(blob, fileName);
+        downloadBlob(blob, `BLQ_rental_contract_${dateStr}_${group.base.이용자_성명}.docx`);
       } else {
-        const outerZip = new JSZip();
-        for (const group of selected) {
-          const filledXml = fillDocument(originalXml, group);
-          const newZip = await JSZip.loadAsync(templateFile);
-          newZip.file('word/document.xml', filledXml);
-          const docBlob = await newZip.generateAsync({ type: 'blob' });
-          const dateStr = group.base.계약일.replace(/-/g, '').slice(2);
-          const fileName = `BLQ_rental_contract_${dateStr}_${group.base.이용자_성명}.docx`;
-          outerZip.file(fileName, docBlob);
-        }
         const zipBlob = await outerZip.generateAsync({ type: 'blob' });
-        downloadBlob(zipBlob, `계약서_일괄생성_${new Date().toISOString().slice(0, 10)}.zip`);
+        downloadBlob(zipBlob, `계약서+인수인도_일괄생성_${new Date().toISOString().slice(0, 10)}.zip`);
       }
     } catch (err) {
       console.error(err);
