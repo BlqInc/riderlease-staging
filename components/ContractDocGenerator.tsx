@@ -120,36 +120,118 @@ function formatCurrency(val: string | number): string {
 // ─── 인수인도확인서 XML 생성 ───
 
 /**
- * 인수인도확인서 XML 채우기
- * 안전한 방식: >원본값< → >새값< 패턴으로 w:t 내부 텍스트만 1:1 치환
- * XML 태그 구조를 절대 건드리지 않음
+ * 인수인도확인서 XML 채우기 (빈 템플릿 기반)
+ * - 테이블 셀: setValueByLabel / setValueByRowByOccurrence 사용 (빈 셀에 값 삽입)
+ * - 날짜/이름: 특정 텍스트 뒤에 값 삽입
  */
 function fillTransferDocument(templateXml: string, group: GroupedContract): string {
   let doc = templateXml;
   const data = group.base;
 
-  // 원본 템플릿 고정값 → 새 값으로 1:1 교체
-  doc = doc.replace(/>생각대로마전지사</, `>${escapeXml(data.공급자_회사명)}<`);
-  doc = doc.replace(/>421-02-03611</, `>${escapeXml(data.공급자_사업자번호)}<`);
-  doc = doc.replace(/>인천광역시 서구 가현로42번길 68, B동 212호</, `>${escapeXml(data.이용자_집주소)}<`);
-  doc = doc.replace(/>010-5962-5674</, `>${escapeXml(data.이용자_휴대전화)}<`);
-  // 이영석은 여러 곳 (담당자명, 수령확인자 등)
-  doc = doc.split('>이영석<').join(`>${escapeXml(data.이용자_성명)}<`);
+  // ─── 받는 사람 테이블 (빈 셀에 값 삽입) ───
+  // Row 4: 회사명 (2번째 occurrence, 첫 번째는 BLQ)
+  doc = setValueByRowByOccurrence(doc, '회사명', 1, 1, data.공급자_회사명);
+  // Row 5: 사업자 등록번호 (2번째)
+  doc = setValueByRowByOccurrence(doc, '사업자 등록번호', 1, 1, data.공급자_사업자번호);
+  // Row 6: 설치 주소
+  doc = setValueByLabel(doc, '설치 주소', 1, data.이용자_집주소);
+  // Row 7: 담당자명 (2번째), 연락처 (2번째)
+  doc = setValueByRowByOccurrence(doc, '담당자명', 1, 1, data.이용자_성명);
+  doc = setValueByRowByOccurrence(doc, '연락처', 1, 1, data.이용자_휴대전화);
 
-  // 품목 교체 (원본 4개 → 새 품목)
-  const origItems = ['아이폰17프로맥스1TB', '아이폰17프로맥스512', '아이폰17_256', '아이폰17프로맥스256'];
-  const origQtys = ['>3<', '>3<', '>3<', '>1<'];
-  for (let i = 0; i < origItems.length; i++) {
-    const newName = i < group.items.length ? group.items[i].상품명 : '';
-    const newQty = i < group.items.length ? String(group.items[i].수량 || '') : '';
-    doc = doc.replace(`>${origItems[i]}<`, `>${escapeXml(newName)}<`);
-    // 수량: 품목 행 내 해당 수량값 교체 (첫 번째 매칭만)
-    if (i < group.items.length) {
-      doc = doc.replace(origQtys[i], `>${escapeXml(newQty)}<`);
+  // ─── 품목 테이블 (Row 10~13, 빈 3셀 행) ───
+  const trRegex = /(<w:tr\b[^>]*>)([\s\S]*?)(<\/w:tr>)/g;
+  let trMatch;
+  let rowIdx = 0;
+  let itemIdx = 0;
+  const parts: string[] = [];
+  let lastEnd = 0;
+
+  while ((trMatch = trRegex.exec(doc)) !== null) {
+    parts.push(doc.substring(lastEnd, trMatch.index));
+    const row = trMatch[0];
+    const cellTexts: string[] = [];
+    const cr = /(<w:tc\b[^>]*>)([\s\S]*?)(<\/w:tc>)/g;
+    let cm;
+    while ((cm = cr.exec(row)) !== null) {
+      cellTexts.push(cm[2].replace(/<[^>]+>/g, '').trim());
     }
+
+    // 품목 행: 3셀 모두 비어있고, 헤더(품번|제품명|수량) 이후 행
+    if (cellTexts.length === 3 && cellTexts.every(c => c === '') && rowIdx >= 10) {
+      let modRow = row;
+      if (itemIdx < group.items.length) {
+        const item = group.items[itemIdx];
+        // 품번(0), 제품명(1), 수량(2) 셀 각각에 값 삽입
+        let cellN = 0;
+        modRow = modRow.replace(/(<w:tc\b[^>]*>)([\s\S]*?)(<\/w:tc>)/g,
+          (match: string, open: string, content: string, close: string) => {
+            const ci = cellN++;
+            let val = '';
+            if (ci === 0) val = String(itemIdx + 1);
+            else if (ci === 1) val = item.상품명;
+            else if (ci === 2) val = String(item.수량 || '');
+            // 빈 셀의 <w:p>에 w:r + w:t 삽입
+            const newContent = insertTextIntoEmptyParagraph(content, val);
+            return open + newContent + close;
+          });
+      }
+      parts.push(modRow);
+      itemIdx++;
+    } else {
+      parts.push(row);
+    }
+    lastEnd = trMatch.index + trMatch[0].length;
+    rowIdx++;
+  }
+  parts.push(doc.substring(lastEnd));
+  doc = parts.join('');
+
+  // ─── 납품 일자 (Row 8, 빈 1셀 행) ───
+  // "납품 일자" 텍스트가 없으므로, Row 8을 찾아 빈 <w:p>에 날짜 삽입
+  const dateStr = data.계약일 || '';
+  const dp = dateStr.split('-');
+  if (dp.length === 3) {
+    const napDate = `납품 일자${dp[0].slice(2)}.${dp[1]}.${dp[2]}`;
+    // Row 8은 "품번|제품명|수량" 헤더 바로 앞의 1셀 행
+    doc = doc.replace(
+      /(<w:tr\b[^>]*>\s*<w:trPr><w:trHeight w:val="1414"\/><\/w:trPr>\s*<w:tc>[\s\S]*?<w:p [^>]*><w:pPr><w:jc w:val="left"\/><\/w:pPr>)(<\/w:p>)/,
+      `$1<w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">${escapeXml(napDate)}</w:t></w:r>$2`
+    );
+
+    // ─── 제품수령날짜: 년 월 일 → 날짜 채움 ───
+    // 원본: <w:t>제품수령날짜:</w:t>...<w:t xml:space="preserve"> </w:t>...<w:t>년 월 일</w:t>
+    doc = doc.replace(
+      '<w:t>년 월 일</w:t>',
+      `<w:t>${dp[0]}년 ${dp[1]}월 ${dp[2]}일</w:t>`
+    );
   }
 
+  // ─── 수령확인자: 빈 공백에 이름 삽입 ───
+  doc = doc.replace(
+    /(<w:t xml:space="preserve">수령확인자 <\/w:t><\/w:r>)([\s\S]*?)(<w:r[^>]*><w:rPr><w:rFonts w:hint="eastAsia"\/><w:szCs w:val="20"\/><\/w:rPr><w:t xml:space="preserve">\s+<\/w:t><\/w:r>)/,
+    `$1$2<w:r><w:rPr><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">        ${escapeXml(data.이용자_성명)}        </w:t></w:r>`
+  );
+
+  // ─── 고객님 앞 빈 공간에 이용자 성명 삽입 ───
+  // 원본 구조: "<w:t> </w:t>...<w:t>         </w:t>...<w:t>고객</w:t><w:t>님</w:t>"
+  // 밑줄 스타일(w:u="single")의 빈 공백 앞에 이름을 넣음
+  doc = doc.replace(
+    /(<w:r[^>]*><w:rPr><w:rFonts w:hint="eastAsia"\/><w:szCs w:val="20"\/><w:u w:val="single"\/><\/w:rPr><w:t xml:space="preserve">         <\/w:t><\/w:r>)(<w:r[^>]*><w:rPr><w:rFonts w:hint="eastAsia"\/><w:szCs w:val="20"\/><\/w:rPr><w:t>고객<\/w:t>)/,
+    `<w:r><w:rPr><w:rFonts w:hint="eastAsia"/><w:szCs w:val="20"/><w:u w:val="single"/></w:rPr><w:t xml:space="preserve">    ${escapeXml(data.이용자_성명)}    </w:t></w:r>$2`
+  );
+
   return doc;
+}
+
+/** 빈 <w:p>에 텍스트를 넣기 */
+function insertTextIntoEmptyParagraph(cellContent: string, text: string): string {
+  if (!text) return cellContent;
+  // <w:p>...<w:pPr>...</w:pPr></w:p> 구조에 w:r 추가
+  return cellContent.replace(
+    /(<w:p\b[^>]*>(?:<w:pPr>[\s\S]*?<\/w:pPr>)?)(\s*<\/w:p>)/,
+    `$1<w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>${escapeXml(text)}</w:t></w:r>$2`
+  );
 }
 
 // ─── XML cell insertion helpers ───
