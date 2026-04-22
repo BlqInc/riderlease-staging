@@ -58,80 +58,98 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
     return null;
   };
 
-  // ⚡ 성능 최적화: 영업자별 미납 차감 + 차감일 인덱스
-  // useMemo가 contracts 변경마다 재계산되는 문제 → 명시적으로 빌드하고 ref에 저장
+  // ⚡ 캐시를 DB에서 SQL로 직접 조회 (Phase 1+ 정규화 테이블 사용)
+  // 클라이언트에서 1320 × 200 순회하지 않음 → 컴포넌트 마운트 시점 부하 제거
   const cacheRef = useRef<{
     unpaid: Map<string, { date: string; amount: number; contractId: string }[]>;
-    dateIndex: Map<string, Set<string>>; // salespersonId → Set<dateStr> (해당 날짜에 차감 스케줄 있는지)
-    builtAt: number;
-  }>({ unpaid: new Map(), dateIndex: new Map(), builtAt: 0 });
+    dateIndex: Map<string, Set<string>>;
+    loaded: boolean;
+    loading: boolean;
+  }>({ unpaid: new Map(), dateIndex: new Map(), loaded: false, loading: false });
 
-  // contracts 메타 식별자: deductions 로드 여부에 따라 변경
-  const cacheKey = useMemo(() => {
-    let key = `${salespeople.length}:${contracts.length}:`;
-    let dedCount = 0;
-    for (let i = 0; i < contracts.length; i++) {
-      dedCount += (contracts[i].daily_deductions?.length || 0);
-    }
-    key += dedCount;
-    return key;
-  }, [salespeople, contracts]);
+  const [cacheLoaded, setCacheLoaded] = useState(false);
 
-  const buildCache = useCallback(() => {
-    const unpaid = new Map<string, { date: string; amount: number; contractId: string }[]>();
-    const dateIndex = new Map<string, Set<string>>();
+  // 파일 업로드 or 미리보기 분석 시점에 처음 한 번만 로드
+  const ensureCacheLoaded = useCallback(async () => {
+    if (cacheRef.current.loaded || cacheRef.current.loading || !supabase || salespeople.length === 0) return;
+    cacheRef.current.loading = true;
 
-    // 파트너ID → 영업자ID들 역인덱스 (빠른 매칭용)
+    // 1) 영업자-파트너 매핑 → 파트너 → 영업자ID들
     const partnerToSps = new Map<string, string[]>();
     for (const sp of salespeople) {
       for (const pid of sp.partner_ids) {
         const arr = partnerToSps.get(pid) || [];
         arr.push(sp.id);
         partnerToSps.set(pid, arr);
-        if (!unpaid.has(sp.id)) unpaid.set(sp.id, []);
-        if (!dateIndex.has(sp.id)) dateIndex.set(sp.id, new Set());
+      }
+    }
+    const allPartnerIds = Array.from(partnerToSps.keys());
+
+    // 2) 모든 관련 파트너의 contracts (정규화된 daily_deductions 테이블 join)
+    //    contract.status=진행중 + daily_deduction 한번에 가져옴
+    const { data: contractData } = await (supabase.from('contracts') as any)
+      .select('id, partner_id, execution_date, expiry_date')
+      .in('partner_id', allPartnerIds)
+      .eq('status', '진행중');
+
+    const contractMap = new Map<string, { partnerId: string; exec: string | null; expire: string | null }>();
+    (contractData || []).forEach((c: any) => {
+      contractMap.set(c.id, { partnerId: c.partner_id, exec: c.execution_date, expire: c.expiry_date });
+    });
+
+    // 3) daily_deductions 페이지네이션으로 가져오기 (범위가 크면 1000개 제한 우회)
+    const allContractIds = Array.from(contractMap.keys());
+    const allDeductions: any[] = [];
+    const CHUNK = 500;
+    for (let i = 0; i < allContractIds.length; i += CHUNK) {
+      const chunk = allContractIds.slice(i, i + CHUNK);
+      let from = 0;
+      while (true) {
+        const { data } = await (supabase.from('daily_deductions') as any)
+          .select('contract_id, due_date, amount, paid_amount, status')
+          .in('contract_id', chunk)
+          .range(from, from + 999);
+        if (!data || data.length === 0) break;
+        allDeductions.push(...data);
+        if (data.length < 1000) break;
+        from += 1000;
       }
     }
 
-    // contracts 1회만 순회 → 영업자별로 분배
-    for (const c of contracts) {
-      if (!c.partner_id || c.status !== '진행중') continue;
-      const sps = partnerToSps.get(c.partner_id);
+    // 4) 캐시 빌드
+    const unpaid = new Map<string, { date: string; amount: number; contractId: string }[]>();
+    const dateIndex = new Map<string, Set<string>>();
+    for (const sp of salespeople) {
+      unpaid.set(sp.id, []);
+      dateIndex.set(sp.id, new Set());
+    }
+
+    for (const d of allDeductions) {
+      const c = contractMap.get(d.contract_id);
+      if (!c) continue;
+      const sps = partnerToSps.get(c.partnerId);
       if (!sps) continue;
-      const ded = c.daily_deductions || [];
-      for (const d of ded) {
-        // 차감 스케줄 인덱스 (납부 여부 무관)
-        if (c.execution_date && d.date < c.execution_date) continue;
-        if (c.expiry_date && d.date > c.expiry_date) continue;
-        for (const spId of sps) {
-          dateIndex.get(spId)!.add(d.date);
-        }
-        // 미납만 unpaid 리스트
-        if (d.status !== '납부완료') {
-          const item = {
-            date: d.date,
-            amount: (Number(d.amount) || 0) - (Number(d.paid_amount) || 0),
-            contractId: c.id,
-          };
-          for (const spId of sps) {
-            unpaid.get(spId)!.push(item);
-          }
-        }
+      const dueDate = d.due_date;
+      // 실행일~만료일 범위 필터
+      if (c.exec && dueDate < c.exec) continue;
+      if (c.expire && dueDate > c.expire) continue;
+
+      for (const spId of sps) dateIndex.get(spId)!.add(dueDate);
+
+      if (d.status !== '납부완료') {
+        const item = {
+          date: dueDate,
+          amount: (Number(d.amount) || 0) - (Number(d.paid_amount) || 0),
+          contractId: d.contract_id,
+        };
+        for (const spId of sps) unpaid.get(spId)!.push(item);
       }
     }
-    // 날짜순 정렬
-    for (const list of unpaid.values()) {
-      list.sort((a, b) => a.date.localeCompare(b.date));
-    }
-    cacheRef.current = { unpaid, dateIndex, builtAt: Date.now() };
-  }, [salespeople, contracts]);
+    for (const list of unpaid.values()) list.sort((a, b) => a.date.localeCompare(b.date));
 
-  // cacheKey 변경 시만 재빌드
-  const lastCacheKey = useRef<string>('');
-  if (lastCacheKey.current !== cacheKey) {
-    buildCache();
-    lastCacheKey.current = cacheKey;
-  }
+    cacheRef.current = { unpaid, dateIndex, loaded: true, loading: false };
+    setCacheLoaded(true);
+  }, [salespeople]);
 
   const salespersonUnpaidCache = cacheRef.current.unpaid;
   const salespersonDateIndex = cacheRef.current.dateIndex;
@@ -149,6 +167,8 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    // 캐시 백그라운드 로드 시작 (await 안 함)
+    ensureCacheLoaded();
     setParsing(true);
     try {
       // xlsx 라이브러리 (이미 mount 시 로드됐을 가능성 높음)
@@ -173,6 +193,9 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
       alert('컬럼을 모두 선택해주세요.');
       return;
     }
+
+    // 캐시 로드 (아직 안 됐으면 지금 로드, 이미 됐으면 즉시 통과)
+    await ensureCacheLoaded();
 
     // 1) 기존 처리된 입금 조회 (중복 체크용) - reverted_at IS NULL인 것만
     const existingKeys = new Set<string>();
