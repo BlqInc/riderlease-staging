@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { Contract, Partner, Salesperson, CreditorSettlementRound } from '../types';
 import { formatCurrency, formatDate } from '../lib/utils';
@@ -32,6 +32,13 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
   const [parsed, setParsed] = useState<ParsedDeposit[]>([]);
   const [processing, setProcessing] = useState(false);
   const [presetName, setPresetName] = useState('');
+  const [parsing, setParsing] = useState(false);
+  const xlsxRef = useRef<any>(null);
+
+  // 컴포넌트 마운트 시 xlsx 라이브러리 미리 로드 (파일 선택 클릭 지연 방지)
+  useEffect(() => {
+    import('xlsx-js-style').then(mod => { xlsxRef.current = mod; });
+  }, []);
 
   const partnerById = useMemo(() => new Map(partners.map(p => [p.id, p])), [partners]);
 
@@ -71,14 +78,21 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const { read, utils } = await import('xlsx-js-style');
-    const buf = await file.arrayBuffer();
-    const wb = read(buf, { type: 'array', cellDates: true });
-    const sheet = wb.Sheets[wb.SheetNames[0]];
-    const rows: any[][] = utils.sheet_to_json(sheet, { header: 1, raw: false }) as any[][];
-    setExcelData(rows);
-    setParsed([]);
-    setDateCol(-1); setDepositorCol(-1); setAmountCol(-1); setHeaderRow(0);
+    setParsing(true);
+    try {
+      // xlsx 라이브러리 (이미 mount 시 로드됐을 가능성 높음)
+      const xlsx = xlsxRef.current || (await import('xlsx-js-style'));
+      xlsxRef.current = xlsx;
+      const buf = await file.arrayBuffer();
+      const wb = xlsx.read(buf, { type: 'array', cellDates: true });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows: any[][] = xlsx.utils.sheet_to_json(sheet, { header: 1, raw: false }) as any[][];
+      setExcelData(rows);
+      setParsed([]);
+      setDateCol(-1); setDepositorCol(-1); setAmountCol(-1); setHeaderRow(0);
+    } finally {
+      setParsing(false);
+    }
   };
 
   const headers = useMemo(() => excelData?.[headerRow] || [], [excelData, headerRow]);
@@ -302,10 +316,17 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
         <h3 className="text-white font-bold mb-3">은행 입금내역 업로드</h3>
 
         {!excelData ? (
-          <label className="flex items-center justify-center bg-slate-700 hover:bg-slate-600 transition-colors text-white rounded-lg px-4 py-8 cursor-pointer border-2 border-dashed border-slate-600">
-            <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleFileUpload} />
-            <span>📁 엑셀 파일 선택 (입금내역)</span>
-          </label>
+          parsing ? (
+            <div className="flex items-center justify-center bg-slate-700 text-white rounded-lg px-4 py-8 border-2 border-dashed border-slate-600">
+              <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-indigo-400 mr-3"></div>
+              <span>엑셀 파일 분석 중...</span>
+            </div>
+          ) : (
+            <label className="flex items-center justify-center bg-slate-700 hover:bg-slate-600 transition-colors text-white rounded-lg px-4 py-8 cursor-pointer border-2 border-dashed border-slate-600">
+              <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleFileUpload} />
+              <span>📁 엑셀 파일 선택 (입금내역)</span>
+            </label>
+          )
         ) : (
           <div className="space-y-3">
             <div className="flex items-center gap-2">
