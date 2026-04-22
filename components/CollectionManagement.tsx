@@ -80,6 +80,7 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
   const [keyword, setKeyword] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('paymentRate');
   const [sortAsc, setSortAsc] = useState<boolean>(true);
+  const [showContractList, setShowContractList] = useState<boolean>(false);
 
   // Compute per-contract stats
   const contractStats = useMemo(() => {
@@ -242,6 +243,17 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
         />
       </div>
 
+      {/* 계약별 상세 목록 토글 */}
+      <div className="border-t border-slate-700 pt-4">
+        <button onClick={() => setShowContractList(s => !s)}
+          className="flex items-center gap-2 text-sm text-slate-300 hover:text-white transition-colors">
+          <span>{showContractList ? '▼' : '▶'}</span>
+          <span className="font-medium">계약별 상세 목록</span>
+          <span className="text-xs text-slate-500">(계약자/위험등급별 납부 현황 · 총판별 납부율)</span>
+        </button>
+      </div>
+
+      {showContractList && <>
       {/* Filter & Search */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex bg-slate-800 rounded-lg p-1 gap-1">
@@ -313,6 +325,7 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
           </ResponsiveContainer>
         </div>
       )}
+      </>}
         </>
       )}
     </div>

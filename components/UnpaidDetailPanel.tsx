@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { formatCurrency, formatDate } from '../lib/utils';
 
@@ -29,6 +29,8 @@ export const UnpaidDetailPanel: React.FC<Props> = ({ fromDate, toDate, label, on
   const [payEditing, setPayEditing] = useState<string | null>(null);
   const [payAmount, setPayAmount] = useState('');
   const [paying, setPaying] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(200);
+  const [filter, setFilter] = useState('');
 
   useEffect(() => {
     if (!supabase) return;
@@ -36,33 +38,28 @@ export const UnpaidDetailPanel: React.FC<Props> = ({ fromDate, toDate, label, on
     const load = async () => {
       setLoading(true);
       try {
-        // daily_deductions + contracts + partners 조인 한 번에
-        const { data, error } = await (supabase!.from('daily_deductions') as any)
-          .select('id, contract_id, due_date, amount, paid_amount, status, contracts!inner(contract_number, lessee_name, distributor_name, partner_id, partners(name))')
-          .neq('status', '납부완료')
-          .gte('due_date', fromDate)
-          .lte('due_date', toDate)
-          .order('due_date', { ascending: true });
+        // RPC로 서버사이드 JOIN + 1000건 제한 우회
+        const { data, error } = await (supabase!.rpc as any)('get_unpaid_details', {
+          from_date: fromDate,
+          to_date: toDate,
+        });
         if (error) throw error;
         if (cancelled) return;
-        const mapped: UnpaidRow[] = ((data || []) as any[])
-          .map(r => ({
-            deduction_id: r.id,
-            contract_id: r.contract_id,
-            contract_number: Number(r.contracts?.contract_number) || 0,
-            lessee_name: r.contracts?.lessee_name || '',
-            distributor_name: r.contracts?.distributor_name || '',
-            partner_name: r.contracts?.partners?.name || null,
-            due_date: r.due_date,
-            amount: Number(r.amount) || 0,
-            paid_amount: Number(r.paid_amount) || 0,
-            owed: Number(r.amount) - Number(r.paid_amount),
-          }))
-          .filter(r => r.owed > 0);
-        setRows(mapped);
+        setRows(((data || []) as any[]).map(r => ({
+          deduction_id: r.deduction_id,
+          contract_id: r.contract_id,
+          contract_number: Number(r.contract_number) || 0,
+          lessee_name: r.lessee_name || '',
+          distributor_name: r.distributor_name || '',
+          partner_name: r.partner_name || null,
+          due_date: r.due_date,
+          amount: Number(r.amount) || 0,
+          paid_amount: Number(r.paid_amount) || 0,
+          owed: Number(r.owed) || 0,
+        })));
       } catch (e: any) {
         console.error('미납 상세 로드 실패:', e);
-        alert(`미납 상세 로드 실패: ${e.message}`);
+        alert(`미납 상세 로드 실패: ${e.message}\n\n(RPC 함수 get_unpaid_details 가 DB에 없을 수 있어요. sql_unpaid_details_rpc.sql 파일을 Supabase SQL Editor에서 실행해주세요.)`);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -112,18 +109,41 @@ export const UnpaidDetailPanel: React.FC<Props> = ({ fromDate, toDate, label, on
     }
   };
 
-  const totalOwed = rows.reduce((s, r) => s + r.owed, 0);
+  const totalOwed = useMemo(() => rows.reduce((s, r) => s + r.owed, 0), [rows]);
+
+  // 검색 필터 (계약자/총판/파트너/계약번호)
+  const filtered = useMemo(() => {
+    if (!filter.trim()) return rows;
+    const kw = filter.trim().toLowerCase();
+    return rows.filter(r =>
+      r.lessee_name.toLowerCase().includes(kw) ||
+      r.distributor_name.toLowerCase().includes(kw) ||
+      (r.partner_name || '').toLowerCase().includes(kw) ||
+      String(r.contract_number).includes(kw)
+    );
+  }, [rows, filter]);
+
+  const visible = filtered.slice(0, visibleCount);
+  const hasMore = filtered.length > visibleCount;
 
   return (
     <div className="mt-4 bg-slate-800/80 rounded-lg p-4 border border-red-700/40">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <div>
           <h4 className="text-sm font-semibold text-red-300">🔍 미납 상세: {label}</h4>
           <p className="text-xs text-slate-500 mt-0.5">
             {fromDate === toDate ? fromDate : `${fromDate} ~ ${toDate}`} · {rows.length}건 · 총 <span className="text-red-400 font-semibold">{formatCurrency(totalOwed)}</span>
+            {filter && <span className="text-slate-400"> · 검색 결과 {filtered.length}건</span>}
           </p>
         </div>
-        <button onClick={onClose} className="text-xs text-slate-400 hover:text-white bg-slate-700 px-2 py-1 rounded">✕ 닫기</button>
+        <div className="flex items-center gap-2">
+          {rows.length > 0 && (
+            <input type="text" value={filter} onChange={e => setFilter(e.target.value)}
+              placeholder="계약자/총판/파트너 검색..."
+              className="bg-slate-700 text-white text-xs rounded px-2 py-1 w-48 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+          )}
+          <button onClick={onClose} className="text-xs text-slate-400 hover:text-white bg-slate-700 px-2 py-1 rounded">✕ 닫기</button>
+        </div>
       </div>
 
       {loading ? (
@@ -146,7 +166,7 @@ export const UnpaidDetailPanel: React.FC<Props> = ({ fromDate, toDate, label, on
               </tr>
             </thead>
             <tbody>
-              {rows.map(r => (
+              {visible.map(r => (
                 <tr key={r.deduction_id} className="border-b border-slate-700/50 hover:bg-slate-700/30">
                   <td className="p-2 text-slate-300 whitespace-nowrap">{formatDate(r.due_date)}</td>
                   <td className="p-2 text-white">
@@ -181,6 +201,14 @@ export const UnpaidDetailPanel: React.FC<Props> = ({ fromDate, toDate, label, on
               ))}
             </tbody>
           </table>
+          {hasMore && (
+            <div className="flex justify-center py-2">
+              <button onClick={() => setVisibleCount(c => c + 200)}
+                className="text-xs text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded">
+                더 보기 ({filtered.length - visibleCount}건 남음)
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
