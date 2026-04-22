@@ -32,6 +32,7 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
   const [amountCol, setAmountCol] = useState<number>(-1);
   const [parsed, setParsed] = useState<ParsedDeposit[]>([]);
   const [processing, setProcessing] = useState(false);
+  const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [presetName, setPresetName] = useState('');
   const [parsing, setParsing] = useState(false);
   const xlsxRef = useRef<any>(null);
@@ -57,26 +58,42 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
     return null;
   };
 
-  // 영업자의 담당 파트너사 → 계약들 → 일자별 미납액 누적
-  // 실행일이 도래하지 않은 계약은 제외, 만료일 지난 차감도 제외
-  const calcExpectedAmount = (sp: Salesperson, asOfDate: string): number => {
-    const partnerSet = new Set(sp.partner_ids);
-    const targetContracts = contracts.filter(c =>
-      c.partner_id && partnerSet.has(c.partner_id) &&
-      c.status === '진행중' &&
-      (!c.execution_date || c.execution_date <= asOfDate)
-    );
-    let total = 0;
-    for (const c of targetContracts) {
-      const ded = c.daily_deductions || [];
-      for (const d of ded) {
-        // 실행일~만료일 범위 내 차감만
-        if (c.execution_date && d.date < c.execution_date) continue;
-        if (c.expiry_date && d.date > c.expiry_date) continue;
-        if (d.date <= asOfDate && d.status !== '납부완료') {
-          total += (Number(d.amount) || 0) - (Number(d.paid_amount) || 0);
+  // ⚡ 성능 최적화: 영업자별 미납 차감을 미리 계산해서 캐싱
+  // 영업자 N명 × 입금 M건 × 계약 1320건 × 차감 200건 → N × 1320 × 200으로 축소
+  const salespersonUnpaidCache = useMemo(() => {
+    const cache = new Map<string, { date: string; amount: number; contractId: string }[]>();
+    for (const sp of salespeople) {
+      const partnerSet = new Set(sp.partner_ids);
+      const targetContracts = contracts.filter(c =>
+        c.partner_id && partnerSet.has(c.partner_id) && c.status === '진행중'
+      );
+      const list: { date: string; amount: number; contractId: string }[] = [];
+      for (const c of targetContracts) {
+        const ded = c.daily_deductions || [];
+        for (const d of ded) {
+          if (d.status === '납부완료') continue;
+          if (c.execution_date && d.date < c.execution_date) continue;
+          if (c.expiry_date && d.date > c.expiry_date) continue;
+          list.push({
+            date: d.date,
+            amount: (Number(d.amount) || 0) - (Number(d.paid_amount) || 0),
+            contractId: c.id,
+          });
         }
       }
+      // 날짜순 정렬해두면 calcExpectedAmount에서 binary search 가능
+      list.sort((a, b) => a.date.localeCompare(b.date));
+      cache.set(sp.id, list);
+    }
+    return cache;
+  }, [salespeople, contracts]);
+
+  const calcExpectedAmount = (sp: Salesperson, asOfDate: string): number => {
+    const list = salespersonUnpaidCache.get(sp.id) || [];
+    let total = 0;
+    for (const d of list) {
+      if (d.date > asOfDate) break; // 정렬되어 있으므로 빠른 break
+      total += d.amount;
     }
     return total;
   };
@@ -151,25 +168,19 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
 
       const sp = findSalesperson(depositor);
 
-      // 중복 체크 2: 영업자 담당 계약의 해당 날짜 차감이 모두 납부완료
-      // (수동으로 일차감 관리에서 처리한 경우 대응)
+      // 중복 체크 2: 영업자 담당 계약의 해당 날짜 미납이 0이면 (모두 납부완료) 중복
+      // (캐시된 미납 목록 사용 → 빠름)
       if (!isDup && sp) {
-        const partnerSet = new Set(sp.partner_ids);
-        const targetContracts = contracts.filter(c =>
-          c.partner_id && partnerSet.has(c.partner_id) &&
-          c.status === '진행중' &&
-          (!c.execution_date || c.execution_date <= dateStr)
-        );
-        // 해당 날짜에 차감 스케줄이 있는 계약들
-        const contractsWithDate = targetContracts.filter(c =>
-          (c.daily_deductions || []).some(d => d.date === dateStr)
-        );
-        if (contractsWithDate.length > 0) {
-          // 모두 납부완료인지 확인
-          const allPaidForDate = contractsWithDate.every(c =>
-            (c.daily_deductions || []).filter(d => d.date === dateStr).every(d => d.status === '납부완료')
+        const list = salespersonUnpaidCache.get(sp.id) || [];
+        const hasUnpaidOnDate = list.some(d => d.date === dateStr);
+        if (!hasUnpaidOnDate) {
+          // 해당 날짜에 미납이 없으면, 차감 스케줄이 있었는지 확인 (있는데 미납 없음 = 이미 처리됨)
+          const partnerSet = new Set(sp.partner_ids);
+          const hadDeductionOnDate = contracts.some(c =>
+            c.partner_id && partnerSet.has(c.partner_id) &&
+            (c.daily_deductions || []).some(d => d.date === dateStr)
           );
-          if (allPaidForDate) isDup = true;
+          if (hadDeductionOnDate) isDup = true;
         }
       }
 
@@ -362,11 +373,31 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
       if (depErr) throw new Error(`입금 기록 저장 실패: ${depErr.message}`);
       if (insertedDeposits) (insertedDeposits as any[]).forEach(d => insertedDepositIds.push(d.id));
 
-      // 3-2) 계약 daily_deductions 업데이트
+      // 3-2) 계약 daily_deductions 업데이트 - 재시도 로직 + 약간의 딜레이로 네트워크 부하 분산
+      const updateWithRetry = async (contractId: string, after: any[], retries = 3): Promise<void> => {
+        for (let attempt = 1; attempt <= retries; attempt++) {
+          try {
+            const { error } = await (supabase!.from('contracts') as any).update({ daily_deductions: after }).eq('id', contractId);
+            if (error) throw error;
+            return;
+          } catch (e: any) {
+            if (attempt === retries) throw new Error(`계약 ${contractId} 업데이트 실패 (${retries}회 재시도): ${e.message}`);
+            // 지수 백오프: 500ms, 1s, 2s
+            await new Promise(r => setTimeout(r, 500 * Math.pow(2, attempt - 1)));
+          }
+        }
+      };
+
+      const totalUpdates = contractUpdates.size;
+      let curIdx = 0;
+      setProgress({ current: 0, total: totalUpdates });
       for (const [contractId, { after }] of contractUpdates) {
-        const { error } = await (supabase.from('contracts') as any).update({ daily_deductions: after }).eq('id', contractId);
-        if (error) throw new Error(`계약 ${contractId} 업데이트 실패: ${error.message}`);
+        await updateWithRetry(contractId, after);
         updatedContractIds.push(contractId);
+        curIdx++;
+        setProgress({ current: curIdx, total: totalUpdates });
+        // 네트워크 부하 분산용 50ms 딜레이
+        await new Promise(r => setTimeout(r, 50));
       }
 
       const unmatched = parsed.filter(p => !p.matchedSalespersonId && !p.isDuplicate).length;
@@ -393,6 +424,7 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
       }
     } finally {
       setProcessing(false);
+      setProgress({ current: 0, total: 0 });
     }
   };
 
@@ -521,7 +553,7 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
             <button onClick={() => setParsed([])} className="bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded">취소</button>
             <button onClick={handleProcess} disabled={processing}
               className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-bold px-4 py-2 rounded">
-              {processing ? '처리 중...' : '자동 분배 처리'}
+              {processing ? (progress.total > 0 ? `처리 중... (${progress.current}/${progress.total})` : '처리 중...') : '자동 분배 처리'}
             </button>
           </div>
         </div>
