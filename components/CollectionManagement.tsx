@@ -5,6 +5,7 @@ import { computePaymentStats, classifyRisk, riskColors, RiskLevel } from '../lib
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { BankDepositUpload } from './BankDepositUpload';
 import { BankDepositHistory } from './BankDepositHistory';
+import { CollectionDashboard } from './CollectionDashboard';
 
 interface CollectionManagementProps {
   contracts: Contract[];
@@ -214,6 +215,9 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
       {/* 업로드/이력 모드일 때는 아래 테이블/차트 숨김 (성능 최적화) */}
       {!showUpload && !showHistory && (
         <>
+      {/* 📊 회수 대시보드 (기간별 KPI + 일별 차트 + 위험 총판) */}
+      <CollectionDashboard />
+
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <StatCard
