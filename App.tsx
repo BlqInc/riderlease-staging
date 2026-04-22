@@ -428,7 +428,8 @@ const App: React.FC = () => {
   }, [deductionsLoaded]);
 
   useEffect(() => {
-    if (currentView === 'deductionManagement' && !deductionsLoaded) {
+    // 일차감 관리 + 회수 관리 둘 다 daily_deductions 필요
+    if ((currentView === 'deductionManagement' || currentView === 'collectionManagement') && !deductionsLoaded) {
       loadAllDeductions();
     }
   }, [currentView, deductionsLoaded, loadAllDeductions]);

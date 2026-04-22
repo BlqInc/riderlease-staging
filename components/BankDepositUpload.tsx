@@ -428,8 +428,20 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
     }
   };
 
+  // daily_deductions가 아직 로드 안 된 계약이 많으면 경고
+  const deductionsLoadedRatio = useMemo(() => {
+    if (contracts.length === 0) return 1;
+    const loaded = contracts.filter(c => Array.isArray(c.daily_deductions) && c.daily_deductions.length > 0).length;
+    return loaded / contracts.length;
+  }, [contracts]);
+
   return (
     <div className="space-y-4">
+      {deductionsLoadedRatio < 0.5 && (
+        <div className="bg-yellow-900/30 border border-yellow-700/50 rounded-lg p-3 text-yellow-200 text-sm">
+          ⏳ 일차감 데이터를 불러오는 중입니다... (잠시 기다린 후 업로드해주세요)
+        </div>
+      )}
       <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
         <h3 className="text-white font-bold mb-3">은행 입금내역 업로드</h3>
 
