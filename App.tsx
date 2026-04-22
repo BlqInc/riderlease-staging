@@ -124,6 +124,7 @@ const App: React.FC = () => {
   const [partners, setPartners] = useState<Partner[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [creditors, setCreditors] = useState<Creditor[]>([]);
+  const [salespeople, setSalespeople] = useState<any[]>([]);
   const [creditorSettlements, setCreditorSettlements] = useState<CreditorSettlementRound[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -152,13 +153,15 @@ const App: React.FC = () => {
     try {
       // 계약 데이터: contracts_summary_light 뷰 사용 (daily_deductions 제외, 사전계산된 집계값 포함)
       // 1000건 제한 우회 → 2회 병렬 조회
-      const [contractsRes1, contractsRes2, partnersRes, eventsRes, creditorsRes, creditorSettlementsRes] = await Promise.all([
+      const [contractsRes1, contractsRes2, partnersRes, eventsRes, creditorsRes, creditorSettlementsRes, salespeopleRes, spPartnersRes] = await Promise.all([
         (supabase.from('contracts_summary_light') as any).select('*').order('contract_number', { ascending: false }).range(0, 999),
         (supabase.from('contracts_summary_light') as any).select('*').order('contract_number', { ascending: false }).range(1000, 2999),
         supabase.from('partners').select('*').order('name', { ascending: true }),
         supabase.from('events').select('*').order('date', { ascending: true }),
         (supabase.from('creditors') as any).select('*').order('display_order', { ascending: true }),
         (supabase.from('creditor_settlements') as any).select('*').order('settlement_round', { ascending: false }),
+        (supabase.from('salespeople') as any).select('*').order('name'),
+        (supabase.from('salesperson_partners') as any).select('*'),
       ]);
       const allContracts = [...(contractsRes1.data || []), ...(contractsRes2.data || [])];
       if (partnersRes.error) throw new Error(`파트너 데이터 로드 실패: ${partnersRes.error.message}`);
@@ -169,6 +172,20 @@ const App: React.FC = () => {
       setEvents(eventsRes.data || []);
       if (creditorsRes.data) setCreditors(creditorsRes.data);
       if (creditorSettlementsRes.data) setCreditorSettlements(creditorSettlementsRes.data);
+      // 영업자 + 파트너 매핑 합치기
+      if (salespeopleRes.data) {
+        const partnerByPerson = new Map<string, string[]>();
+        (spPartnersRes.data || []).forEach((m: any) => {
+          const arr = partnerByPerson.get(m.salesperson_id) || [];
+          arr.push(m.partner_id);
+          partnerByPerson.set(m.salesperson_id, arr);
+        });
+        setSalespeople(salespeopleRes.data.map((s: any) => ({
+          ...s,
+          bank_aliases: s.bank_aliases || [],
+          partner_ids: partnerByPerson.get(s.id) || [],
+        })));
+      }
     } catch (error: any) {
       console.error('Error fetching data:', error);
       setFetchError(error.message || '데이터를 불러오는 중 알 수 없는 오류가 발생했습니다.');
@@ -959,7 +976,7 @@ const App: React.FC = () => {
                   }}
                 />
               )}
-              {currentView === 'collectionManagement' && <CollectionManagement contracts={contracts} partners={partners} />}
+              {currentView === 'collectionManagement' && <CollectionManagement contracts={contracts} partners={partners} salespeople={salespeople} settlements={creditorSettlements} onDepositsProcessed={() => fetchData({ silent: true })} />}
               {currentView === 'deductionManagement' && (
                 <DeductionManagement
                   contracts={contracts}

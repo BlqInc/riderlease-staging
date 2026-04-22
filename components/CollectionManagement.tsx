@@ -1,12 +1,16 @@
 import React, { useState, useMemo, memo } from 'react';
-import { Contract, Partner, ContractStatus } from '../types';
+import { Contract, Partner, ContractStatus, Salesperson, CreditorSettlementRound } from '../types';
 import { formatCurrency, formatDate } from '../lib/utils';
 import { computePaymentStats, classifyRisk, riskColors, RiskLevel } from '../lib/riskUtils';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { BankDepositUpload } from './BankDepositUpload';
 
 interface CollectionManagementProps {
   contracts: Contract[];
   partners: Partner[];
+  salespeople?: Salesperson[];
+  settlements?: CreditorSettlementRound[];
+  onDepositsProcessed?: () => void;
 }
 
 // 상수 (컴포넌트 외부 - 매 렌더마다 재생성 방지)
@@ -65,7 +69,8 @@ const CollectionRow = memo<CollectionRowProps>(({ row }) => (
   </tr>
 ));
 
-export const CollectionManagement: React.FC<CollectionManagementProps> = ({ contracts, partners }) => {
+export const CollectionManagement: React.FC<CollectionManagementProps> = ({ contracts, partners, salespeople = [], settlements = [], onDepositsProcessed }) => {
+  const [showUpload, setShowUpload] = useState(false);
   const safeContracts = Array.isArray(contracts) ? contracts : [];
   const [riskFilter, setRiskFilter] = useState<RiskLevel | '전체'>('전체');
   const [keyword, setKeyword] = useState('');
@@ -174,7 +179,25 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
 
   return (
     <div className="p-8 space-y-6">
-      <h2 className="text-3xl font-bold text-white">회수 관리</h2>
+      <div className="flex justify-between items-center">
+        <h2 className="text-3xl font-bold text-white">회수 관리</h2>
+        {onDepositsProcessed && (
+          <button onClick={() => setShowUpload(!showUpload)}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2 rounded-lg">
+            {showUpload ? '닫기' : '🏦 은행 입금내역 업로드'}
+          </button>
+        )}
+      </div>
+
+      {showUpload && onDepositsProcessed && (
+        <BankDepositUpload
+          contracts={contracts}
+          partners={partners}
+          salespeople={salespeople}
+          settlements={settlements}
+          onProcessed={() => { setShowUpload(false); onDepositsProcessed(); }}
+        />
+      )}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
