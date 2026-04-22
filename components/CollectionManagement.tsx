@@ -211,6 +211,9 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
         <BankDepositHistory salespeople={salespeople} onReverted={onDepositsProcessed} />
       )}
 
+      {/* 업로드/이력 모드일 때는 아래 테이블/차트 숨김 (성능 최적화) */}
+      {!showUpload && !showHistory && (
+        <>
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <StatCard
@@ -301,6 +304,8 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
             </BarChart>
           </ResponsiveContainer>
         </div>
+      )}
+        </>
       )}
     </div>
   );
