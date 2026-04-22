@@ -58,118 +58,41 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
     return null;
   };
 
-  // ⚡ 캐시를 DB에서 SQL로 직접 조회 (Phase 1+ 정규화 테이블 사용)
-  // 클라이언트에서 1320 × 200 순회하지 않음 → 컴포넌트 마운트 시점 부하 제거
-  const cacheRef = useRef<{
-    unpaid: Map<string, { date: string; amount: number; contractId: string }[]>;
-    dateIndex: Map<string, Set<string>>;
-    loaded: boolean;
-    loading: boolean;
-  }>({ unpaid: new Map(), dateIndex: new Map(), loaded: false, loading: false });
-
-  const [cacheLoaded, setCacheLoaded] = useState(false);
+  // ⚡ RPC 기반 집계: 클라이언트에서 수만 건 순회 없음
+  // 분석 시 필요한 데이터만 서버에서 집계해서 받음
   const contractUpdatesRef = useRef<Map<string, { before: any[]; after: any[] }>>(new Map());
 
-  // 파일 업로드 or 미리보기 분석 시점에 처음 한 번만 로드
-  const ensureCacheLoaded = useCallback(async () => {
-    if (cacheRef.current.loaded || cacheRef.current.loading || !supabase || salespeople.length === 0) return;
-    cacheRef.current.loading = true;
-
-    // 1) 영업자-파트너 매핑 → 파트너 → 영업자ID들
-    const partnerToSps = new Map<string, string[]>();
-    for (const sp of salespeople) {
-      for (const pid of sp.partner_ids) {
-        const arr = partnerToSps.get(pid) || [];
-        arr.push(sp.id);
-        partnerToSps.set(pid, arr);
-      }
-    }
-    const allPartnerIds = Array.from(partnerToSps.keys());
-
-    // 2) 모든 관련 파트너의 contracts (정규화된 daily_deductions 테이블 join)
-    //    contract.status=진행중 + daily_deduction 한번에 가져옴
-    const { data: contractData } = await (supabase.from('contracts') as any)
-      .select('id, partner_id, execution_date, expiry_date')
-      .in('partner_id', allPartnerIds)
-      .eq('status', '진행중');
-
-    const contractMap = new Map<string, { partnerId: string; exec: string | null; expire: string | null }>();
-    (contractData || []).forEach((c: any) => {
-      contractMap.set(c.id, { partnerId: c.partner_id, exec: c.execution_date, expire: c.expiry_date });
+  // 영업자별 (asOfDate) 예상 미납액 조회 (RPC)
+  const fetchExpectedAmounts = async (spIds: string[], asOfDate: string): Promise<Map<string, number>> => {
+    if (!supabase || spIds.length === 0) return new Map();
+    const { data, error } = await (supabase.rpc as any)('get_salesperson_expected_amounts', {
+      sp_ids: spIds,
+      as_of_date: asOfDate,
     });
+    if (error) { console.error('RPC error:', error); return new Map(); }
+    const map = new Map<string, number>();
+    (data || []).forEach((r: any) => map.set(r.salesperson_id, Number(r.expected_amount) || 0));
+    return map;
+  };
 
-    // 3) daily_deductions 페이지네이션으로 가져오기 (범위가 크면 1000개 제한 우회)
-    const allContractIds = Array.from(contractMap.keys());
-    const allDeductions: any[] = [];
-    const CHUNK = 500;
-    for (let i = 0; i < allContractIds.length; i += CHUNK) {
-      const chunk = allContractIds.slice(i, i + CHUNK);
-      let from = 0;
-      while (true) {
-        const { data } = await (supabase.from('daily_deductions') as any)
-          .select('contract_id, due_date, amount, paid_amount, status')
-          .in('contract_id', chunk)
-          .range(from, from + 999);
-        if (!data || data.length === 0) break;
-        allDeductions.push(...data);
-        if (data.length < 1000) break;
-        from += 1000;
-      }
-    }
-
-    // 4) 캐시 빌드
-    const unpaid = new Map<string, { date: string; amount: number; contractId: string }[]>();
-    const dateIndex = new Map<string, Set<string>>();
-    for (const sp of salespeople) {
-      unpaid.set(sp.id, []);
-      dateIndex.set(sp.id, new Set());
-    }
-
-    for (const d of allDeductions) {
-      const c = contractMap.get(d.contract_id);
-      if (!c) continue;
-      const sps = partnerToSps.get(c.partnerId);
-      if (!sps) continue;
-      const dueDate = d.due_date;
-      // 실행일~만료일 범위 필터
-      if (c.exec && dueDate < c.exec) continue;
-      if (c.expire && dueDate > c.expire) continue;
-
-      for (const spId of sps) dateIndex.get(spId)!.add(dueDate);
-
-      if (d.status !== '납부완료') {
-        const item = {
-          date: dueDate,
-          amount: (Number(d.amount) || 0) - (Number(d.paid_amount) || 0),
-          contractId: d.contract_id,
-        };
-        for (const spId of sps) unpaid.get(spId)!.push(item);
-      }
-    }
-    for (const list of unpaid.values()) list.sort((a, b) => a.date.localeCompare(b.date));
-
-    cacheRef.current = { unpaid, dateIndex, loaded: true, loading: false };
-    setCacheLoaded(true);
-  }, [salespeople]);
-
-  const salespersonUnpaidCache = cacheRef.current.unpaid;
-  const salespersonDateIndex = cacheRef.current.dateIndex;
-
-  const calcExpectedAmount = (sp: Salesperson, asOfDate: string): number => {
-    const list = salespersonUnpaidCache.get(sp.id) || [];
-    let total = 0;
-    for (const d of list) {
-      if (d.date > asOfDate) break; // 정렬되어 있으므로 빠른 break
-      total += d.amount;
-    }
-    return total;
+  // 영업자 × 날짜 조합으로 이미 처리된 건 확인 (RPC)
+  const fetchAllPaidDates = async (spIds: string[], dates: string[]): Promise<Set<string>> => {
+    if (!supabase || spIds.length === 0 || dates.length === 0) return new Set();
+    const { data, error } = await (supabase.rpc as any)('check_salesperson_date_paid', {
+      sp_ids: spIds,
+      dates: dates,
+    });
+    if (error) { console.error('RPC error:', error); return new Set(); }
+    const set = new Set<string>(); // key: "spId|date"
+    (data || []).forEach((r: any) => {
+      if (r.all_paid) set.add(`${r.salesperson_id}|${r.due_date}`);
+    });
+    return set;
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    // 캐시 백그라운드 로드 시작 (await 안 함)
-    ensureCacheLoaded();
     setParsing(true);
     try {
       // xlsx 라이브러리 (이미 mount 시 로드됐을 가능성 높음)
@@ -195,85 +118,98 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
       return;
     }
 
-    // 캐시 로드 (아직 안 됐으면 지금 로드, 이미 됐으면 즉시 통과)
-    await ensureCacheLoaded();
+    setParsing(true);
+    try {
+      // 1) 엑셀 행 먼저 파싱 (영업자 매칭은 있는 그대로)
+      const preList: Array<{
+        rowIdx: number; date: string; depositor: string; amount: number;
+        sp: Salesperson | null;
+      }> = [];
+      for (let i = headerRow + 1; i < excelData.length; i++) {
+        const row = excelData[i];
+        if (!row || !row[depositorCol]) continue;
 
-    // 1) 기존 처리된 입금 조회 (중복 체크용) - reverted_at IS NULL인 것만
-    const existingKeys = new Set<string>();
-    if (supabase) {
-      const { data } = await (supabase.from('bank_deposits') as any)
-        .select('deposit_date, depositor_name, amount')
-        .is('reverted_at', null);
-      (data || []).forEach((d: any) => {
+        let dateStr = '';
+        const rawDate = row[dateCol];
+        if (rawDate instanceof Date) {
+          const d = rawDate;
+          dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        } else if (typeof rawDate === 'string') {
+          const m = rawDate.match(/(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
+          if (m) dateStr = `${m[1]}-${String(m[2]).padStart(2, '0')}-${String(m[3]).padStart(2, '0')}`;
+          else dateStr = rawDate;
+        } else if (typeof rawDate === 'number') {
+          const d = new Date((rawDate - 25569) * 86400 * 1000);
+          dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        }
+
+        const depositor = String(row[depositorCol] || '').trim();
+        const amountRaw = String(row[amountCol] || '0').replace(/[,\s원]/g, '');
+        const amount = Number(amountRaw) || 0;
+        if (amount <= 0 || !depositor) continue;
+
+        preList.push({ rowIdx: i, date: dateStr, depositor, amount, sp: findSalesperson(depositor) });
+      }
+
+      // 2) 필요한 데이터 한 번에 서버에서 받기
+      const uniqueSpIds = Array.from(new Set(preList.filter(p => p.sp).map(p => p.sp!.id)));
+      const uniqueDates = Array.from(new Set(preList.map(p => p.date).filter(Boolean)));
+      const uniqueAsOfDates = Array.from(new Set(preList.filter(p => p.sp).map(p => p.date)));
+
+      // 병렬: 기존 입금 + 예상 미납 + 모두납부 확인
+      const [existingDepositsRes, expectedMaps, paidSet] = await Promise.all([
+        supabase ? (supabase.from('bank_deposits') as any).select('deposit_date, depositor_name, amount').is('reverted_at', null) : Promise.resolve({ data: [] }),
+        // 영업자 × 여러 날짜 → 날짜별로 병렬 호출
+        Promise.all(uniqueAsOfDates.map(async (date) => ({
+          date,
+          amounts: await fetchExpectedAmounts(uniqueSpIds, date),
+        }))),
+        fetchAllPaidDates(uniqueSpIds, uniqueDates),
+      ]);
+
+      // existingKeys: (날짜, 입금자, 금액) 중복 체크
+      const existingKeys = new Set<string>();
+      (existingDepositsRes.data || []).forEach((d: any) => {
         existingKeys.add(`${d.deposit_date}|${d.depositor_name}|${Number(d.amount)}`);
       });
-    }
+      // expectedByDate: date → spId → expectedAmount
+      const expectedByDate = new Map<string, Map<string, number>>();
+      expectedMaps.forEach(({ date, amounts }) => expectedByDate.set(date, amounts));
 
-    const list: ParsedDeposit[] = [];
-    for (let i = headerRow + 1; i < excelData.length; i++) {
-      const row = excelData[i];
-      if (!row || !row[depositorCol]) continue;
+      // 3) 결과 조립
+      const list: ParsedDeposit[] = [];
+      for (const p of preList) {
+        const dupKey = `${p.date}|${p.depositor}|${p.amount}`;
+        let isDup = existingKeys.has(dupKey);
 
-      let dateStr = '';
-      const rawDate = row[dateCol];
-      if (rawDate instanceof Date) {
-        const d = rawDate;
-        dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      } else if (typeof rawDate === 'string') {
-        const m = rawDate.match(/(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
-        if (m) dateStr = `${m[1]}-${String(m[2]).padStart(2, '0')}-${String(m[3]).padStart(2, '0')}`;
-        else dateStr = rawDate;
-      } else if (typeof rawDate === 'number') {
-        // 엑셀 시리얼
-        const d = new Date((rawDate - 25569) * 86400 * 1000);
-        dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      }
-
-      const depositor = String(row[depositorCol] || '').trim();
-      const amountRaw = String(row[amountCol] || '0').replace(/[,\s원]/g, '');
-      const amount = Number(amountRaw) || 0;
-      if (amount <= 0 || !depositor) continue;
-
-      // 중복 체크 1: bank_deposits 테이블에 동일 입금 기록 있음
-      const dupKey = `${dateStr}|${depositor}|${amount}`;
-      let isDup = existingKeys.has(dupKey);
-
-      const sp = findSalesperson(depositor);
-
-      // 중복 체크 2: dateIndex로 차감 스케줄 존재 확인 + unpaid에서 미납 확인 (둘 다 O(1))
-      if (!isDup && sp) {
-        const hadSchedule = salespersonDateIndex.get(sp.id)?.has(dateStr) || false;
-        if (hadSchedule) {
-          const list = salespersonUnpaidCache.get(sp.id) || [];
-          const hasUnpaidOnDate = list.some(d => d.date === dateStr);
-          if (!hasUnpaidOnDate) isDup = true; // 스케줄 있는데 미납 없음 = 이미 처리됨
+        if (!isDup && p.sp) {
+          // 중복 체크 2: 해당 날짜의 차감이 모두 납부완료 상태
+          if (paidSet.has(`${p.sp.id}|${p.date}`)) isDup = true;
         }
-      }
 
-      const expected = sp ? calcExpectedAmount(sp, dateStr) : 0;
-      const diff = amount - expected;
-      let status: 'matched' | 'partial' | 'unmatched' | 'duplicate' = 'unmatched';
-      if (isDup) {
-        status = 'duplicate';
-      } else if (sp) {
-        if (Math.abs(diff) < 1) status = 'matched';
-        else status = 'partial';
-      }
+        const expected = p.sp ? (expectedByDate.get(p.date)?.get(p.sp.id) || 0) : 0;
+        const diff = p.amount - expected;
+        let status: 'matched' | 'partial' | 'unmatched' | 'duplicate' = 'unmatched';
+        if (isDup) status = 'duplicate';
+        else if (p.sp) status = Math.abs(diff) < 1 ? 'matched' : 'partial';
 
-      list.push({
-        rowIdx: i,
-        date: dateStr,
-        depositor,
-        amount,
-        matchedSalespersonId: sp?.id || null,
-        matchedSalespersonName: sp?.name || '',
-        expectedAmount: expected,
-        diff,
-        status,
-        isDuplicate: isDup,
-      });
+        list.push({
+          rowIdx: p.rowIdx,
+          date: p.date,
+          depositor: p.depositor,
+          amount: p.amount,
+          matchedSalespersonId: p.sp?.id || null,
+          matchedSalespersonName: p.sp?.name || '',
+          expectedAmount: expected,
+          diff,
+          status,
+          isDuplicate: isDup,
+        });
+      }
+      setParsed(list);
+    } finally {
+      setParsing(false);
     }
-    setParsed(list);
   };
 
   const savePreset = async () => {
@@ -301,15 +237,12 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
       return;
     }
 
-    // 영업자별로 미납 + 초과 계산 (선납 여부 사전 확인)
+    // 영업자별로 미납 + 초과 계산 (parsed에서 이미 계산된 expectedAmount 사용)
     const overflows: { spName: string; overflowAmount: number }[] = [];
     for (const p of matched) {
-      const sp = salespeople.find(s => s.id === p.matchedSalespersonId);
-      if (!sp) continue;
-      const expected = calcExpectedAmount(sp, p.date);
       // 같은 영업자의 같은 날 다른 입금 합산은 단순화: 개별 처리
-      if (p.amount > expected) {
-        overflows.push({ spName: sp.name, overflowAmount: p.amount - expected });
+      if (p.amount > p.expectedAmount) {
+        overflows.push({ spName: p.matchedSalespersonName, overflowAmount: p.amount - p.expectedAmount });
       }
     }
 
