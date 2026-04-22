@@ -2,14 +2,16 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { formatCurrency, formatDate } from '../lib/utils';
 
-interface ExpiredContract {
+interface UnpaidContract {
   contract_id: string;
   contract_number: number;
   lessee_name: string;
   distributor_name: string;
   partner_name: string;
-  expiry_date: string;
-  days_since_expiry: number;
+  execution_date: string | null;
+  expiry_date: string | null;
+  days_since_expiry: number | null;
+  is_expired: boolean;
   total_unpaid: number;
   sms_sent: boolean;
   call_made: boolean;
@@ -20,6 +22,7 @@ interface ExpiredContract {
 }
 
 type ActionKey = 'sms_sent' | 'call_made' | 'credit_agency_sent' | 'criminal_complaint' | 'delayed_recovery';
+type TabMode = 'expired' | 'active';
 
 const ACTION_LABELS: { key: ActionKey; label: string; color: string }[] = [
   { key: 'sms_sent', label: '문자 안내', color: 'bg-blue-500/20 text-blue-300 border-blue-500/40' },
@@ -30,10 +33,11 @@ const ACTION_LABELS: { key: ActionKey; label: string; color: string }[] = [
 ];
 
 export const ExpiredCollectionActions: React.FC = () => {
-  const [contracts, setContracts] = useState<ExpiredContract[]>([]);
+  const [contracts, setContracts] = useState<UnpaidContract[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterAction, setFilterAction] = useState<ActionKey | 'all' | 'none'>('all');
+  const [tabMode, setTabMode] = useState<TabMode>('expired');
   const [memoEditing, setMemoEditing] = useState<string | null>(null);
   const [memoValue, setMemoValue] = useState('');
   const [payEditing, setPayEditing] = useState<string | null>(null);
@@ -44,7 +48,7 @@ export const ExpiredCollectionActions: React.FC = () => {
     if (!supabase) return;
     setLoading(true);
     try {
-      const { data, error } = await (supabase.rpc as any)('get_expired_unpaid_contracts');
+      const { data, error } = await (supabase.rpc as any)('get_unpaid_contracts_all');
       if (error) throw error;
       setContracts(((data || []) as any[]).map(r => ({
         contract_id: r.contract_id,
@@ -52,8 +56,10 @@ export const ExpiredCollectionActions: React.FC = () => {
         lessee_name: r.lessee_name || '',
         distributor_name: r.distributor_name || '',
         partner_name: r.partner_name || '',
-        expiry_date: r.expiry_date,
-        days_since_expiry: Number(r.days_since_expiry) || 0,
+        execution_date: r.execution_date || null,
+        expiry_date: r.expiry_date || null,
+        days_since_expiry: r.days_since_expiry == null ? null : Number(r.days_since_expiry),
+        is_expired: !!r.is_expired,
         total_unpaid: Number(r.total_unpaid) || 0,
         sms_sent: !!r.sms_sent,
         call_made: !!r.call_made,
@@ -64,6 +70,7 @@ export const ExpiredCollectionActions: React.FC = () => {
       })));
     } catch (e: any) {
       console.error(e);
+      alert(`데이터 로드 실패: ${e.message}\n\n(RPC get_unpaid_contracts_all 이 DB에 없을 수 있어요. sql_unpaid_contracts_all.sql 을 실행해주세요.)`);
     } finally {
       setLoading(false);
     }
@@ -71,7 +78,7 @@ export const ExpiredCollectionActions: React.FC = () => {
 
   useEffect(() => { fetchData(); }, []);
 
-  const toggleAction = async (contract: ExpiredContract, key: ActionKey) => {
+  const toggleAction = async (contract: UnpaidContract, key: ActionKey) => {
     if (!supabase) return;
     const newValue = !contract[key];
     // 낙관적 업데이트
@@ -88,7 +95,7 @@ export const ExpiredCollectionActions: React.FC = () => {
   };
 
   // 만료 계약 입금 처리 - 오래된 미납부터 순차 분배
-  const handlePay = async (contract: ExpiredContract) => {
+  const handlePay = async (contract: UnpaidContract) => {
     if (!supabase) return;
     const amount = Number(payAmount);
     if (!amount || amount <= 0) { alert('금액을 입력해주세요.'); return; }
@@ -163,7 +170,7 @@ export const ExpiredCollectionActions: React.FC = () => {
     }
   };
 
-  const saveMemo = async (contract: ExpiredContract) => {
+  const saveMemo = async (contract: UnpaidContract) => {
     if (!supabase) return;
     const trimmed = memoValue.trim() || null;
     try {
@@ -180,9 +187,19 @@ export const ExpiredCollectionActions: React.FC = () => {
     }
   };
 
+  // 탭으로 먼저 분할 (만료 / 비만료)
+  const byTab = useMemo(
+    () => contracts.filter(c => tabMode === 'expired' ? c.is_expired : !c.is_expired),
+    [contracts, tabMode]
+  );
+
+  const tabCounts = useMemo(() => ({
+    expired: contracts.filter(c => c.is_expired).length,
+    active: contracts.filter(c => !c.is_expired).length,
+  }), [contracts]);
+
   const filtered = useMemo(() => {
-    let list = contracts;
-    // 검색
+    let list = byTab;
     if (search.trim()) {
       const kw = search.trim().toLowerCase();
       list = list.filter(c =>
@@ -191,39 +208,54 @@ export const ExpiredCollectionActions: React.FC = () => {
         String(c.contract_number).includes(kw)
       );
     }
-    // 액션 필터
     if (filterAction === 'none') {
       list = list.filter(c => !c.sms_sent && !c.call_made && !c.credit_agency_sent && !c.criminal_complaint && !c.delayed_recovery);
     } else if (filterAction !== 'all') {
       list = list.filter(c => c[filterAction]);
     }
     return list;
-  }, [contracts, search, filterAction]);
+  }, [byTab, search, filterAction]);
 
   const stats = useMemo(() => {
-    const totalUnpaid = contracts.reduce((s, c) => s + c.total_unpaid, 0);
-    const untouched = contracts.filter(c =>
+    const totalUnpaid = byTab.reduce((s, c) => s + c.total_unpaid, 0);
+    const untouched = byTab.filter(c =>
       !c.sms_sent && !c.call_made && !c.credit_agency_sent && !c.criminal_complaint && !c.delayed_recovery
     ).length;
-    return { count: contracts.length, totalUnpaid, untouched };
-  }, [contracts]);
+    return { count: byTab.length, totalUnpaid, untouched };
+  }, [byTab]);
 
   return (
     <div className="bg-slate-800/60 rounded-xl p-6 border border-slate-700 space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h3 className="text-xl font-bold text-white">🚨 만료 계약 회수 관리</h3>
-          <p className="text-xs text-slate-500 mt-1">계약 기간은 종료됐으나 미수가 남은 계약들</p>
+          <h3 className="text-xl font-bold text-white">🚨 미수 계약 회수 관리</h3>
+          <p className="text-xs text-slate-500 mt-1">미수가 남은 모든 계약 (만료/비만료 분리)</p>
         </div>
         <button onClick={fetchData} className="text-xs text-slate-400 hover:text-white bg-slate-700 px-3 py-1.5 rounded">
           🔄 새로고침
         </button>
       </div>
 
+      {/* 탭: 만료 / 비만료 */}
+      <div className="flex bg-slate-900/50 rounded-lg p-1 gap-1 w-fit">
+        <button onClick={() => setTabMode('expired')}
+          className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
+            tabMode === 'expired' ? 'bg-red-600 text-white font-bold' : 'text-slate-400 hover:text-white'
+          }`}>
+          만료 ({tabCounts.expired})
+        </button>
+        <button onClick={() => setTabMode('active')}
+          className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
+            tabMode === 'active' ? 'bg-yellow-600 text-white font-bold' : 'text-slate-400 hover:text-white'
+          }`}>
+          비만료 ({tabCounts.active})
+        </button>
+      </div>
+
       {/* 요약 */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="bg-slate-900/50 rounded-lg p-3 border border-slate-700/50">
-          <p className="text-xs text-slate-400">전체 만료 미수 계약</p>
+          <p className="text-xs text-slate-400">{tabMode === 'expired' ? '만료 미수 계약' : '비만료 미수 계약'}</p>
           <p className="text-2xl font-bold text-white mt-1">{stats.count}건</p>
         </div>
         <div className="bg-slate-900/50 rounded-lg p-3 border border-red-700/30">
@@ -267,7 +299,9 @@ export const ExpiredCollectionActions: React.FC = () => {
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-indigo-500" />
         </div>
       ) : filtered.length === 0 ? (
-        <p className="text-slate-500 text-sm text-center py-8">해당하는 만료 계약이 없습니다.</p>
+        <p className="text-slate-500 text-sm text-center py-8">
+          해당하는 {tabMode === 'expired' ? '만료' : '비만료'} 계약이 없습니다.
+        </p>
       ) : (
         <div className="space-y-2 max-h-[600px] overflow-y-auto">
           {filtered.map(c => (
@@ -278,12 +312,24 @@ export const ExpiredCollectionActions: React.FC = () => {
                     <span className="text-white font-semibold">{c.lessee_name}</span>
                     <span className="text-slate-500 text-sm">#{c.contract_number}</span>
                     <span className="text-xs bg-slate-700 text-slate-300 px-2 py-0.5 rounded">{c.distributor_name}</span>
-                    <span className="text-xs bg-red-500/20 text-red-300 px-2 py-0.5 rounded font-medium">
-                      만료 {c.days_since_expiry}일 경과
-                    </span>
+                    {c.is_expired ? (
+                      <span className="text-xs bg-red-500/20 text-red-300 px-2 py-0.5 rounded font-medium">
+                        만료 {c.days_since_expiry}일 경과
+                      </span>
+                    ) : c.days_since_expiry != null ? (
+                      <span className="text-xs bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded font-medium">
+                        만료까지 {Math.abs(c.days_since_expiry)}일
+                      </span>
+                    ) : (
+                      <span className="text-xs bg-slate-500/20 text-slate-300 px-2 py-0.5 rounded">
+                        만료일 미정
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs text-slate-400 mt-1">
-                    만료일 {formatDate(c.expiry_date)} · 미수액 <span className="text-red-400 font-semibold">{formatCurrency(c.total_unpaid)}</span>
+                    {c.execution_date ? `실행일 ${formatDate(c.execution_date)} · ` : ''}
+                    {c.expiry_date ? `만료일 ${formatDate(c.expiry_date)} · ` : ''}
+                    미수액 <span className="text-red-400 font-semibold">{formatCurrency(c.total_unpaid)}</span>
                   </p>
                 </div>
                 {/* 입금 처리 버튼/입력 */}

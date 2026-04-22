@@ -9,11 +9,26 @@ interface UnpaidRow {
   lessee_name: string;
   distributor_name: string;
   partner_name: string | null;
+  execution_date: string | null;
+  expiry_date: string | null;
   due_date: string;
   amount: number;
   paid_amount: number;
   owed: number;
+  sms_sent: boolean;
+  call_made: boolean;
+  credit_agency_sent: boolean;
+  criminal_complaint: boolean;
+  delayed_recovery: boolean;
 }
+
+const ACTION_BADGES: { key: keyof UnpaidRow; label: string; color: string }[] = [
+  { key: 'sms_sent', label: '문자', color: 'bg-blue-500/20 text-blue-300 border-blue-500/40' },
+  { key: 'call_made', label: '전화', color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40' },
+  { key: 'credit_agency_sent', label: '신정사', color: 'bg-orange-500/20 text-orange-300 border-orange-500/40' },
+  { key: 'criminal_complaint', label: '고소', color: 'bg-red-500/20 text-red-300 border-red-500/40' },
+  { key: 'delayed_recovery', label: '지연회수', color: 'bg-purple-500/20 text-purple-300 border-purple-500/40' },
+];
 
 interface Props {
   fromDate: string;
@@ -52,10 +67,17 @@ export const UnpaidDetailPanel: React.FC<Props> = ({ fromDate, toDate, label, on
           lessee_name: r.lessee_name || '',
           distributor_name: r.distributor_name || '',
           partner_name: r.partner_name || null,
+          execution_date: r.execution_date || null,
+          expiry_date: r.expiry_date || null,
           due_date: r.due_date,
           amount: Number(r.amount) || 0,
           paid_amount: Number(r.paid_amount) || 0,
           owed: Number(r.owed) || 0,
+          sms_sent: !!r.sms_sent,
+          call_made: !!r.call_made,
+          credit_agency_sent: !!r.credit_agency_sent,
+          criminal_complaint: !!r.criminal_complaint,
+          delayed_recovery: !!r.delayed_recovery,
         })));
       } catch (e: any) {
         console.error('미납 상세 로드 실패:', e);
@@ -170,8 +192,31 @@ export const UnpaidDetailPanel: React.FC<Props> = ({ fromDate, toDate, label, on
                 <tr key={r.deduction_id} className="border-b border-slate-700/50 hover:bg-slate-700/30">
                   <td className="p-2 text-slate-300 whitespace-nowrap">{formatDate(r.due_date)}</td>
                   <td className="p-2 text-white">
-                    {r.lessee_name}
-                    <span className="text-slate-500 text-xs ml-1">#{r.contract_number}</span>
+                    <div>
+                      {r.lessee_name}
+                      <span className="text-slate-500 text-xs ml-1">#{r.contract_number}</span>
+                    </div>
+                    {(r.execution_date || r.expiry_date) && (
+                      <div className="text-[10px] text-slate-500 mt-0.5">
+                        {r.execution_date ? formatDate(r.execution_date) : '?'} ~ {r.expiry_date ? formatDate(r.expiry_date) : '?'}
+                      </div>
+                    )}
+                    {(() => {
+                      const active = ACTION_BADGES.filter(a => r[a.key]);
+                      if (active.length === 0) {
+                        return <div className="text-[10px] text-slate-600 mt-1">조치 없음</div>;
+                      }
+                      return (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {active.map(a => (
+                            <span key={a.key as string}
+                              className={`text-[10px] px-1.5 py-0 rounded border ${a.color}`}>
+                              {a.label}
+                            </span>
+                          ))}
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td className="p-2 text-slate-300">{r.distributor_name}</td>
                   <td className="p-2 text-slate-400 text-xs">{r.partner_name || '-'}</td>
