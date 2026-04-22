@@ -227,29 +227,50 @@ export const ExpiredCollectionActions: React.FC = () => {
     return { count: byTab.length, totalUnpaid, untouched };
   }, [byTab]);
 
-  // 이름별 그룹 (2건 이상일 때만 묶음 헤더 표시)
+  // 이름+총판별 그룹 (2건 이상일 때만 묶음 헤더 표시)
   const grouped = useMemo(() => {
     const map = new Map<string, UnpaidContract[]>();
     filtered.forEach(c => {
-      const key = c.lessee_name || '(이름 없음)';
+      const key = `${c.lessee_name || '(이름 없음)'}|||${c.distributor_name || ''}`;
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(c);
     });
     return Array.from(map.entries()).sort((a, b) => {
-      // 여러 계약 가진 이름부터 상단, 이름은 그대로 유지
       if (a[1].length !== b[1].length) return b[1].length - a[1].length;
       return 0;
     });
   }, [filtered]);
 
-  const [collapsedNames, setCollapsedNames] = useState<Set<string>>(new Set());
-  const toggleCollapse = (name: string) => {
-    setCollapsedNames(prev => {
+  const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(new Set());
+  const toggleCollapse = (key: string) => {
+    setCollapsedKeys(prev => {
       const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
+  };
+
+  // 그룹 단위 일괄 조치 (모든 계약에 동일 액션 적용)
+  const toggleGroupAction = async (group: UnpaidContract[], key: ActionKey) => {
+    if (!supabase) return;
+    const allChecked = group.every(c => c[key]);
+    const newValue = !allChecked; // 모두 체크면 해제, 아니면 모두 체크
+    const ids = new Set(group.map(c => c.contract_id));
+    // 낙관적 업데이트
+    setContracts(prev => prev.map(c => ids.has(c.contract_id) ? { ...c, [key]: newValue } : c));
+    try {
+      await Promise.all(group.map(c =>
+        (supabase!.from('expired_collection_actions') as any).upsert({
+          contract_id: c.contract_id,
+          [key]: newValue,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'contract_id' })
+      ));
+    } catch (e: any) {
+      alert(`일괄 저장 실패: ${e.message}`);
+      fetchData();
+    }
   };
 
   return (
@@ -339,28 +360,58 @@ export const ExpiredCollectionActions: React.FC = () => {
         </p>
       ) : (
         <div className="space-y-3 max-h-[600px] overflow-y-auto">
-          {grouped.map(([name, group]) => {
+          {grouped.map(([key, group]) => {
+            const [name, distributor] = key.split('|||');
             const isMulti = group.length >= 2;
-            const collapsed = collapsedNames.has(name);
+            const collapsed = collapsedKeys.has(key);
             const groupTotalUnpaid = group.reduce((s, c) => s + c.total_unpaid, 0);
             const groupMaxOverdue = Math.max(...group.map(c => c.max_overdue_days));
             return (
-              <div key={name} className={isMulti ? 'bg-slate-900/20 rounded-lg border border-slate-700/30 p-2' : ''}>
+              <div key={key} className={isMulti ? 'bg-slate-900/20 rounded-lg border border-slate-700/30 p-2' : ''}>
                 {isMulti && (
-                  <button onClick={() => toggleCollapse(name)}
-                    className="w-full flex items-center justify-between px-2 py-1.5 hover:bg-slate-800/40 rounded transition-colors">
-                    <div className="flex items-center gap-2">
-                      <span className="text-slate-400 text-xs">{collapsed ? '▶' : '▼'}</span>
-                      <span className="text-white font-semibold">{name}</span>
-                      <span className="text-xs bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded">
-                        {group.length}건
-                      </span>
+                  <>
+                    <button onClick={() => toggleCollapse(key)}
+                      className="w-full flex items-center justify-between px-2 py-1.5 hover:bg-slate-800/40 rounded transition-colors">
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-400 text-xs">{collapsed ? '▶' : '▼'}</span>
+                        <span className="text-white font-semibold">{name}</span>
+                        {distributor && (
+                          <span className="text-xs bg-slate-700 text-slate-300 px-2 py-0.5 rounded">{distributor}</span>
+                        )}
+                        <span className="text-xs bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded">
+                          {group.length}건
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 text-xs">
+                        <span className="text-slate-400">최장 연체 <span className="text-red-400 font-bold">{groupMaxOverdue}일</span></span>
+                        <span className="text-slate-400">총 미수 <span className="text-red-400 font-bold">{formatCurrency(groupTotalUnpaid)}</span></span>
+                      </div>
+                    </button>
+                    {/* 그룹 단위 일괄 조치 - 클릭 시 하위 모든 계약에 동시 반영 */}
+                    <div className="flex items-center gap-1.5 flex-wrap px-2 py-1.5 border-t border-slate-700/30 mt-1">
+                      <span className="text-[10px] text-slate-500">일괄 조치:</span>
+                      {ACTION_LABELS.map(a => {
+                        const allChecked = group.every(c => c[a.key]);
+                        const someChecked = group.some(c => c[a.key]);
+                        const state: 'all' | 'partial' | 'none' =
+                          allChecked ? 'all' : someChecked ? 'partial' : 'none';
+                        return (
+                          <button key={a.key} onClick={(e) => { e.stopPropagation(); toggleGroupAction(group, a.key); }}
+                            className={`flex items-center gap-1 px-2 py-0.5 text-[11px] rounded border transition-colors ${
+                              state === 'all' ? a.color
+                              : state === 'partial' ? 'bg-slate-700/50 text-slate-200 border-slate-500'
+                              : 'bg-slate-800 text-slate-500 border-slate-700 hover:border-slate-500'
+                            }`}
+                            title={state === 'all' ? '모두 체크됨 (클릭 시 전체 해제)'
+                              : state === 'partial' ? '일부만 체크됨 (클릭 시 전체 체크)'
+                              : '체크 안됨 (클릭 시 전체 체크)'}>
+                            <span>{state === 'all' ? '✓' : state === 'partial' ? '◐' : '○'}</span>
+                            <span>{a.label}</span>
+                          </button>
+                        );
+                      })}
                     </div>
-                    <div className="flex items-center gap-3 text-xs">
-                      <span className="text-slate-400">최장 연체 <span className="text-red-400 font-bold">{groupMaxOverdue}일</span></span>
-                      <span className="text-slate-400">총 미수 <span className="text-red-400 font-bold">{formatCurrency(groupTotalUnpaid)}</span></span>
-                    </div>
-                  </button>
+                  </>
                 )}
                 {!collapsed && (
                   <div className={`space-y-2 ${isMulti ? 'mt-2 pl-4 border-l-2 border-slate-700/50' : ''}`}>
