@@ -36,6 +36,9 @@ export const ExpiredCollectionActions: React.FC = () => {
   const [filterAction, setFilterAction] = useState<ActionKey | 'all' | 'none'>('all');
   const [memoEditing, setMemoEditing] = useState<string | null>(null);
   const [memoValue, setMemoValue] = useState('');
+  const [payEditing, setPayEditing] = useState<string | null>(null);
+  const [payAmount, setPayAmount] = useState('');
+  const [paying, setPaying] = useState(false);
 
   const fetchData = async () => {
     if (!supabase) return;
@@ -81,6 +84,82 @@ export const ExpiredCollectionActions: React.FC = () => {
       alert(`저장 실패: ${e.message}`);
       // 롤백
       setContracts(prev => prev.map(c => c.contract_id === contract.contract_id ? { ...c, [key]: !newValue } : c));
+    }
+  };
+
+  // 만료 계약 입금 처리 - 오래된 미납부터 순차 분배
+  const handlePay = async (contract: ExpiredContract) => {
+    if (!supabase) return;
+    const amount = Number(payAmount);
+    if (!amount || amount <= 0) { alert('금액을 입력해주세요.'); return; }
+    if (amount > contract.total_unpaid * 1.01) {
+      if (!confirm(`입금액(${formatCurrency(amount)})이 미수액(${formatCurrency(contract.total_unpaid)})보다 큽니다.\n그래도 처리할까요? (초과분은 무시됩니다)`)) return;
+    }
+
+    setPaying(true);
+    try {
+      // 1) 해당 계약의 미납 차감들 가져오기 (오래된 순)
+      const { data: deds, error: e1 } = await (supabase.from('daily_deductions') as any)
+        .select('id, due_date, amount, paid_amount, status')
+        .eq('contract_id', contract.contract_id)
+        .neq('status', '납부완료')
+        .order('due_date', { ascending: true });
+      if (e1) throw e1;
+
+      // 2) 오래된 순으로 분배
+      let remaining = amount;
+      const updates: { id: string; paid_amount: number; status: string }[] = [];
+      for (const d of deds || []) {
+        if (remaining <= 0) break;
+        const owed = Number(d.amount) - Number(d.paid_amount);
+        if (owed <= 0) continue;
+        const pay = Math.min(remaining, owed);
+        remaining -= pay;
+        const newPaid = Number(d.paid_amount) + pay;
+        updates.push({
+          id: d.id,
+          paid_amount: newPaid,
+          status: newPaid >= Number(d.amount) ? '납부완료' : '부분납부',
+        });
+      }
+
+      if (updates.length === 0) {
+        alert('처리할 미납 차감이 없습니다.');
+        return;
+      }
+
+      // 3) 병렬 업데이트 (5개씩)
+      for (let i = 0; i < updates.length; i += 5) {
+        const batch = updates.slice(i, i + 5);
+        await Promise.all(batch.map(u =>
+          (supabase!.from('daily_deductions') as any).update({
+            paid_amount: u.paid_amount, status: u.status,
+          }).eq('id', u.id)
+        ));
+      }
+
+      // 4) bank_deposits 기록 (수동 입금)
+      const today = new Date().toISOString().split('T')[0];
+      await (supabase.from('bank_deposits') as any).insert({
+        deposit_date: today,
+        depositor_name: `${contract.lessee_name} (만료계약 수동입금)`,
+        amount: amount - remaining,
+        salesperson_id: null,
+        status: 'matched',
+        matched_amount: amount - remaining,
+        remaining_amount: remaining,
+        processed_at: new Date().toISOString(),
+        memo: `만료 계약 #${contract.contract_number} 미수 처리`,
+      });
+
+      alert(`✅ 입금 처리 완료\n${updates.length}건 차감에 ${formatCurrency(amount - remaining)} 분배${remaining > 0 ? ` (미배분 ${formatCurrency(remaining)})` : ''}`);
+      setPayEditing(null);
+      setPayAmount('');
+      await fetchData();
+    } catch (e: any) {
+      alert(`입금 처리 실패: ${e.message}`);
+    } finally {
+      setPaying(false);
     }
   };
 
@@ -207,6 +286,26 @@ export const ExpiredCollectionActions: React.FC = () => {
                     만료일 {formatDate(c.expiry_date)} · 미수액 <span className="text-red-400 font-semibold">{formatCurrency(c.total_unpaid)}</span>
                   </p>
                 </div>
+                {/* 입금 처리 버튼/입력 */}
+                {payEditing === c.contract_id ? (
+                  <div className="flex items-center gap-1">
+                    <input type="number" value={payAmount} onChange={e => setPayAmount(e.target.value)}
+                      placeholder="입금액"
+                      className="bg-slate-700 text-white text-sm rounded px-2 py-1 w-32 focus:outline-none focus:ring-1 focus:ring-green-500"
+                      autoFocus />
+                    <button onClick={() => handlePay(c)} disabled={paying}
+                      className="text-xs bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-3 py-1 rounded">
+                      {paying ? '처리 중...' : '입금'}
+                    </button>
+                    <button onClick={() => { setPayEditing(null); setPayAmount(''); }}
+                      className="text-xs text-slate-400 hover:text-slate-300 px-2">✕</button>
+                  </div>
+                ) : (
+                  <button onClick={() => { setPayEditing(c.contract_id); setPayAmount(String(c.total_unpaid)); }}
+                    className="text-xs bg-green-600/20 text-green-300 border border-green-500/40 hover:bg-green-600/30 px-3 py-1 rounded">
+                    💰 입금 처리
+                  </button>
+                )}
               </div>
 
               {/* 액션 체크박스 */}

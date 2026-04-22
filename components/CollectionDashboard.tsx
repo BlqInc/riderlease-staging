@@ -1,7 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, lazy, Suspense, memo, useCallback } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { formatCurrency, formatDate } from '../lib/utils';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { UnpaidDetailPanel } from './UnpaidDetailPanel';
+
+// recharts는 무거우므로 lazy load (초기 대시보드 진입 속도 개선)
+const LazyChart = lazy(() => import('./DashboardChart'));
 
 type PeriodPreset = 'today' | 'week' | 'month' | 'custom';
 
@@ -20,10 +23,7 @@ interface RiskyDistributor {
   total_expected: number;
 }
 
-const CHART_TOOLTIP_STYLE = { background: '#1e293b', border: '1px solid #334155', borderRadius: '8px', color: '#fff' };
-const CHART_TICK = { fill: '#94a3b8', fontSize: 11 };
-
-const KpiCard: React.FC<{ title: string; value: string; sub?: string; tone?: 'default' | 'good' | 'bad' | 'warn' }> = ({ title, value, sub, tone = 'default' }) => {
+const KpiCard: React.FC<{ title: string; value: string; sub?: string; tone?: 'default' | 'good' | 'bad' | 'warn' }> = memo(({ title, value, sub, tone = 'default' }) => {
   const toneClass = {
     default: 'bg-slate-800 border-slate-700',
     good: 'bg-green-900/20 border-green-700/50',
@@ -37,7 +37,7 @@ const KpiCard: React.FC<{ title: string; value: string; sub?: string; tone?: 'de
       {sub && <p className="text-xs text-slate-500 mt-1">{sub}</p>}
     </div>
   );
-};
+});
 
 export const CollectionDashboard: React.FC = () => {
   const [preset, setPreset] = useState<PeriodPreset>('month');
@@ -46,6 +46,9 @@ export const CollectionDashboard: React.FC = () => {
   const [dailyMetrics, setDailyMetrics] = useState<DailyMetric[]>([]);
   const [riskyDist, setRiskyDist] = useState<RiskyDistributor[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showChart, setShowChart] = useState(true);
+  const [selectedBar, setSelectedBar] = useState<{ fromDate: string; toDate: string; label: string } | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   // 기간 프리셋 적용
   useEffect(() => {
@@ -66,9 +69,10 @@ export const CollectionDashboard: React.FC = () => {
     }
   }, [preset]);
 
-  // 데이터 조회
+  // 데이터 조회 (fromDate/toDate 변경 시)
   useEffect(() => {
     if (!fromDate || !toDate || !supabase) return;
+    let cancelled = false;
     setLoading(true);
     const load = async () => {
       try {
@@ -76,6 +80,7 @@ export const CollectionDashboard: React.FC = () => {
           (supabase!.rpc as any)('get_daily_recovery_metrics', { from_date: fromDate, to_date: toDate }),
           (supabase!.rpc as any)('get_risky_distributors', { limit_count: 10 }),
         ]);
+        if (cancelled) return;
         setDailyMetrics(((metricsRes.data || []) as any[]).map(r => ({
           metric_date: r.metric_date,
           expected_amount: Number(r.expected_amount) || 0,
@@ -90,11 +95,12 @@ export const CollectionDashboard: React.FC = () => {
           total_expected: Number(r.total_expected) || 0,
         })));
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
     load();
-  }, [fromDate, toDate]);
+    return () => { cancelled = true; };
+  }, [fromDate, toDate, reloadKey]);
 
   // 요약 KPI
   const kpi = useMemo(() => {
@@ -105,18 +111,58 @@ export const CollectionDashboard: React.FC = () => {
     return { totalExpected, totalCollected, totalUnpaid, rate };
   }, [dailyMetrics]);
 
-  // 차트 데이터 (짧은 날짜 레이블)
+  // 차트 데이터 (짧은 날짜 레이블) - 너무 많은 데이터는 자동으로 요약
   const chartData = useMemo(() => {
+    // 30일 이상은 주별 요약
+    if (dailyMetrics.length > 30) {
+      const weeks: { [key: string]: { expected: number; collected: number; unpaid: number; label: string; fromDate: string; toDate: string } } = {};
+      dailyMetrics.forEach(m => {
+        const d = new Date(m.metric_date);
+        const weekStart = new Date(d);
+        weekStart.setDate(d.getDate() - d.getDay());
+        const key = weekStart.toISOString().slice(0, 10);
+        if (!weeks[key]) {
+          const weekEnd = new Date(weekStart);
+          weekEnd.setDate(weekStart.getDate() + 6);
+          weeks[key] = {
+            expected: 0, collected: 0, unpaid: 0,
+            label: `${weekStart.getMonth() + 1}/${weekStart.getDate()}주`,
+            fromDate: key,
+            toDate: weekEnd.toISOString().slice(0, 10),
+          };
+        }
+        weeks[key].expected += m.expected_amount;
+        weeks[key].collected += m.collected_amount;
+        weeks[key].unpaid += m.unpaid_amount;
+      });
+      return Object.entries(weeks)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([_, w]) => ({
+          name: w.label,
+          fromDate: w.fromDate,
+          toDate: w.toDate,
+          예상: Math.round(w.expected),
+          수금: Math.round(w.collected),
+          미납: Math.round(w.unpaid),
+        }));
+    }
     return dailyMetrics.map(m => {
       const d = new Date(m.metric_date);
       return {
         name: `${d.getMonth() + 1}/${d.getDate()}`,
+        fromDate: m.metric_date,
+        toDate: m.metric_date,
         예상: Math.round(m.expected_amount),
         수금: Math.round(m.collected_amount),
         미납: Math.round(m.unpaid_amount),
       };
     });
   }, [dailyMetrics]);
+
+  const handleBarClick = useCallback((d: { fromDate: string; toDate: string; name: string; 미납: number }) => {
+    if (d.미납 <= 0) return;
+    setSelectedBar({ fromDate: d.fromDate, toDate: d.toDate, label: d.name });
+  }, []);
 
   return (
     <div className="bg-slate-800/60 rounded-xl p-6 border border-slate-700 space-y-5">
@@ -184,27 +230,36 @@ export const CollectionDashboard: React.FC = () => {
             />
           </div>
 
-          {/* 일별 회수 차트 */}
+          {/* 일별 회수 차트 - 토글 가능 + lazy load */}
           <div className="bg-slate-900/40 rounded-lg p-4 border border-slate-700/50">
-            <h4 className="text-sm font-semibold text-slate-300 mb-3">일별 회수 현황</h4>
-            {chartData.length === 0 ? (
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-sm font-semibold text-slate-300">일별 회수 현황</h4>
+              <button onClick={() => setShowChart(s => !s)}
+                className="text-xs text-slate-400 hover:text-white">
+                {showChart ? '▲ 접기' : '▼ 펼치기'}
+              </button>
+            </div>
+            {showChart && (chartData.length === 0 ? (
               <p className="text-slate-500 text-sm text-center py-8">데이터가 없습니다.</p>
             ) : (
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis dataKey="name" tick={CHART_TICK} />
-                  <YAxis tick={CHART_TICK} tickFormatter={(v) => `${(v / 10000).toFixed(0)}만`} />
-                  <Tooltip
-                    contentStyle={CHART_TOOLTIP_STYLE}
-                    formatter={(value: number, name: string) => [formatCurrency(value), name]}
-                  />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="예상" fill="#64748b" radius={[2, 2, 0, 0]} />
-                  <Bar dataKey="수금" fill="#22c55e" radius={[2, 2, 0, 0]} />
-                  <Bar dataKey="미납" fill="#ef4444" radius={[2, 2, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              <Suspense fallback={
+                <div className="flex items-center justify-center py-12">
+                  <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-indigo-500" />
+                </div>
+              }>
+                <LazyChart data={chartData} onUnpaidClick={handleBarClick} />
+              </Suspense>
+            ))}
+
+            {/* 미납 막대 클릭 시 상세 패널 */}
+            {selectedBar && (
+              <UnpaidDetailPanel
+                fromDate={selectedBar.fromDate}
+                toDate={selectedBar.toDate}
+                label={selectedBar.label}
+                onClose={() => setSelectedBar(null)}
+                onProcessed={() => setReloadKey(k => k + 1)}
+              />
             )}
           </div>
 
