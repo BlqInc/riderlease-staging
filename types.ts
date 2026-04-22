@@ -116,6 +116,38 @@ export interface Creditor {
   created_at: string;
 }
 
+export interface Salesperson {
+  id: string;
+  name: string;
+  bank_aliases: string[];
+  partner_ids: string[]; // 클라이언트에서 채움 (salesperson_partners 조인)
+  created_at: string;
+}
+
+export interface BankDeposit {
+  id: string;
+  deposit_date: string;
+  depositor_name: string;
+  amount: number;
+  salesperson_id: string | null;
+  status: 'matched' | 'partial' | 'unmatched';
+  matched_amount: number;
+  remaining_amount: number;
+  memo: string | null;
+  uploaded_at: string;
+  processed_at: string | null;
+}
+
+export interface BankExcelPreset {
+  id: string;
+  name: string;
+  date_column: string;
+  depositor_column: string;
+  amount_column: string;
+  header_row: number;
+  created_at: string;
+}
+
 export interface CreditorSettlementRound {
   id: string;
   creditor_id: string;

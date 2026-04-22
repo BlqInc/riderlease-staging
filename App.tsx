@@ -15,6 +15,7 @@ const ShippingManagement = React.lazy(() => import('./components/ShippingManagem
 const SettlementManagement = React.lazy(() => import('./components/SettlementManagement').then(m => ({ default: m.SettlementManagement })));
 const CreditorSettlementData = React.lazy(() => import('./components/CreditorSettlementData').then(m => ({ default: m.CreditorSettlementData })));
 const PartnersManagement = React.lazy(() => import('./components/PartnersManagement').then(m => ({ default: m.PartnersManagement })));
+const SalespeopleManagement = React.lazy(() => import('./components/SalespeopleManagement').then(m => ({ default: m.SalespeopleManagement })));
 const Calendar = React.lazy(() => import('./components/Calendar').then(m => ({ default: m.Calendar })));
 const DatabaseManagement = React.lazy(() => import('./components/DatabaseManagement').then(m => ({ default: m.DatabaseManagement })));
 const CreditorSettlement = React.lazy(() => import('./components/CreditorSettlement').then(m => ({ default: m.CreditorSettlement })));
@@ -998,6 +999,9 @@ const App: React.FC = () => {
                   onAddPartner={() => { setEditingPartner(null); setIsPartnerTemplateMode(false); setIsPartnerFormOpen(true); }}
                   onAddTemplate={() => { setEditingPartner(null); setIsPartnerTemplateMode(true); setIsPartnerFormOpen(true); }}
                 />
+              )}
+              {currentView === 'salespeople' && (
+                <SalespeopleManagement partners={partners} />
               )}
               {currentView === 'calendar' && (
                 <Calendar

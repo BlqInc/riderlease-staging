@@ -1,7 +1,7 @@
 import React from 'react';
 import { DashboardIcon, ContractsIcon, PartnersIcon, SettlementIcon, DeductionIcon, ShippingIcon, CreditorDataIcon, CalendarIcon, DatabaseIcon, LogoutIcon, ShieldIcon, CollectionIcon, DocGeneratorIcon } from './icons/IconComponents';
 
-export type View = 'dashboard' | 'contractManagement' | 'collectionManagement' | 'deductionManagement' | 'shippingManagement' | 'settlementManagement' | 'creditorSettlementData' | 'creditorBatch' | 'contractDocGenerator' | 'documentStatus' | 'partners' | 'database' | 'calendar' | 'creditorSettlement' | 'privacyMasking';
+export type View = 'dashboard' | 'contractManagement' | 'collectionManagement' | 'deductionManagement' | 'shippingManagement' | 'settlementManagement' | 'creditorSettlementData' | 'creditorBatch' | 'contractDocGenerator' | 'documentStatus' | 'partners' | 'salespeople' | 'database' | 'calendar' | 'creditorSettlement' | 'privacyMasking';
 
 interface SidebarProps {
   currentView: View;
@@ -43,6 +43,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, onLog
     { view: 'creditorSettlement', label: '채권사 정산', Icon: CreditorDataIcon },
     { view: 'privacyMasking', label: '개인정보 마스킹', Icon: ShieldIcon },
     { view: 'partners', label: '파트너사', Icon: PartnersIcon },
+    { view: 'salespeople', label: '영업자 관리', Icon: PartnersIcon },
     { view: 'calendar', label: '공용 캘린더', Icon: CalendarIcon },
     { view: 'database', label: '환경 설정', Icon: DatabaseIcon },
   ];
