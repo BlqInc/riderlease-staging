@@ -68,6 +68,7 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
   }>({ unpaid: new Map(), dateIndex: new Map(), loaded: false, loading: false });
 
   const [cacheLoaded, setCacheLoaded] = useState(false);
+  const contractUpdatesRef = useRef<Map<string, { before: any[]; after: any[] }>>(new Map());
 
   // 파일 업로드 or 미리보기 분석 시점에 처음 한 번만 로드
   const ensureCacheLoaded = useCallback(async () => {
@@ -341,14 +342,28 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
         grouped.set(p.matchedSalespersonId!, cur);
       }
 
-      // 2) 영업자별로 미납 차감분에 분배 (메모리 상에서만 계산, DB는 아직 안 건드림)
-      // 입금일 기준으로 실행일 도래한 계약만 처리
+      // 2) 영향받는 contract id들을 먼저 모으고, 해당 contract들의 daily_deductions만 SQL로 조회
+      const affectedSpIds = Array.from(grouped.keys());
+      const affectedPartnerIds = new Set<string>();
+      for (const sp of salespeople.filter(s => affectedSpIds.includes(s.id))) {
+        sp.partner_ids.forEach(p => affectedPartnerIds.add(p));
+      }
+      const { data: affectedContracts } = await (supabase.from('contracts') as any)
+        .select('id, partner_id, execution_date, expiry_date, daily_deductions, status')
+        .in('partner_id', Array.from(affectedPartnerIds))
+        .eq('status', '진행중');
+
+      const contractById = new Map<string, any>();
+      (affectedContracts || []).forEach((c: any) => contractById.set(c.id, c));
+
+      // 3) 영업자별로 미납 차감분에 분배 (메모리 상에서만 계산, DB는 아직 안 건드림)
       const contractUpdates = new Map<string, { before: any[]; after: any[] }>();
+      contractUpdatesRef.current = contractUpdates;
       for (const [_, { sp, totalAmount, deposits }] of grouped) {
         let remaining = totalAmount;
         const partnerSet = new Set(sp.partner_ids);
         const maxDepositDate = deposits.reduce((m, d) => d.date > m ? d.date : m, '');
-        const targetContracts = contracts.filter(c =>
+        const targetContracts = (affectedContracts || []).filter((c: any) =>
           c.partner_id && partnerSet.has(c.partner_id) &&
           c.status === '진행중' &&
           (!c.execution_date || c.execution_date <= maxDepositDate)
@@ -358,9 +373,8 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
         const allDeds: DedRef[] = [];
         for (const c of targetContracts) {
           const ded = c.daily_deductions || [];
-          ded.forEach((d, idx) => {
+          ded.forEach((d: any, idx: number) => {
             if (d.status === '납부완료') return;
-            // 실행일~만료일 범위 내만
             if (c.execution_date && d.date < c.execution_date) return;
             if (c.expiry_date && d.date > c.expiry_date) return;
             allDeds.push({
@@ -373,18 +387,15 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
 
         for (const dr of allDeds) {
           if (remaining <= 0) break;
-          // allowPrepay=false: 입금일 이후는 처리 안 함 (기존 동작)
-          // allowPrepay=true: 미래 차감일도 처리 (선납)
           if (!allowPrepay && maxDepositDate && dr.date > maxDepositDate) break;
           const owed = dr.amount - dr.paid;
           if (owed <= 0) continue;
           const payment = Math.min(remaining, owed);
           remaining -= payment;
 
-          // 백업(before) + 업데이트(after) 둘 다 보관
           let entry = contractUpdates.get(dr.contractId);
           if (!entry) {
-            const orig = contracts.find(c => c.id === dr.contractId)?.daily_deductions || [];
+            const orig = contractById.get(dr.contractId)?.daily_deductions || [];
             entry = { before: JSON.parse(JSON.stringify(orig)), after: JSON.parse(JSON.stringify(orig)) };
             contractUpdates.set(dr.contractId, entry);
           }
@@ -477,10 +488,11 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
       // 롤백: 이미 업데이트한 계약 + 삽입한 입금 기록 되돌리기
       console.error('처리 실패, 롤백 시작:', e);
       try {
+        // contractUpdates에 저장한 before 데이터로 복원
         for (const cid of updatedContractIds) {
-          const orig = contracts.find(c => c.id === cid)?.daily_deductions;
-          if (orig) {
-            await (supabase.from('contracts') as any).update({ daily_deductions: orig }).eq('id', cid);
+          const entry = contractUpdatesRef.current.get(cid);
+          if (entry?.before) {
+            await (supabase.from('contracts') as any).update({ daily_deductions: entry.before }).eq('id', cid);
           }
         }
         if (insertedDepositIds.length > 0) {
@@ -496,23 +508,8 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
     }
   };
 
-  // daily_deductions 로드 여부 (cacheRef builtAt이 변경됐다면 캐시가 빌드된 상태)
-  // 첫 빌드 후 dateIndex가 비어있지 않으면 로드됨
-  const deductionsLoadedRatio = useMemo(() => {
-    if (contracts.length === 0) return 1;
-    // 빠른 샘플 체크: 처음 50개만 체크
-    const sample = contracts.slice(0, 50);
-    const loaded = sample.filter(c => Array.isArray(c.daily_deductions) && c.daily_deductions.length > 0).length;
-    return loaded / sample.length;
-  }, [contracts]);
-
   return (
     <div className="space-y-4">
-      {deductionsLoadedRatio < 0.5 && (
-        <div className="bg-yellow-900/30 border border-yellow-700/50 rounded-lg p-3 text-yellow-200 text-sm">
-          ⏳ 일차감 데이터를 불러오는 중입니다... (잠시 기다린 후 업로드해주세요)
-        </div>
-      )}
       <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
         <h3 className="text-white font-bold mb-3">은행 입금내역 업로드</h3>
 

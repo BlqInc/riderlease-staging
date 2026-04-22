@@ -428,8 +428,9 @@ const App: React.FC = () => {
   }, [deductionsLoaded]);
 
   useEffect(() => {
-    // 일차감 관리 + 회수 관리 둘 다 daily_deductions 필요
-    if ((currentView === 'deductionManagement' || currentView === 'collectionManagement') && !deductionsLoaded) {
+    // 일차감 관리만 풀 daily_deductions 필요
+    // 회수 관리는 BankDepositUpload가 자체 SQL로 가져감 (더 이상 전체 로드 불필요)
+    if (currentView === 'deductionManagement' && !deductionsLoaded) {
       loadAllDeductions();
     }
   }, [currentView, deductionsLoaded, loadAllDeductions]);
