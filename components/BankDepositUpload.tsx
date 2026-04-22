@@ -58,13 +58,21 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
   };
 
   // 영업자의 담당 파트너사 → 계약들 → 일자별 미납액 누적
+  // 실행일이 도래하지 않은 계약은 제외, 만료일 지난 차감도 제외
   const calcExpectedAmount = (sp: Salesperson, asOfDate: string): number => {
     const partnerSet = new Set(sp.partner_ids);
-    const targetContracts = contracts.filter(c => c.partner_id && partnerSet.has(c.partner_id) && c.status === '진행중');
+    const targetContracts = contracts.filter(c =>
+      c.partner_id && partnerSet.has(c.partner_id) &&
+      c.status === '진행중' &&
+      (!c.execution_date || c.execution_date <= asOfDate)
+    );
     let total = 0;
     for (const c of targetContracts) {
       const ded = c.daily_deductions || [];
       for (const d of ded) {
+        // 실행일~만료일 범위 내 차감만
+        if (c.execution_date && d.date < c.execution_date) continue;
+        if (c.expiry_date && d.date > c.expiry_date) continue;
         if (d.date <= asOfDate && d.status !== '납부완료') {
           total += (Number(d.amount) || 0) - (Number(d.paid_amount) || 0);
         }
@@ -235,33 +243,40 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
       }
 
       // 2) 영업자별로 미납 차감분에 분배 (메모리 상에서만 계산, DB는 아직 안 건드림)
+      // 입금일 기준으로 실행일 도래한 계약만 처리
       const contractUpdates = new Map<string, { before: any[]; after: any[] }>();
       for (const [_, { sp, totalAmount, deposits }] of grouped) {
         let remaining = totalAmount;
         const partnerSet = new Set(sp.partner_ids);
-        const targetContracts = contracts.filter(c => c.partner_id && partnerSet.has(c.partner_id) && c.status === '진행중');
+        const maxDepositDate = deposits.reduce((m, d) => d.date > m ? d.date : m, '');
+        const targetContracts = contracts.filter(c =>
+          c.partner_id && partnerSet.has(c.partner_id) &&
+          c.status === '진행중' &&
+          (!c.execution_date || c.execution_date <= maxDepositDate)
+        );
 
         type DedRef = { contractId: string; dedIdx: number; date: string; amount: number; paid: number };
         const allDeds: DedRef[] = [];
         for (const c of targetContracts) {
           const ded = c.daily_deductions || [];
           ded.forEach((d, idx) => {
-            if (d.status !== '납부완료') {
-              allDeds.push({
-                contractId: c.id, dedIdx: idx, date: d.date,
-                amount: Number(d.amount) || 0, paid: Number(d.paid_amount) || 0,
-              });
-            }
+            if (d.status === '납부완료') return;
+            // 실행일~만료일 범위 내만
+            if (c.execution_date && d.date < c.execution_date) return;
+            if (c.expiry_date && d.date > c.expiry_date) return;
+            allDeds.push({
+              contractId: c.id, dedIdx: idx, date: d.date,
+              amount: Number(d.amount) || 0, paid: Number(d.paid_amount) || 0,
+            });
           });
         }
         allDeds.sort((a, b) => a.date.localeCompare(b.date));
 
-        const maxDate = deposits.reduce((m, d) => d.date > m ? d.date : m, '');
         for (const dr of allDeds) {
           if (remaining <= 0) break;
           // allowPrepay=false: 입금일 이후는 처리 안 함 (기존 동작)
           // allowPrepay=true: 미래 차감일도 처리 (선납)
-          if (!allowPrepay && maxDate && dr.date > maxDate) break;
+          if (!allowPrepay && maxDepositDate && dr.date > maxDepositDate) break;
           const owed = dr.amount - dr.paid;
           if (owed <= 0) continue;
           const payment = Math.min(remaining, owed);
