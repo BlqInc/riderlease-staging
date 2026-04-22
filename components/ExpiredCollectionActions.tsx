@@ -12,6 +12,7 @@ interface UnpaidContract {
   expiry_date: string | null;
   days_since_expiry: number | null;
   is_expired: boolean;
+  max_overdue_days: number;
   total_unpaid: number;
   sms_sent: boolean;
   call_made: boolean;
@@ -60,6 +61,7 @@ export const ExpiredCollectionActions: React.FC = () => {
         expiry_date: r.expiry_date || null,
         days_since_expiry: r.days_since_expiry == null ? null : Number(r.days_since_expiry),
         is_expired: !!r.is_expired,
+        max_overdue_days: Number(r.max_overdue_days) || 0,
         total_unpaid: Number(r.total_unpaid) || 0,
         sms_sent: !!r.sms_sent,
         call_made: !!r.call_made,
@@ -316,13 +318,13 @@ export const ExpiredCollectionActions: React.FC = () => {
                       <span className="text-xs bg-red-500/20 text-red-300 px-2 py-0.5 rounded font-medium">
                         만료 {c.days_since_expiry}일 경과
                       </span>
-                    ) : c.days_since_expiry != null ? (
-                      <span className="text-xs bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded font-medium">
-                        만료까지 {Math.abs(c.days_since_expiry)}일
-                      </span>
                     ) : (
-                      <span className="text-xs bg-slate-500/20 text-slate-300 px-2 py-0.5 rounded">
-                        만료일 미정
+                      <span className={`text-xs px-2 py-0.5 rounded font-medium ${
+                        c.max_overdue_days >= 14 ? 'bg-red-500/20 text-red-300'
+                        : c.max_overdue_days >= 8 ? 'bg-orange-500/20 text-orange-300'
+                        : 'bg-yellow-500/20 text-yellow-300'
+                      }`}>
+                        연체 {c.max_overdue_days}일
                       </span>
                     )}
                   </div>

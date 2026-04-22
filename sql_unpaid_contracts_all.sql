@@ -1,5 +1,5 @@
 -- ====================================================================
--- 미수가 있는 모든 계약 조회 (만료/비만료 구분)
+-- 미수가 있는 계약 조회 (만료 + 비만료 8일↑ 연체)
 -- 회수관리 탭 "미수 계약 회수 관리" 섹션에서 사용
 -- ====================================================================
 
@@ -13,8 +13,9 @@ RETURNS TABLE (
   partner_name TEXT,
   execution_date DATE,
   expiry_date DATE,
-  days_since_expiry INT,  -- 양수: 만료 경과, 음수: 만료까지 남은 일수, NULL: 만료일 없음
+  days_since_expiry INT,
   is_expired BOOLEAN,
+  max_overdue_days INT,
   total_unpaid NUMERIC,
   sms_sent BOOLEAN,
   call_made BOOLEAN,
@@ -25,10 +26,14 @@ RETURNS TABLE (
 )
 LANGUAGE sql STABLE AS $$
   WITH unpaid_totals AS (
-    SELECT dd.contract_id, SUM(dd.amount - dd.paid_amount) AS total_unpaid
+    SELECT
+      dd.contract_id,
+      SUM(dd.amount - dd.paid_amount) AS total_unpaid,
+      MIN(dd.due_date) AS oldest_unpaid_date
     FROM daily_deductions dd
     WHERE dd.status <> '납부완료'
       AND dd.amount > dd.paid_amount
+      AND dd.due_date <= CURRENT_DATE  -- 오늘 이전 미납만 집계
     GROUP BY dd.contract_id
     HAVING SUM(dd.amount - dd.paid_amount) > 0
   )
@@ -45,6 +50,7 @@ LANGUAGE sql STABLE AS $$
       ELSE (CURRENT_DATE - c.expiry_date)::INT
     END AS days_since_expiry,
     (c.expiry_date IS NOT NULL AND c.expiry_date < CURRENT_DATE) AS is_expired,
+    (CURRENT_DATE - ut.oldest_unpaid_date)::INT AS max_overdue_days,
     ut.total_unpaid::NUMERIC,
     COALESCE(eca.sms_sent, false),
     COALESCE(eca.call_made, false),
@@ -57,9 +63,15 @@ LANGUAGE sql STABLE AS $$
   LEFT JOIN partners p ON p.id = c.partner_id
   LEFT JOIN expired_collection_actions eca ON eca.contract_id = c.id
   WHERE c.execution_date >= DATE '2025-10-01'
+    AND (
+      -- 만료된 계약은 모두 포함
+      (c.expiry_date IS NOT NULL AND c.expiry_date < CURRENT_DATE)
+      -- 비만료는 오래된 미납이 8일 이상 연체된 경우만
+      OR (CURRENT_DATE - ut.oldest_unpaid_date) >= 8
+    )
   ORDER BY
     (c.expiry_date IS NOT NULL AND c.expiry_date < CURRENT_DATE) DESC,
-    days_since_expiry DESC NULLS LAST,
+    (CURRENT_DATE - c.expiry_date) DESC NULLS LAST,
     ut.total_unpaid DESC;
 $$;
 
