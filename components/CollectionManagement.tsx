@@ -227,29 +227,6 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
       {/* 🚨 만료 계약 회수 관리 (조치 체크리스트) */}
       <ExpiredCollectionActions />
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <StatCard
-          title="전체 납부율"
-          value={`${summary.overallRate.toFixed(1)}%`}
-          description="납부액 / 오늘까지 내야할 금액"
-          tooltip={`전체 진행중 계약의 납부액 합계 ÷ 오늘까지 받기로 한 금액 합계 × 100\n\n계약 유효 기간 내 차감만 집계합니다.`}
-        />
-        <StatCard
-          title="연체 건수"
-          value={`${summary.overdueContracts}건`}
-          description="8일 이상 연체된 진행중 계약"
-          colorClass={summary.overdueContracts > 0 ? 'bg-red-900/30 border-red-500/30' : 'bg-slate-800'}
-          tooltip={`가장 오래된 미납이 8일 이상 연체된 진행중(ACTIVE) 계약 수.\n\n7일 이하 연체는 정상 범주로 간주해 제외합니다.\n만료 계약은 별도 섹션에서 관리합니다.`}
-        />
-        <StatCard
-          title="이번 달 회수 예정액"
-          value={formatCurrency(summary.monthlyExpected)}
-          description="남은 일수 × 일차감액 합계"
-          tooltip={`이번 달 남은 일수 × 각 진행중 계약의 일차감액을 모두 합한 값.\n\n예) 오늘이 4/22, 4월 마지막 날이 4/30 → 남은 일수는 8일\n진행중 계약들의 일차감 × 8일 합계`}
-        />
-      </div>
-
       {/* 계약별 상세 목록 토글 */}
       <div className="border-t border-slate-700 pt-4">
         <button onClick={() => setShowContractList(s => !s)}

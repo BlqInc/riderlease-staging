@@ -36,11 +36,12 @@ interface Props {
   label: string;
   execFrom?: string;
   execTo?: string;
+  anchorDate?: string;
   onClose: () => void;
   onProcessed: () => void;
 }
 
-export const UnpaidDetailPanel: React.FC<Props> = ({ fromDate, toDate, label, execFrom, execTo, onClose, onProcessed }) => {
+export const UnpaidDetailPanel: React.FC<Props> = ({ fromDate, toDate, label, execFrom, execTo, anchorDate, onClose, onProcessed }) => {
   const [rows, setRows] = useState<UnpaidRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [payEditing, setPayEditing] = useState<string | null>(null);

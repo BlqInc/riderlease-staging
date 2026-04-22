@@ -32,6 +32,7 @@ interface HealthSummary {
   total_expected: number;
   total_paid: number;
   total_unpaid: number;
+  monthly_forecast: number;
 }
 
 const KpiCard: React.FC<{ title: string; value: string; sub?: string; tone?: 'default' | 'good' | 'bad' | 'warn'; tooltip?: string }> = memo(({ title, value, sub, tone = 'default', tooltip }) => {
@@ -68,25 +69,32 @@ export const CollectionDashboard: React.FC = () => {
   const [execFrom, setExecFrom] = useState('');
   const [execTo, setExecTo] = useState('');
   const [showExecFilter, setShowExecFilter] = useState(false);
+  // 기준일(anchor date): 기본 어제
+  const [useToday, setUseToday] = useState(false);
+  const anchorDate = useMemo(() => {
+    const d = new Date();
+    if (!useToday) d.setDate(d.getDate() - 1);
+    return d.toISOString().slice(0, 10);
+  }, [useToday]);
 
-  // 기간 프리셋 적용
+  // 기간 프리셋 적용 (anchor_date 기준)
   useEffect(() => {
-    const today = new Date();
+    const anchor = new Date(anchorDate + 'T00:00:00');
     const fmt = (d: Date) => d.toISOString().slice(0, 10);
     if (preset === 'today') {
-      setFromDate(fmt(today));
-      setToDate(fmt(today));
+      setFromDate(fmt(anchor));
+      setToDate(fmt(anchor));
     } else if (preset === 'week') {
-      const start = new Date(today);
+      const start = new Date(anchor);
       start.setDate(start.getDate() - 6);
       setFromDate(fmt(start));
-      setToDate(fmt(today));
+      setToDate(fmt(anchor));
     } else if (preset === 'month') {
-      const start = new Date(today.getFullYear(), today.getMonth(), 1);
+      const start = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
       setFromDate(fmt(start));
-      setToDate(fmt(today));
+      setToDate(fmt(anchor));
     }
-  }, [preset]);
+  }, [preset, anchorDate]);
 
   // 데이터 조회 (fromDate/toDate 변경 시)
   useEffect(() => {
@@ -98,10 +106,14 @@ export const CollectionDashboard: React.FC = () => {
         const metricsArgs: any = { from_date: fromDate, to_date: toDate };
         if (execFrom) metricsArgs.exec_from = execFrom;
         if (execTo) metricsArgs.exec_to = execTo;
+        const healthArgs: any = { anchor_date: anchorDate };
+        if (execFrom) healthArgs.exec_from = execFrom;
+        if (execTo) healthArgs.exec_to = execTo;
+        const attentionArgs: any = { limit_count: 10, anchor_date: anchorDate };
         const [metricsRes, attentionRes, healthRes] = await Promise.all([
           (supabase!.rpc as any)('get_daily_recovery_metrics', metricsArgs),
-          (supabase!.rpc as any)('get_attention_distributors', { limit_count: 10 }),
-          (supabase!.rpc as any)('get_contract_health_summary'),
+          (supabase!.rpc as any)('get_attention_distributors', attentionArgs),
+          (supabase!.rpc as any)('get_contract_health_summary', healthArgs),
         ]);
         if (cancelled) return;
         setDailyMetrics(((metricsRes.data || []) as any[]).map(r => ({
@@ -126,6 +138,7 @@ export const CollectionDashboard: React.FC = () => {
           total_expected: Number(h.total_expected) || 0,
           total_paid: Number(h.total_paid) || 0,
           total_unpaid: Number(h.total_unpaid) || 0,
+          monthly_forecast: Number(h.monthly_forecast) || 0,
         } : null);
       } finally {
         if (!cancelled) setLoading(false);
@@ -133,7 +146,7 @@ export const CollectionDashboard: React.FC = () => {
     };
     load();
     return () => { cancelled = true; };
-  }, [fromDate, toDate, execFrom, execTo, reloadKey]);
+  }, [fromDate, toDate, execFrom, execTo, anchorDate, reloadKey]);
 
   // 요약 KPI
   const kpi = useMemo(() => {
@@ -199,9 +212,24 @@ export const CollectionDashboard: React.FC = () => {
 
   return (
     <div className="bg-slate-800/60 rounded-xl p-6 border border-slate-700 space-y-5">
-      {/* 헤더: 기간 선택 */}
+      {/* 헤더: 기준일 + 기간 선택 */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <h3 className="text-xl font-bold text-white">📊 회수 대시보드</h3>
+        <div className="flex items-center gap-2 flex-wrap">
+          <h3 className="text-xl font-bold text-white">📊 회수 대시보드</h3>
+          <div className="flex items-center gap-1 bg-slate-900/50 rounded-lg p-1">
+            <span className="text-xs text-slate-400 px-2">기준일</span>
+            <button onClick={() => setUseToday(false)}
+              className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
+                !useToday ? 'bg-indigo-600 text-white font-bold' : 'text-slate-400 hover:text-white'
+              }`}>어제</button>
+            <button onClick={() => setUseToday(true)}
+              className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
+                useToday ? 'bg-indigo-600 text-white font-bold' : 'text-slate-400 hover:text-white'
+              }`}>오늘</button>
+            <span className="text-[10px] text-slate-500 px-1">({anchorDate})</span>
+            <InfoTooltip text={`대시보드 모든 수치의 기준 시점입니다.\n\n• 어제(기본): 저녁 늦게 들어오는 입금이 반영될 시간 확보\n• 오늘: 실시간 확인용\n\n프리셋('이번 주' 등)은 기준일 과거 N일로 계산됩니다.`} />
+          </div>
+        </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex bg-slate-900/50 rounded-lg p-1 gap-1">
             {[
@@ -299,6 +327,34 @@ export const CollectionDashboard: React.FC = () => {
               tooltip={`21일 이상 연체된 계약이 있는데, 5가지 조치(문자/전화/신용정보사/형사고소/지연회수)가 모두 미체크인 총판.\n5개 초과 빨강, 1개 이상 노랑, 0개 녹색`}
             />
           </div>
+
+          {/* KPI 2행: 전체 기준 지표 (기준일 + cohort 반영) */}
+          {health && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <KpiCard
+                title="전체 납부율"
+                value={`${health.total_expected > 0 ? (health.total_paid / health.total_expected * 100).toFixed(1) : '0.0'}%`}
+                sub={`기준일(${anchorDate})까지 누적`}
+                tone={health.total_expected === 0 ? 'default'
+                  : (health.total_paid / health.total_expected) >= 0.8 ? 'good'
+                  : (health.total_paid / health.total_expected) >= 0.5 ? 'warn' : 'bad'}
+                tooltip={`기준일까지 받기로 한 금액 중 실제 받은 비율.\n총 납부 ÷ 총 예상 × 100\n\n계약 유효기간 내 차감만 집계합니다.`}
+              />
+              <KpiCard
+                title="8일+ 연체 건수"
+                value={`${health.overdue_active}건`}
+                sub="진행중 계약 중"
+                tone={health.overdue_active > 0 ? 'bad' : 'good'}
+                tooltip={`가장 오래된 미납이 8일 이상 연체된 진행중 계약 수.\n기준일 기준으로 계산.\n7일 이하는 정상 범주로 제외.`}
+              />
+              <KpiCard
+                title="이번 달 회수 예정액"
+                value={formatCurrency(health.monthly_forecast)}
+                sub="기준일 속한 달의 남은 일수 × 일차감"
+                tooltip={`기준일이 속한 달의 남은 일수 × 진행중 계약의 일차감 합계.\n\n예) 기준일이 4/21이면 남은 일수는 9일 (4/22~4/30).\n진행중 계약들의 일차감 × 9일 합계`}
+              />
+            </div>
+          )}
 
           {/* 계약 건전성 요약 */}
           {health && (
@@ -424,6 +480,7 @@ export const CollectionDashboard: React.FC = () => {
                 label={selectedBar.label}
                 execFrom={execFrom || undefined}
                 execTo={execTo || undefined}
+                anchorDate={anchorDate}
                 onClose={() => setSelectedBar(null)}
                 onProcessed={() => setReloadKey(k => k + 1)}
               />
