@@ -6,6 +6,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { BankDepositUpload } from './BankDepositUpload';
 import { BankDepositHistory } from './BankDepositHistory';
 import { CollectionDashboard } from './CollectionDashboard';
+import { ExpiredCollectionActions } from './ExpiredCollectionActions';
 
 interface CollectionManagementProps {
   contracts: Contract[];
@@ -217,6 +218,9 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
         <>
       {/* 📊 회수 대시보드 (기간별 KPI + 일별 차트 + 위험 총판) */}
       <CollectionDashboard />
+
+      {/* 🚨 만료 계약 회수 관리 (조치 체크리스트) */}
+      <ExpiredCollectionActions />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
