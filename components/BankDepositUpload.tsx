@@ -151,7 +151,7 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
     setPresetName('');
   };
 
-  // 자동 분배 처리
+  // 자동 분배 처리 (안전한 백업 + 롤백)
   const handleProcess = async () => {
     if (!supabase) return;
     const matched = parsed.filter(p => p.matchedSalespersonId);
@@ -159,8 +159,12 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
     if (!confirm(`${matched.length}건 입금을 자동 분배 처리하시겠습니까?`)) return;
 
     setProcessing(true);
+    const batchId = crypto.randomUUID();
+    const insertedDepositIds: string[] = [];
+    const updatedContractIds: string[] = [];
+
     try {
-      // 1) 영업자별로 입금 합계 계산 (한 영업자가 같은 날 여러 건 입금 시 합산해서 처리)
+      // 1) 영업자별로 입금 합계 계산
       const grouped = new Map<string, { sp: Salesperson; totalAmount: number; deposits: ParsedDeposit[] }>();
       for (const p of matched) {
         const sp = salespeople.find(s => s.id === p.matchedSalespersonId);
@@ -171,16 +175,14 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
         grouped.set(p.matchedSalespersonId!, cur);
       }
 
-      // 2) 영업자별로 미납 차감분에 분배
-      const contractUpdates = new Map<string, any[]>();
+      // 2) 영업자별로 미납 차감분에 분배 (메모리 상에서만 계산, DB는 아직 안 건드림)
+      const contractUpdates = new Map<string, { before: any[]; after: any[] }>();
       for (const [_, { sp, totalAmount, deposits }] of grouped) {
         let remaining = totalAmount;
         const partnerSet = new Set(sp.partner_ids);
-        // 해당 영업자의 모든 계약 중 진행중인 것들 → 일자순 정렬
         const targetContracts = contracts.filter(c => c.partner_id && partnerSet.has(c.partner_id) && c.status === '진행중');
 
-        // 모든 차감을 (계약, 차감) 쌍으로 펼친 뒤 날짜순 정렬
-        type DedRef = { contractId: string; dedIdx: number; date: string; amount: number; paid: number; status: string };
+        type DedRef = { contractId: string; dedIdx: number; date: string; amount: number; paid: number };
         const allDeds: DedRef[] = [];
         for (const c of targetContracts) {
           const ded = c.daily_deductions || [];
@@ -188,56 +190,54 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
             if (d.status !== '납부완료') {
               allDeds.push({
                 contractId: c.id, dedIdx: idx, date: d.date,
-                amount: Number(d.amount) || 0, paid: Number(d.paid_amount) || 0, status: d.status
+                amount: Number(d.amount) || 0, paid: Number(d.paid_amount) || 0,
               });
             }
           });
         }
         allDeds.sort((a, b) => a.date.localeCompare(b.date));
 
-        // 입금일 이전의 미납분에 우선 배분
         const maxDate = deposits.reduce((m, d) => d.date > m ? d.date : m, '');
         for (const dr of allDeds) {
           if (remaining <= 0) break;
-          if (maxDate && dr.date > maxDate) break; // 입금일 이후는 처리 안 함
+          if (maxDate && dr.date > maxDate) break;
           const owed = dr.amount - dr.paid;
           if (owed <= 0) continue;
           const payment = Math.min(remaining, owed);
           remaining -= payment;
-          // contractUpdates에 누적
-          const existing = contractUpdates.get(dr.contractId) || [...(contracts.find(c => c.id === dr.contractId)?.daily_deductions || [])];
-          const newPaid = existing[dr.dedIdx].paid_amount + payment;
-          existing[dr.dedIdx] = {
-            ...existing[dr.dedIdx],
+
+          // 백업(before) + 업데이트(after) 둘 다 보관
+          let entry = contractUpdates.get(dr.contractId);
+          if (!entry) {
+            const orig = contracts.find(c => c.id === dr.contractId)?.daily_deductions || [];
+            entry = { before: JSON.parse(JSON.stringify(orig)), after: JSON.parse(JSON.stringify(orig)) };
+            contractUpdates.set(dr.contractId, entry);
+          }
+          const newPaid = entry.after[dr.dedIdx].paid_amount + payment;
+          entry.after[dr.dedIdx] = {
+            ...entry.after[dr.dedIdx],
             paid_amount: newPaid,
-            status: newPaid >= existing[dr.dedIdx].amount ? '납부완료' : '부분납부',
+            status: newPaid >= entry.after[dr.dedIdx].amount ? '납부완료' : '부분납부',
           };
-          contractUpdates.set(dr.contractId, existing);
-        }
-
-        // 3) bank_deposits 테이블에 기록
-        for (const dep of deposits) {
-          await (supabase.from('bank_deposits') as any).insert({
-            deposit_date: dep.date,
-            depositor_name: dep.depositor,
-            amount: dep.amount,
-            salesperson_id: dep.matchedSalespersonId,
-            status: dep.status,
-            matched_amount: dep.amount - (remaining > 0 ? Math.min(remaining, dep.amount) : 0),
-            remaining_amount: remaining > 0 ? Math.min(remaining, dep.amount) : 0,
-            processed_at: new Date().toISOString(),
-          });
         }
       }
 
-      // 4) 계약 daily_deductions 일괄 업데이트
-      for (const [contractId, deds] of contractUpdates) {
-        await (supabase.from('contracts') as any).update({ daily_deductions: deds }).eq('id', contractId);
-      }
-
-      // 5) 매칭 안 된 건도 기록
-      for (const p of parsed.filter(p => !p.matchedSalespersonId)) {
-        await (supabase.from('bank_deposits') as any).insert({
+      // 3) DB 업데이트 시작 - 실패 시 롤백
+      // 3-1) 모든 입금 기록 (matched + unmatched) 삽입
+      const allDepositRecords = [
+        ...matched.map(p => ({
+          deposit_date: p.date,
+          depositor_name: p.depositor,
+          amount: p.amount,
+          salesperson_id: p.matchedSalespersonId,
+          status: p.status,
+          matched_amount: p.amount,
+          remaining_amount: 0,
+          processed_at: new Date().toISOString(),
+          batch_id: batchId,
+          contract_changes: null as any,
+        })),
+        ...parsed.filter(p => !p.matchedSalespersonId).map(p => ({
           deposit_date: p.date,
           depositor_name: p.depositor,
           amount: p.amount,
@@ -245,15 +245,52 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
           status: 'unmatched',
           matched_amount: 0,
           remaining_amount: p.amount,
-        });
+          batch_id: batchId,
+          contract_changes: null as any,
+        })),
+      ];
+
+      // 첫 번째 입금 레코드에 contract_changes 백업 저장 (롤백용)
+      const contractChanges = Array.from(contractUpdates.entries()).map(([contractId, { before }]) => ({
+        contract_id: contractId,
+        before_deductions: before,
+      }));
+      if (allDepositRecords.length > 0) {
+        allDepositRecords[0].contract_changes = contractChanges;
       }
 
-      alert(`처리 완료: ${matched.length}건 자동 분배, ${parsed.length - matched.length}건 미매칭 기록`);
+      const { data: insertedDeposits, error: depErr } = await (supabase.from('bank_deposits') as any).insert(allDepositRecords).select();
+      if (depErr) throw new Error(`입금 기록 저장 실패: ${depErr.message}`);
+      if (insertedDeposits) (insertedDeposits as any[]).forEach(d => insertedDepositIds.push(d.id));
+
+      // 3-2) 계약 daily_deductions 업데이트
+      for (const [contractId, { after }] of contractUpdates) {
+        const { error } = await (supabase.from('contracts') as any).update({ daily_deductions: after }).eq('id', contractId);
+        if (error) throw new Error(`계약 ${contractId} 업데이트 실패: ${error.message}`);
+        updatedContractIds.push(contractId);
+      }
+
+      alert(`처리 완료: 입금 ${matched.length}건 분배, ${parsed.length - matched.length}건 미매칭 기록\n\n잘못 올렸으면 "은행 입금 이력" 탭에서 이 일괄 처리를 취소할 수 있습니다.`);
       setParsed([]);
       setExcelData(null);
       onProcessed();
     } catch (e: any) {
-      alert(`처리 실패: ${e.message}`);
+      // 롤백: 이미 업데이트한 계약 + 삽입한 입금 기록 되돌리기
+      console.error('처리 실패, 롤백 시작:', e);
+      try {
+        for (const cid of updatedContractIds) {
+          const orig = contracts.find(c => c.id === cid)?.daily_deductions;
+          if (orig) {
+            await (supabase.from('contracts') as any).update({ daily_deductions: orig }).eq('id', cid);
+          }
+        }
+        if (insertedDepositIds.length > 0) {
+          await (supabase.from('bank_deposits') as any).delete().in('id', insertedDepositIds);
+        }
+        alert(`처리 실패 → 자동 롤백 완료\n원인: ${e.message}`);
+      } catch (rollbackErr: any) {
+        alert(`처리 실패 + 롤백도 실패!\n원인: ${e.message}\n롤백 오류: ${rollbackErr.message}\n\n관리자에게 문의하세요.`);
+      }
     } finally {
       setProcessing(false);
     }

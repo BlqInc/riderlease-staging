@@ -4,6 +4,7 @@ import { formatCurrency, formatDate } from '../lib/utils';
 import { computePaymentStats, classifyRisk, riskColors, RiskLevel } from '../lib/riskUtils';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { BankDepositUpload } from './BankDepositUpload';
+import { BankDepositHistory } from './BankDepositHistory';
 
 interface CollectionManagementProps {
   contracts: Contract[];
@@ -71,6 +72,7 @@ const CollectionRow = memo<CollectionRowProps>(({ row }) => (
 
 export const CollectionManagement: React.FC<CollectionManagementProps> = ({ contracts, partners, salespeople = [], settlements = [], onDepositsProcessed }) => {
   const [showUpload, setShowUpload] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const safeContracts = Array.isArray(contracts) ? contracts : [];
   const [riskFilter, setRiskFilter] = useState<RiskLevel | '전체'>('전체');
   const [keyword, setKeyword] = useState('');
@@ -182,10 +184,16 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
       <div className="flex justify-between items-center">
         <h2 className="text-3xl font-bold text-white">회수 관리</h2>
         {onDepositsProcessed && (
-          <button onClick={() => setShowUpload(!showUpload)}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2 rounded-lg">
-            {showUpload ? '닫기' : '🏦 은행 입금내역 업로드'}
-          </button>
+          <div className="flex gap-2">
+            <button onClick={() => { setShowHistory(!showHistory); setShowUpload(false); }}
+              className="bg-slate-700 hover:bg-slate-600 text-white font-bold px-4 py-2 rounded-lg">
+              {showHistory ? '닫기' : '📋 입금 이력'}
+            </button>
+            <button onClick={() => { setShowUpload(!showUpload); setShowHistory(false); }}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2 rounded-lg">
+              {showUpload ? '닫기' : '🏦 은행 입금내역 업로드'}
+            </button>
+          </div>
         )}
       </div>
 
@@ -197,6 +205,10 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
           settlements={settlements}
           onProcessed={() => { setShowUpload(false); onDepositsProcessed(); }}
         />
+      )}
+
+      {showHistory && onDepositsProcessed && (
+        <BankDepositHistory salespeople={salespeople} onReverted={onDepositsProcessed} />
       )}
 
       {/* Summary Cards */}
