@@ -145,11 +145,34 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
       const amount = Number(amountRaw) || 0;
       if (amount <= 0 || !depositor) continue;
 
-      // 중복 체크
+      // 중복 체크 1: bank_deposits 테이블에 동일 입금 기록 있음
       const dupKey = `${dateStr}|${depositor}|${amount}`;
-      const isDup = existingKeys.has(dupKey);
+      let isDup = existingKeys.has(dupKey);
 
       const sp = findSalesperson(depositor);
+
+      // 중복 체크 2: 영업자 담당 계약의 해당 날짜 차감이 모두 납부완료
+      // (수동으로 일차감 관리에서 처리한 경우 대응)
+      if (!isDup && sp) {
+        const partnerSet = new Set(sp.partner_ids);
+        const targetContracts = contracts.filter(c =>
+          c.partner_id && partnerSet.has(c.partner_id) &&
+          c.status === '진행중' &&
+          (!c.execution_date || c.execution_date <= dateStr)
+        );
+        // 해당 날짜에 차감 스케줄이 있는 계약들
+        const contractsWithDate = targetContracts.filter(c =>
+          (c.daily_deductions || []).some(d => d.date === dateStr)
+        );
+        if (contractsWithDate.length > 0) {
+          // 모두 납부완료인지 확인
+          const allPaidForDate = contractsWithDate.every(c =>
+            (c.daily_deductions || []).filter(d => d.date === dateStr).every(d => d.status === '납부완료')
+          );
+          if (allPaidForDate) isDup = true;
+        }
+      }
+
       const expected = sp ? calcExpectedAmount(sp, dateStr) : 0;
       const diff = amount - expected;
       let status: 'matched' | 'partial' | 'unmatched' | 'duplicate' = 'unmatched';
