@@ -15,12 +15,22 @@ interface DailyMetric {
   unpaid_amount: number;
 }
 
-interface RiskyDistributor {
+interface AttentionDistributor {
   distributor_name: string;
   contract_count: number;
   max_overdue_days: number;
   total_unpaid: number;
+}
+
+interface HealthSummary {
+  total_contracts: number;
+  healthy_active: number;
+  overdue_active: number;
+  expired_healthy: number;
+  expired_unpaid: number;
   total_expected: number;
+  total_paid: number;
+  total_unpaid: number;
 }
 
 const KpiCard: React.FC<{ title: string; value: string; sub?: string; tone?: 'default' | 'good' | 'bad' | 'warn' }> = memo(({ title, value, sub, tone = 'default' }) => {
@@ -44,11 +54,16 @@ export const CollectionDashboard: React.FC = () => {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [dailyMetrics, setDailyMetrics] = useState<DailyMetric[]>([]);
-  const [riskyDist, setRiskyDist] = useState<RiskyDistributor[]>([]);
+  const [attentionDist, setAttentionDist] = useState<AttentionDistributor[]>([]);
+  const [health, setHealth] = useState<HealthSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [showChart, setShowChart] = useState(true);
   const [selectedBar, setSelectedBar] = useState<{ fromDate: string; toDate: string; label: string } | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  // 계약 시작일(execution_date) 코호트 필터
+  const [execFrom, setExecFrom] = useState('');
+  const [execTo, setExecTo] = useState('');
+  const [showExecFilter, setShowExecFilter] = useState(false);
 
   // 기간 프리셋 적용
   useEffect(() => {
@@ -76,9 +91,13 @@ export const CollectionDashboard: React.FC = () => {
     setLoading(true);
     const load = async () => {
       try {
-        const [metricsRes, riskyRes] = await Promise.all([
-          (supabase!.rpc as any)('get_daily_recovery_metrics', { from_date: fromDate, to_date: toDate }),
-          (supabase!.rpc as any)('get_risky_distributors', { limit_count: 10 }),
+        const metricsArgs: any = { from_date: fromDate, to_date: toDate };
+        if (execFrom) metricsArgs.exec_from = execFrom;
+        if (execTo) metricsArgs.exec_to = execTo;
+        const [metricsRes, attentionRes, healthRes] = await Promise.all([
+          (supabase!.rpc as any)('get_daily_recovery_metrics', metricsArgs),
+          (supabase!.rpc as any)('get_attention_distributors', { limit_count: 10 }),
+          (supabase!.rpc as any)('get_contract_health_summary'),
         ]);
         if (cancelled) return;
         setDailyMetrics(((metricsRes.data || []) as any[]).map(r => ({
@@ -87,20 +106,30 @@ export const CollectionDashboard: React.FC = () => {
           collected_amount: Number(r.collected_amount) || 0,
           unpaid_amount: Number(r.unpaid_amount) || 0,
         })));
-        setRiskyDist(((riskyRes.data || []) as any[]).map(r => ({
+        setAttentionDist(((attentionRes.data || []) as any[]).map(r => ({
           distributor_name: r.distributor_name,
           contract_count: Number(r.contract_count) || 0,
           max_overdue_days: Number(r.max_overdue_days) || 0,
           total_unpaid: Number(r.total_unpaid) || 0,
-          total_expected: Number(r.total_expected) || 0,
         })));
+        const h = (healthRes.data || [])[0];
+        setHealth(h ? {
+          total_contracts: Number(h.total_contracts) || 0,
+          healthy_active: Number(h.healthy_active) || 0,
+          overdue_active: Number(h.overdue_active) || 0,
+          expired_healthy: Number(h.expired_healthy) || 0,
+          expired_unpaid: Number(h.expired_unpaid) || 0,
+          total_expected: Number(h.total_expected) || 0,
+          total_paid: Number(h.total_paid) || 0,
+          total_unpaid: Number(h.total_unpaid) || 0,
+        } : null);
       } finally {
         if (!cancelled) setLoading(false);
       }
     };
     load();
     return () => { cancelled = true; };
-  }, [fromDate, toDate, reloadKey]);
+  }, [fromDate, toDate, execFrom, execTo, reloadKey]);
 
   // 요약 KPI
   const kpi = useMemo(() => {
@@ -197,6 +226,39 @@ export const CollectionDashboard: React.FC = () => {
         </div>
       </div>
 
+      {/* 계약 시작일 코호트 필터 */}
+      <div>
+        <button onClick={() => setShowExecFilter(s => !s)}
+          className="flex items-center gap-2 text-xs text-slate-400 hover:text-white">
+          <span>{showExecFilter ? '▼' : '▶'}</span>
+          <span>계약 시작일 필터</span>
+          {(execFrom || execTo) && (
+            <span className="bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded text-[10px] font-medium">
+              활성: {execFrom || '처음'} ~ {execTo || '끝'}
+            </span>
+          )}
+        </button>
+        {showExecFilter && (
+          <div className="mt-2 flex items-center gap-2 flex-wrap bg-slate-900/40 rounded-lg p-3 border border-slate-700/50">
+            <span className="text-xs text-slate-400">계약 시작일</span>
+            <input type="date" value={execFrom} onChange={e => setExecFrom(e.target.value)}
+              className="bg-slate-700 text-white rounded px-2 py-1 text-xs" />
+            <span className="text-slate-500 text-xs">~</span>
+            <input type="date" value={execTo} onChange={e => setExecTo(e.target.value)}
+              className="bg-slate-700 text-white rounded px-2 py-1 text-xs" />
+            {(execFrom || execTo) && (
+              <button onClick={() => { setExecFrom(''); setExecTo(''); }}
+                className="text-xs text-slate-400 hover:text-white bg-slate-700 px-2 py-1 rounded">
+                초기화
+              </button>
+            )}
+            <span className="text-[10px] text-slate-500">
+              지정한 날짜 범위에 계약 시작(실행)된 건만 집계합니다
+            </span>
+          </div>
+        )}
+      </div>
+
       {loading ? (
         <div className="flex items-center justify-center py-12">
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-indigo-500" />
@@ -223,12 +285,91 @@ export const CollectionDashboard: React.FC = () => {
               tone={kpi.totalUnpaid > 0 ? 'bad' : 'good'}
             />
             <KpiCard
-              title="위험 총판"
-              value={`${riskyDist.length}개`}
-              sub="연체 중인 총판 수"
-              tone={riskyDist.length > 5 ? 'bad' : riskyDist.length > 0 ? 'warn' : 'good'}
+              title="관리 유의 총판"
+              value={`${attentionDist.length}개`}
+              sub="21일+ 연체 & 조치 없음"
+              tone={attentionDist.length > 5 ? 'bad' : attentionDist.length > 0 ? 'warn' : 'good'}
             />
           </div>
+
+          {/* 계약 건전성 요약 */}
+          {health && (
+            <div className="bg-slate-900/40 rounded-lg p-4 border border-slate-700/50">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-sm font-semibold text-slate-300">🏥 계약 건전성 (전체 {health.total_contracts}건 · 2025-10-01 이후 실행)</h4>
+                {health.total_contracts > 0 && (
+                  <span className="text-xs text-slate-400">
+                    정상률 <span className="text-green-400 font-bold">
+                      {((health.healthy_active + health.expired_healthy) / health.total_contracts * 100).toFixed(1)}%
+                    </span>
+                  </span>
+                )}
+              </div>
+              {/* 진행 바 */}
+              <div className="flex h-6 rounded-md overflow-hidden mb-3">
+                {health.total_contracts > 0 && (<>
+                  {health.healthy_active > 0 && (
+                    <div className="bg-green-500 flex items-center justify-center text-[10px] text-white font-bold"
+                      style={{ width: `${(health.healthy_active / health.total_contracts) * 100}%` }}
+                      title={`진행중 정상 ${health.healthy_active}건`}>
+                      {health.healthy_active / health.total_contracts > 0.1 ? `${health.healthy_active}` : ''}
+                    </div>
+                  )}
+                  {health.overdue_active > 0 && (
+                    <div className="bg-yellow-500 flex items-center justify-center text-[10px] text-white font-bold"
+                      style={{ width: `${(health.overdue_active / health.total_contracts) * 100}%` }}
+                      title={`진행중 연체 ${health.overdue_active}건`}>
+                      {health.overdue_active / health.total_contracts > 0.1 ? `${health.overdue_active}` : ''}
+                    </div>
+                  )}
+                  {health.expired_healthy > 0 && (
+                    <div className="bg-slate-500 flex items-center justify-center text-[10px] text-white font-bold"
+                      style={{ width: `${(health.expired_healthy / health.total_contracts) * 100}%` }}
+                      title={`만료 정상종결 ${health.expired_healthy}건`}>
+                      {health.expired_healthy / health.total_contracts > 0.1 ? `${health.expired_healthy}` : ''}
+                    </div>
+                  )}
+                  {health.expired_unpaid > 0 && (
+                    <div className="bg-red-500 flex items-center justify-center text-[10px] text-white font-bold"
+                      style={{ width: `${(health.expired_unpaid / health.total_contracts) * 100}%` }}
+                      title={`만료 미수 ${health.expired_unpaid}건`}>
+                      {health.expired_unpaid / health.total_contracts > 0.1 ? `${health.expired_unpaid}` : ''}
+                    </div>
+                  )}
+                </>)}
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                <div className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-sm bg-green-500" />
+                  <div>
+                    <p className="text-slate-400">진행중 정상</p>
+                    <p className="text-green-400 font-bold">{health.healthy_active}건</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-sm bg-yellow-500" />
+                  <div>
+                    <p className="text-slate-400">진행중 연체</p>
+                    <p className="text-yellow-400 font-bold">{health.overdue_active}건</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-sm bg-slate-500" />
+                  <div>
+                    <p className="text-slate-400">만료 정상종결</p>
+                    <p className="text-slate-300 font-bold">{health.expired_healthy}건</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-sm bg-red-500" />
+                  <div>
+                    <p className="text-slate-400">만료 미수</p>
+                    <p className="text-red-400 font-bold">{health.expired_unpaid}건</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* 일별 회수 차트 - 토글 가능 + lazy load */}
           <div className="bg-slate-900/40 rounded-lg p-4 border border-slate-700/50">
@@ -257,20 +398,22 @@ export const CollectionDashboard: React.FC = () => {
                 fromDate={selectedBar.fromDate}
                 toDate={selectedBar.toDate}
                 label={selectedBar.label}
+                execFrom={execFrom || undefined}
+                execTo={execTo || undefined}
                 onClose={() => setSelectedBar(null)}
                 onProcessed={() => setReloadKey(k => k + 1)}
               />
             )}
           </div>
 
-          {/* 위험 총판 TOP 10 */}
+          {/* 관리 유의 총판 TOP 10 */}
           <div className="bg-slate-900/40 rounded-lg p-4 border border-slate-700/50">
             <div className="flex items-center justify-between mb-3">
-              <h4 className="text-sm font-semibold text-slate-300">위험 총판 TOP 10 (연체일 기준)</h4>
-              <span className="text-xs text-slate-500">전체 진행중 계약 기준</span>
+              <h4 className="text-sm font-semibold text-slate-300">⚠️ 관리 유의 총판 TOP 10</h4>
+              <span className="text-xs text-slate-500">21일+ 연체 · 아직 조치 없음</span>
             </div>
-            {riskyDist.length === 0 ? (
-              <p className="text-slate-500 text-sm text-center py-8">위험 총판이 없습니다. ✅</p>
+            {attentionDist.length === 0 ? (
+              <p className="text-slate-500 text-sm text-center py-8">유의 총판이 없습니다. ✅</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -278,40 +421,29 @@ export const CollectionDashboard: React.FC = () => {
                     <tr className="text-slate-400 border-b border-slate-700">
                       <th className="p-2 text-left">#</th>
                       <th className="p-2 text-left">총판명</th>
-                      <th className="p-2 text-center">계약 수</th>
+                      <th className="p-2 text-center">조치 필요 계약</th>
                       <th className="p-2 text-center">최대 연체일</th>
-                      <th className="p-2 text-right">미납액</th>
-                      <th className="p-2 text-right">청구 총액</th>
-                      <th className="p-2 text-center">납부율</th>
+                      <th className="p-2 text-right">총 미수액</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {riskyDist.map((d, i) => {
-                      const rate = d.total_expected > 0 ? ((d.total_expected - d.total_unpaid) / d.total_expected) * 100 : 100;
-                      return (
-                        <tr key={d.distributor_name} className="border-b border-slate-700/50 hover:bg-slate-700/30">
-                          <td className="p-2 text-slate-500">{i + 1}</td>
-                          <td className="p-2 text-white font-medium">{d.distributor_name}</td>
-                          <td className="p-2 text-center text-slate-300">{d.contract_count}건</td>
-                          <td className="p-2 text-center">
-                            <span className={`px-2 py-0.5 rounded text-xs font-bold ${
-                              d.max_overdue_days >= 14 ? 'bg-red-500/20 text-red-300' :
-                              d.max_overdue_days >= 7 ? 'bg-yellow-500/20 text-yellow-300' :
-                              'bg-slate-500/20 text-slate-300'
-                            }`}>
-                              {d.max_overdue_days}일
-                            </span>
-                          </td>
-                          <td className="p-2 text-right text-red-400">{formatCurrency(d.total_unpaid)}</td>
-                          <td className="p-2 text-right text-slate-300">{formatCurrency(d.total_expected)}</td>
-                          <td className="p-2 text-center">
-                            <span className={rate >= 80 ? 'text-green-400' : rate >= 50 ? 'text-yellow-400' : 'text-red-400'}>
-                              {rate.toFixed(1)}%
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {attentionDist.map((d, i) => (
+                      <tr key={d.distributor_name} className="border-b border-slate-700/50 hover:bg-slate-700/30">
+                        <td className="p-2 text-slate-500">{i + 1}</td>
+                        <td className="p-2 text-white font-medium">{d.distributor_name}</td>
+                        <td className="p-2 text-center text-slate-300">{d.contract_count}건</td>
+                        <td className="p-2 text-center">
+                          <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                            d.max_overdue_days >= 60 ? 'bg-red-500/30 text-red-200' :
+                            d.max_overdue_days >= 30 ? 'bg-red-500/20 text-red-300' :
+                            'bg-orange-500/20 text-orange-300'
+                          }`}>
+                            {d.max_overdue_days}일
+                          </span>
+                        </td>
+                        <td className="p-2 text-right text-red-400">{formatCurrency(d.total_unpaid)}</td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>

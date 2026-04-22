@@ -34,11 +34,13 @@ interface Props {
   fromDate: string;
   toDate: string;
   label: string;
+  execFrom?: string;
+  execTo?: string;
   onClose: () => void;
   onProcessed: () => void;
 }
 
-export const UnpaidDetailPanel: React.FC<Props> = ({ fromDate, toDate, label, onClose, onProcessed }) => {
+export const UnpaidDetailPanel: React.FC<Props> = ({ fromDate, toDate, label, execFrom, execTo, onClose, onProcessed }) => {
   const [rows, setRows] = useState<UnpaidRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [payEditing, setPayEditing] = useState<string | null>(null);
@@ -53,11 +55,11 @@ export const UnpaidDetailPanel: React.FC<Props> = ({ fromDate, toDate, label, on
     const load = async () => {
       setLoading(true);
       try {
+        const args: any = { from_date: fromDate, to_date: toDate };
+        if (execFrom) args.exec_from = execFrom;
+        if (execTo) args.exec_to = execTo;
         // RPC로 서버사이드 JOIN + 1000건 제한 우회
-        const { data, error } = await (supabase!.rpc as any)('get_unpaid_details', {
-          from_date: fromDate,
-          to_date: toDate,
-        });
+        const { data, error } = await (supabase!.rpc as any)('get_unpaid_details', args);
         if (error) throw error;
         if (cancelled) return;
         setRows(((data || []) as any[]).map(r => ({
@@ -88,7 +90,7 @@ export const UnpaidDetailPanel: React.FC<Props> = ({ fromDate, toDate, label, on
     };
     load();
     return () => { cancelled = true; };
-  }, [fromDate, toDate]);
+  }, [fromDate, toDate, execFrom, execTo]);
 
   const handlePay = async (row: UnpaidRow) => {
     if (!supabase) return;
