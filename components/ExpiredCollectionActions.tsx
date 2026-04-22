@@ -226,6 +226,31 @@ export const ExpiredCollectionActions: React.FC = () => {
     return { count: byTab.length, totalUnpaid, untouched };
   }, [byTab]);
 
+  // 이름별 그룹 (2건 이상일 때만 묶음 헤더 표시)
+  const grouped = useMemo(() => {
+    const map = new Map<string, UnpaidContract[]>();
+    filtered.forEach(c => {
+      const key = c.lessee_name || '(이름 없음)';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(c);
+    });
+    return Array.from(map.entries()).sort((a, b) => {
+      // 여러 계약 가진 이름부터 상단, 이름은 그대로 유지
+      if (a[1].length !== b[1].length) return b[1].length - a[1].length;
+      return 0;
+    });
+  }, [filtered]);
+
+  const [collapsedNames, setCollapsedNames] = useState<Set<string>>(new Set());
+  const toggleCollapse = (name: string) => {
+    setCollapsedNames(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
   return (
     <div className="bg-slate-800/60 rounded-xl p-6 border border-slate-700 space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -305,8 +330,33 @@ export const ExpiredCollectionActions: React.FC = () => {
           해당하는 {tabMode === 'expired' ? '만료' : '비만료'} 계약이 없습니다.
         </p>
       ) : (
-        <div className="space-y-2 max-h-[600px] overflow-y-auto">
-          {filtered.map(c => (
+        <div className="space-y-3 max-h-[600px] overflow-y-auto">
+          {grouped.map(([name, group]) => {
+            const isMulti = group.length >= 2;
+            const collapsed = collapsedNames.has(name);
+            const groupTotalUnpaid = group.reduce((s, c) => s + c.total_unpaid, 0);
+            const groupMaxOverdue = Math.max(...group.map(c => c.max_overdue_days));
+            return (
+              <div key={name} className={isMulti ? 'bg-slate-900/20 rounded-lg border border-slate-700/30 p-2' : ''}>
+                {isMulti && (
+                  <button onClick={() => toggleCollapse(name)}
+                    className="w-full flex items-center justify-between px-2 py-1.5 hover:bg-slate-800/40 rounded transition-colors">
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-400 text-xs">{collapsed ? '▶' : '▼'}</span>
+                      <span className="text-white font-semibold">{name}</span>
+                      <span className="text-xs bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded">
+                        {group.length}건
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs">
+                      <span className="text-slate-400">최장 연체 <span className="text-red-400 font-bold">{groupMaxOverdue}일</span></span>
+                      <span className="text-slate-400">총 미수 <span className="text-red-400 font-bold">{formatCurrency(groupTotalUnpaid)}</span></span>
+                    </div>
+                  </button>
+                )}
+                {!collapsed && (
+                  <div className={`space-y-2 ${isMulti ? 'mt-2 pl-4 border-l-2 border-slate-700/50' : ''}`}>
+                    {group.map(c => (
             <div key={c.contract_id} className="bg-slate-900/40 rounded-lg p-3 border border-slate-700/50">
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div className="flex-1 min-w-0">
@@ -397,7 +447,12 @@ export const ExpiredCollectionActions: React.FC = () => {
                 )}
               </div>
             </div>
-          ))}
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
