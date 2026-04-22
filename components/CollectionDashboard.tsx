@@ -74,22 +74,33 @@ export const CollectionDashboard: React.FC = () => {
   const anchorDate = useMemo(() => {
     const d = new Date();
     if (!useToday) d.setDate(d.getDate() - 1);
-    return d.toISOString().slice(0, 10);
+    // 로컬 타임존 기준 YYYY-MM-DD (toISOString은 UTC라 KST에서 하루 밀릴 수 있음)
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
   }, [useToday]);
 
-  // 기간 프리셋 적용 (anchor_date 기준)
+  // 기간 프리셋 적용 (anchor_date 기준, 로컬 타임존 유지)
   useEffect(() => {
     const anchor = new Date(anchorDate + 'T00:00:00');
-    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+    const fmt = (d: Date) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
     if (preset === 'today') {
       setFromDate(fmt(anchor));
       setToDate(fmt(anchor));
     } else if (preset === 'week') {
+      // 기준일 포함 과거 7일 (예: 기준일 4/21 → 4/15 ~ 4/21)
       const start = new Date(anchor);
       start.setDate(start.getDate() - 6);
       setFromDate(fmt(start));
       setToDate(fmt(anchor));
     } else if (preset === 'month') {
+      // 기준일이 속한 달의 1일부터 기준일까지
       const start = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
       setFromDate(fmt(start));
       setToDate(fmt(anchor));
