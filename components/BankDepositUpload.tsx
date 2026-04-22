@@ -18,9 +18,10 @@ interface ParsedDeposit {
   amount: number;
   matchedSalespersonId: string | null;
   matchedSalespersonName: string;
-  expectedAmount: number; // 해당 영업자의 입금일까지 누적 미납액
+  expectedAmount: number;
   diff: number;
-  status: 'matched' | 'partial' | 'unmatched';
+  status: 'matched' | 'partial' | 'unmatched' | 'duplicate';
+  isDuplicate?: boolean;
 }
 
 export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salespeople, settlements, onProcessed }) => {
@@ -35,10 +36,7 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
   const [parsing, setParsing] = useState(false);
   const xlsxRef = useRef<any>(null);
 
-  // 컴포넌트 마운트 시 xlsx 라이브러리 미리 로드 (파일 선택 클릭 지연 방지)
-  useEffect(() => {
-    import('xlsx-js-style').then(mod => { xlsxRef.current = mod; });
-  }, []);
+  // xlsx는 파일 선택 후 처음 사용할 때만 로드
 
   const partnerById = useMemo(() => new Map(partners.map(p => [p.id, p])), [partners]);
 
@@ -97,11 +95,23 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
 
   const headers = useMemo(() => excelData?.[headerRow] || [], [excelData, headerRow]);
 
-  const parseDeposits = () => {
+  const parseDeposits = async () => {
     if (!excelData || dateCol < 0 || depositorCol < 0 || amountCol < 0) {
       alert('컬럼을 모두 선택해주세요.');
       return;
     }
+
+    // 1) 기존 처리된 입금 조회 (중복 체크용) - reverted_at IS NULL인 것만
+    const existingKeys = new Set<string>();
+    if (supabase) {
+      const { data } = await (supabase.from('bank_deposits') as any)
+        .select('deposit_date, depositor_name, amount')
+        .is('reverted_at', null);
+      (data || []).forEach((d: any) => {
+        existingKeys.add(`${d.deposit_date}|${d.depositor_name}|${Number(d.amount)}`);
+      });
+    }
+
     const list: ParsedDeposit[] = [];
     for (let i = headerRow + 1; i < excelData.length; i++) {
       const row = excelData[i];
@@ -127,11 +137,17 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
       const amount = Number(amountRaw) || 0;
       if (amount <= 0 || !depositor) continue;
 
+      // 중복 체크
+      const dupKey = `${dateStr}|${depositor}|${amount}`;
+      const isDup = existingKeys.has(dupKey);
+
       const sp = findSalesperson(depositor);
       const expected = sp ? calcExpectedAmount(sp, dateStr) : 0;
       const diff = amount - expected;
-      let status: 'matched' | 'partial' | 'unmatched' = 'unmatched';
-      if (sp) {
+      let status: 'matched' | 'partial' | 'unmatched' | 'duplicate' = 'unmatched';
+      if (isDup) {
+        status = 'duplicate';
+      } else if (sp) {
         if (Math.abs(diff) < 1) status = 'matched';
         else status = 'partial';
       }
@@ -146,6 +162,7 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
         expectedAmount: expected,
         diff,
         status,
+        isDuplicate: isDup,
       });
     }
     setParsed(list);
@@ -165,12 +182,40 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
     setPresetName('');
   };
 
-  // 자동 분배 처리 (안전한 백업 + 롤백)
+  // 자동 분배 처리 (안전한 백업 + 롤백 + 중복 스킵 + 선납 처리)
   const handleProcess = async () => {
     if (!supabase) return;
-    const matched = parsed.filter(p => p.matchedSalespersonId);
-    if (matched.length === 0) { alert('매칭된 입금이 없습니다.'); return; }
-    if (!confirm(`${matched.length}건 입금을 자동 분배 처리하시겠습니까?`)) return;
+    // 중복 제외, 매칭된 것만
+    const dupCount = parsed.filter(p => p.isDuplicate).length;
+    const matched = parsed.filter(p => p.matchedSalespersonId && !p.isDuplicate);
+    if (matched.length === 0) {
+      alert(dupCount > 0 ? `처리 가능한 입금이 없습니다. (중복 ${dupCount}건 자동 스킵)` : '매칭된 입금이 없습니다.');
+      return;
+    }
+
+    // 영업자별로 미납 + 초과 계산 (선납 여부 사전 확인)
+    const overflows: { spName: string; overflowAmount: number }[] = [];
+    for (const p of matched) {
+      const sp = salespeople.find(s => s.id === p.matchedSalespersonId);
+      if (!sp) continue;
+      const expected = calcExpectedAmount(sp, p.date);
+      // 같은 영업자의 같은 날 다른 입금 합산은 단순화: 개별 처리
+      if (p.amount > expected) {
+        overflows.push({ spName: sp.name, overflowAmount: p.amount - expected });
+      }
+    }
+
+    let allowPrepay = false;
+    if (overflows.length > 0) {
+      const total = overflows.reduce((s, o) => s + o.overflowAmount, 0);
+      const detail = overflows.slice(0, 5).map(o => `- ${o.spName}: ${formatCurrency(o.overflowAmount)} 초과`).join('\n');
+      allowPrepay = confirm(
+        `초과 입금이 ${overflows.length}건 발견됐습니다 (합계 ${formatCurrency(total)}).\n\n${detail}${overflows.length > 5 ? '\n...' : ''}\n\n초과액을 미래 차감일에 선납으로 처리할까요?\n\n[확인]: 선납 처리\n[취소]: 미래 차감 안 건드리고 미배분으로 남김`
+      );
+    }
+
+    const confirmMsg = `${matched.length}건 입금을 자동 분배 처리합니다.${dupCount > 0 ? `\n(중복 ${dupCount}건 자동 스킵)` : ''}${overflows.length > 0 ? `\n초과액: ${allowPrepay ? '선납 처리' : '미배분'}` : ''}\n\n진행할까요?`;
+    if (!confirm(confirmMsg)) return;
 
     setProcessing(true);
     const batchId = crypto.randomUUID();
@@ -214,7 +259,9 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
         const maxDate = deposits.reduce((m, d) => d.date > m ? d.date : m, '');
         for (const dr of allDeds) {
           if (remaining <= 0) break;
-          if (maxDate && dr.date > maxDate) break;
+          // allowPrepay=false: 입금일 이후는 처리 안 함 (기존 동작)
+          // allowPrepay=true: 미래 차감일도 처리 (선납)
+          if (!allowPrepay && maxDate && dr.date > maxDate) break;
           const owed = dr.amount - dr.paid;
           if (owed <= 0) continue;
           const payment = Math.min(remaining, owed);
@@ -237,7 +284,7 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
       }
 
       // 3) DB 업데이트 시작 - 실패 시 롤백
-      // 3-1) 모든 입금 기록 (matched + unmatched) 삽입
+      // 3-1) 모든 입금 기록 (matched + unmatched) 삽입 - 중복은 제외
       const allDepositRecords = [
         ...matched.map(p => ({
           deposit_date: p.date,
@@ -251,7 +298,7 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
           batch_id: batchId,
           contract_changes: null as any,
         })),
-        ...parsed.filter(p => !p.matchedSalespersonId).map(p => ({
+        ...parsed.filter(p => !p.matchedSalespersonId && !p.isDuplicate).map(p => ({
           deposit_date: p.date,
           depositor_name: p.depositor,
           amount: p.amount,
@@ -284,7 +331,8 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
         updatedContractIds.push(contractId);
       }
 
-      alert(`처리 완료: 입금 ${matched.length}건 분배, ${parsed.length - matched.length}건 미매칭 기록\n\n잘못 올렸으면 "은행 입금 이력" 탭에서 이 일괄 처리를 취소할 수 있습니다.`);
+      const unmatched = parsed.filter(p => !p.matchedSalespersonId && !p.isDuplicate).length;
+      alert(`처리 완료\n- 분배: ${matched.length}건\n- 미매칭 기록: ${unmatched}건${dupCount > 0 ? `\n- 중복 스킵: ${dupCount}건` : ''}\n\n잘못 올렸으면 "📋 입금 이력" 버튼에서 일괄 취소할 수 있습니다.`);
       setParsed([]);
       setExcelData(null);
       onProcessed();
@@ -391,6 +439,9 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
               매칭 {parsed.filter(p => p.status === 'matched').length} ·
               부분 {parsed.filter(p => p.status === 'partial').length} ·
               미매칭 {parsed.filter(p => p.status === 'unmatched').length}
+              {parsed.some(p => p.isDuplicate) && (
+                <span className="text-orange-400 ml-2">· 중복 {parsed.filter(p => p.isDuplicate).length} (자동 스킵)</span>
+              )}
             </div>
           </div>
           <div className="max-h-96 overflow-y-auto border border-slate-700 rounded">
@@ -418,7 +469,8 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
                       {p.matchedSalespersonId ? (p.diff === 0 ? '일치' : formatCurrency(p.diff)) : '-'}
                     </td>
                     <td className="p-2 text-center">
-                      {p.status === 'matched' ? <span className="bg-green-500/20 text-green-300 px-2 py-0.5 rounded">일치</span> :
+                      {p.status === 'duplicate' ? <span className="bg-orange-500/20 text-orange-300 px-2 py-0.5 rounded">중복</span> :
+                       p.status === 'matched' ? <span className="bg-green-500/20 text-green-300 px-2 py-0.5 rounded">일치</span> :
                        p.status === 'partial' ? <span className="bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded">차액</span> :
                        <span className="bg-red-500/20 text-red-300 px-2 py-0.5 rounded">미매칭</span>}
                     </td>
