@@ -7,6 +7,7 @@ import { BankDepositUpload } from './BankDepositUpload';
 import { BankDepositHistory } from './BankDepositHistory';
 import { CollectionDashboard } from './CollectionDashboard';
 import { ExpiredCollectionActions } from './ExpiredCollectionActions';
+import { InfoTooltip } from './InfoTooltip';
 
 interface CollectionManagementProps {
   contracts: Contract[];
@@ -25,9 +26,12 @@ const CHART_YAXIS_TICK = { fill: '#94a3b8', fontSize: 12 } as const;
 const CHART_YAXIS_DOMAIN: [number, number] = [0, 100];
 const CHART_BAR_RADIUS: [number, number, number, number] = [4, 4, 0, 0];
 
-const StatCard: React.FC<{ title: string; value: string | number; description: string; colorClass?: string }> = ({ title, value, description, colorClass = "bg-slate-800" }) => (
+const StatCard: React.FC<{ title: string; value: string | number; description: string; colorClass?: string; tooltip?: string }> = ({ title, value, description, colorClass = "bg-slate-800", tooltip }) => (
   <div className={`${colorClass} p-6 rounded-lg shadow-lg border border-slate-700`}>
-    <h3 className="text-sm font-medium text-slate-400">{title}</h3>
+    <h3 className="text-sm font-medium text-slate-400 flex items-center gap-1">
+      {title}
+      {tooltip && <InfoTooltip text={tooltip} />}
+    </h3>
     <p className="text-3xl font-bold text-white mt-2">{value}</p>
     <p className="text-xs text-slate-500 mt-1">{description}</p>
   </div>
@@ -100,7 +104,7 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
       const c = contractStats[i];
       totalExpected += c.expectedByToday;
       totalPaidSum += c.totalPaid;
-      if (c.contract.status === ContractStatus.ACTIVE && c.overdueCount > 0) overdueContracts++;
+      if (c.contract.status === ContractStatus.ACTIVE && c.overdueDays >= 8) overdueContracts++;
     }
     const overallRate = totalExpected > 0 ? (totalPaidSum / totalExpected) * 100 : 0;
 
@@ -229,17 +233,20 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
           title="전체 납부율"
           value={`${summary.overallRate.toFixed(1)}%`}
           description="납부액 / 오늘까지 내야할 금액"
+          tooltip={`전체 진행중 계약의 납부액 합계 ÷ 오늘까지 받기로 한 금액 합계 × 100\n\n계약 유효 기간 내 차감만 집계합니다.`}
         />
         <StatCard
           title="연체 건수"
           value={`${summary.overdueContracts}건`}
-          description="미납 차감이 있는 진행중 계약"
+          description="8일 이상 연체된 진행중 계약"
           colorClass={summary.overdueContracts > 0 ? 'bg-red-900/30 border-red-500/30' : 'bg-slate-800'}
+          tooltip={`가장 오래된 미납이 8일 이상 연체된 진행중(ACTIVE) 계약 수.\n\n7일 이하 연체는 정상 범주로 간주해 제외합니다.\n만료 계약은 별도 섹션에서 관리합니다.`}
         />
         <StatCard
           title="이번 달 회수 예정액"
           value={formatCurrency(summary.monthlyExpected)}
           description="남은 일수 × 일차감액 합계"
+          tooltip={`이번 달 남은 일수 × 각 진행중 계약의 일차감액을 모두 합한 값.\n\n예) 오늘이 4/22, 4월 마지막 날이 4/30 → 남은 일수는 8일\n진행중 계약들의 일차감 × 8일 합계`}
         />
       </div>
 
@@ -257,14 +264,23 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
       {/* Filter & Search */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex bg-slate-800 rounded-lg p-1 gap-1">
-          {RISK_TABS.map(tab => (
-            <button key={tab} onClick={() => setRiskFilter(tab)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                riskFilter === tab ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700'
-              }`}>
-              {tab} ({riskCounts[tab] || 0})
-            </button>
-          ))}
+          {RISK_TABS.map(tab => {
+            const tip = tab === '전체' ? '모든 위험등급 포함'
+              : tab === '정상' ? '연체 0~7일인 계약'
+              : tab === '주의' ? '연체 8~14일인 계약'
+              : tab === '위험' ? '연체 15일 이상인 계약'
+              : '소송 진행 중으로 표시된 계약';
+            return (
+              <InfoTooltip key={tab} text={tip} placement="bottom">
+                <button onClick={() => setRiskFilter(tab)}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                    riskFilter === tab ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700'
+                  }`}>
+                  {tab} ({riskCounts[tab] || 0})
+                </button>
+              </InfoTooltip>
+            );
+          })}
         </div>
         <input type="text" placeholder="계약자명, 총판명, 계약번호 검색..."
           value={keyword} onChange={e => setKeyword(e.target.value)}

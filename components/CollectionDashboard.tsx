@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState, lazy, Suspense, memo, useCallback 
 import { supabase } from '../lib/supabaseClient';
 import { formatCurrency, formatDate } from '../lib/utils';
 import { UnpaidDetailPanel } from './UnpaidDetailPanel';
+import { InfoTooltip } from './InfoTooltip';
 
 // recharts는 무거우므로 lazy load (초기 대시보드 진입 속도 개선)
 const LazyChart = lazy(() => import('./DashboardChart'));
@@ -33,7 +34,7 @@ interface HealthSummary {
   total_unpaid: number;
 }
 
-const KpiCard: React.FC<{ title: string; value: string; sub?: string; tone?: 'default' | 'good' | 'bad' | 'warn' }> = memo(({ title, value, sub, tone = 'default' }) => {
+const KpiCard: React.FC<{ title: string; value: string; sub?: string; tone?: 'default' | 'good' | 'bad' | 'warn'; tooltip?: string }> = memo(({ title, value, sub, tone = 'default', tooltip }) => {
   const toneClass = {
     default: 'bg-slate-800 border-slate-700',
     good: 'bg-green-900/20 border-green-700/50',
@@ -42,7 +43,10 @@ const KpiCard: React.FC<{ title: string; value: string; sub?: string; tone?: 'de
   }[tone];
   return (
     <div className={`rounded-lg p-4 border ${toneClass}`}>
-      <p className="text-xs text-slate-400">{title}</p>
+      <p className="text-xs text-slate-400 flex items-center gap-1">
+        {title}
+        {tooltip && <InfoTooltip text={tooltip} />}
+      </p>
       <p className="text-2xl font-bold text-white mt-1">{value}</p>
       {sub && <p className="text-xs text-slate-500 mt-1">{sub}</p>}
     </div>
@@ -271,24 +275,28 @@ export const CollectionDashboard: React.FC = () => {
               title="기간 내 예상 수금"
               value={formatCurrency(kpi.totalExpected)}
               sub={`${fromDate} ~ ${toDate}`}
+              tooltip={`선택한 기간 동안 받기로 예정된 일차감 금액의 합계입니다.\n기준: 차감 예정일이 기간 내인 daily_deductions.amount 의 합`}
             />
             <KpiCard
               title="실제 수금"
               value={formatCurrency(kpi.totalCollected)}
               sub={`회수율 ${kpi.rate.toFixed(1)}%`}
               tone={kpi.rate >= 80 ? 'good' : kpi.rate >= 50 ? 'warn' : 'bad'}
+              tooltip={`기간 내 실제로 납부된 금액의 합입니다.\n회수율 = 실제 수금 ÷ 예상 수금\n80% 이상 녹색, 50~79% 노랑, 50% 미만 빨강`}
             />
             <KpiCard
               title="미납 금액"
               value={formatCurrency(kpi.totalUnpaid)}
               sub="회수 못한 금액"
               tone={kpi.totalUnpaid > 0 ? 'bad' : 'good'}
+              tooltip={`기간 내 청구 중 아직 회수하지 못한 금액입니다.\n예상 수금 − 실제 수금 (납부완료가 아닌 차감의 미납분 합)`}
             />
             <KpiCard
               title="관리 유의 총판"
               value={`${attentionDist.length}개`}
               sub="21일+ 연체 & 조치 없음"
               tone={attentionDist.length > 5 ? 'bad' : attentionDist.length > 0 ? 'warn' : 'good'}
+              tooltip={`21일 이상 연체된 계약이 있는데, 5가지 조치(문자/전화/신용정보사/형사고소/지연회수)가 모두 미체크인 총판.\n5개 초과 빨강, 1개 이상 노랑, 0개 녹색`}
             />
           </div>
 
@@ -296,12 +304,16 @@ export const CollectionDashboard: React.FC = () => {
           {health && (
             <div className="bg-slate-900/40 rounded-lg p-4 border border-slate-700/50">
               <div className="flex items-center justify-between mb-3">
-                <h4 className="text-sm font-semibold text-slate-300">🏥 계약 건전성 (전체 {health.total_contracts}건 · 2025-10-01 이후 실행)</h4>
+                <h4 className="text-sm font-semibold text-slate-300 flex items-center gap-1">
+                  🏥 계약 건전성 (전체 {health.total_contracts}건 · 2025-10-01 이후 실행)
+                  <InfoTooltip text={`2025-10-01 이후 실행된 모든 계약을 4가지로 분류합니다.\n\n• 진행중 정상: 미수 없음 또는 연체 7일 이하\n• 진행중 연체: 8일 이상 연체\n• 만료 정상종결: 만료 & 미수 없음\n• 만료 미수: 만료 & 미수 있음\n\n집계는 계약 유효기간 내 차감만 포함합니다.`} />
+                </h4>
                 {health.total_contracts > 0 && (
-                  <span className="text-xs text-slate-400">
+                  <span className="text-xs text-slate-400 flex items-center gap-1">
                     정상률 <span className="text-green-400 font-bold">
                       {((health.healthy_active + health.expired_healthy) / health.total_contracts * 100).toFixed(1)}%
                     </span>
+                    <InfoTooltip text={`정상률 = (진행중 정상 + 만료 정상종결) ÷ 전체 계약 × 100\n즉 미수 없이 납부되고 있거나 종결된 계약 비율`} />
                   </span>
                 )}
               </div>
@@ -342,28 +354,40 @@ export const CollectionDashboard: React.FC = () => {
                 <div className="flex items-center gap-2">
                   <span className="w-3 h-3 rounded-sm bg-green-500" />
                   <div>
-                    <p className="text-slate-400">진행중 정상</p>
+                    <p className="text-slate-400 flex items-center gap-1">
+                      진행중 정상
+                      <InfoTooltip text={`계약 기간이 아직 남았고 (만료일 > 오늘), 미수 없음 또는 연체 7일 이하인 계약`} />
+                    </p>
                     <p className="text-green-400 font-bold">{health.healthy_active}건</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="w-3 h-3 rounded-sm bg-yellow-500" />
                   <div>
-                    <p className="text-slate-400">진행중 연체</p>
+                    <p className="text-slate-400 flex items-center gap-1">
+                      진행중 연체
+                      <InfoTooltip text={`계약 기간 내이지만 가장 오래된 미납이 8일 이상 연체된 계약.\n즉시 조치가 필요한 그룹입니다.`} />
+                    </p>
                     <p className="text-yellow-400 font-bold">{health.overdue_active}건</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="w-3 h-3 rounded-sm bg-slate-500" />
                   <div>
-                    <p className="text-slate-400">만료 정상종결</p>
+                    <p className="text-slate-400 flex items-center gap-1">
+                      만료 정상종결
+                      <InfoTooltip text={`만료일이 지났고 (만료일 < 오늘), 미수가 없는 계약.\n사실상 종결된 건입니다.`} />
+                    </p>
                     <p className="text-slate-300 font-bold">{health.expired_healthy}건</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="w-3 h-3 rounded-sm bg-red-500" />
                   <div>
-                    <p className="text-slate-400">만료 미수</p>
+                    <p className="text-slate-400 flex items-center gap-1">
+                      만료 미수
+                      <InfoTooltip text={`만료일이 지났는데 미수가 남은 계약.\n회수 관리 필수 대상입니다.`} />
+                    </p>
                     <p className="text-red-400 font-bold">{health.expired_unpaid}건</p>
                   </div>
                 </div>
@@ -409,7 +433,10 @@ export const CollectionDashboard: React.FC = () => {
           {/* 관리 유의 총판 TOP 10 */}
           <div className="bg-slate-900/40 rounded-lg p-4 border border-slate-700/50">
             <div className="flex items-center justify-between mb-3">
-              <h4 className="text-sm font-semibold text-slate-300">⚠️ 관리 유의 총판 TOP 10</h4>
+              <h4 className="text-sm font-semibold text-slate-300 flex items-center gap-1">
+                ⚠️ 관리 유의 총판 TOP 10
+                <InfoTooltip text={`21일 이상 연체된 계약이 있는데 아무 조치도 취하지 않은 총판 TOP 10.\n\n기준:\n• 가장 오래된 미납이 21일 이상 연체\n• 5가지 조치(문자/전화/신용정보사/형사고소/지연회수) 모두 미체크\n\n정렬: 최대 연체일 내림차순 → 총 미수액 내림차순`} />
+              </h4>
               <span className="text-xs text-slate-500">21일+ 연체 · 아직 조치 없음</span>
             </div>
             {attentionDist.length === 0 ? (

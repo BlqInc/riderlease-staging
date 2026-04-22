@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { formatCurrency, formatDate } from '../lib/utils';
+import { InfoTooltip } from './InfoTooltip';
 
 interface UnpaidContract {
   contract_id: string;
@@ -255,7 +256,10 @@ export const ExpiredCollectionActions: React.FC = () => {
     <div className="bg-slate-800/60 rounded-xl p-6 border border-slate-700 space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h3 className="text-xl font-bold text-white">🚨 미수 계약 회수 관리</h3>
+          <h3 className="text-xl font-bold text-white flex items-center gap-2">
+            🚨 미수 계약 회수 관리
+            <InfoTooltip text={`미수가 남은 계약을 '만료' / '비만료' 탭으로 나누어 조치할 수 있습니다.\n\n• 만료 탭: 만료일 < 오늘 이면서 미수가 남은 모든 계약\n• 비만료 탭: 만료일 ≥ 오늘 이고 가장 오래된 미납이 8일 이상 연체\n\n2025-10-01 이후 실행된 계약만 대상입니다.`} />
+          </h3>
           <p className="text-xs text-slate-500 mt-1">미수가 남은 모든 계약 (만료/비만료 분리)</p>
         </div>
         <button onClick={fetchData} className="text-xs text-slate-400 hover:text-white bg-slate-700 px-3 py-1.5 rounded">
@@ -265,18 +269,22 @@ export const ExpiredCollectionActions: React.FC = () => {
 
       {/* 탭: 만료 / 비만료 */}
       <div className="flex bg-slate-900/50 rounded-lg p-1 gap-1 w-fit">
-        <button onClick={() => setTabMode('expired')}
-          className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
-            tabMode === 'expired' ? 'bg-red-600 text-white font-bold' : 'text-slate-400 hover:text-white'
-          }`}>
-          만료 ({tabCounts.expired})
-        </button>
-        <button onClick={() => setTabMode('active')}
-          className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
-            tabMode === 'active' ? 'bg-yellow-600 text-white font-bold' : 'text-slate-400 hover:text-white'
-          }`}>
-          비만료 ({tabCounts.active})
-        </button>
+        <InfoTooltip text="만료일이 지났는데 미수가 남은 모든 계약" placement="bottom">
+          <button onClick={() => setTabMode('expired')}
+            className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
+              tabMode === 'expired' ? 'bg-red-600 text-white font-bold' : 'text-slate-400 hover:text-white'
+            }`}>
+            만료 ({tabCounts.expired})
+          </button>
+        </InfoTooltip>
+        <InfoTooltip text="계약 기간 내이지만 가장 오래된 미납이 8일 이상 연체된 계약" placement="bottom">
+          <button onClick={() => setTabMode('active')}
+            className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
+              tabMode === 'active' ? 'bg-yellow-600 text-white font-bold' : 'text-slate-400 hover:text-white'
+            }`}>
+            비만료 ({tabCounts.active})
+          </button>
+        </InfoTooltip>
       </div>
 
       {/* 요약 */}
