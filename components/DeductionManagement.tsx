@@ -394,9 +394,13 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({
   const summary = useMemo(() => {
     return contractsToList.reduce(
       (acc, contract) => {
-        const totalPaid = (contract.daily_deductions || []).reduce((sum, d) => sum + d.paid_amount, 0);
+        // 개별 카드와 같은 공식: 차감별 잔액 합 (음수 클램프)
+        const remaining = (contract.daily_deductions || []).reduce(
+          (s, d) => s + Math.max((d.amount || 0) - (d.paid_amount || 0), 0),
+          0
+        );
         acc.totalUnpaid += contract.unpaid_balance;
-        acc.totalBalance += contract.total_amount - totalPaid;
+        acc.totalBalance += remaining;
         acc.totalDailyDeduction += contract.daily_deduction;
         return acc;
       },
