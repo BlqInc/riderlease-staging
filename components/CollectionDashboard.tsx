@@ -465,12 +465,22 @@ export const CollectionDashboard: React.FC = () => {
           {/* 일별 회수 차트 - 토글 가능 + lazy load */}
           <div className="bg-slate-900/40 rounded-lg p-4 border border-slate-700/50">
             <div className="flex items-center justify-between mb-3">
-              <h4 className="text-sm font-semibold text-slate-300">일별 회수 현황</h4>
+              <h4 className="text-sm font-semibold text-slate-300 flex items-center gap-1">
+                일별 회수 현황
+                <InfoTooltip text={`각 날짜 막대는 그 날짜에 청구 예정이었던 일차감 단위로 집계합니다.\n\n• 예상(회색): 그날 받기로 한 일차감 합\n• 수금(초록): 그날 차감 중 실제 납부된 금액\n• 미납(빨강): 그날 차감 중 아직 안 들어온 금액`} />
+              </h4>
               <button onClick={() => setShowChart(s => !s)}
                 className="text-xs text-slate-400 hover:text-white">
                 {showChart ? '▲ 접기' : '▼ 펼치기'}
               </button>
             </div>
+            {showChart && (
+              <div className="bg-yellow-900/20 border border-yellow-700/40 rounded p-2.5 text-[11px] text-yellow-200 mb-3">
+                ⚠️ <b>미납 해석 시 참고:</b> 일·주·월 단위 등 납부 주기가 다양해서, <b>주 1회·월 1회 납부 약정 차주</b>도 차감일이 매일 잡혀 있어 그 사이 날짜가 빨간색(미납)으로 보일 수 있어요.
+                실제 약정대로 정상 납부 중이라도 다음 정기 납부일까지 미납으로 표시됩니다.
+                <br/>막대를 클릭하면 어떤 계약자가 미납인지 상세 확인 가능합니다.
+              </div>
+            )}
             {showChart && (chartData.length === 0 ? (
               <p className="text-slate-500 text-sm text-center py-8">데이터가 없습니다.</p>
             ) : (
