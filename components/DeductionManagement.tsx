@@ -6,6 +6,7 @@ import { Contract, Partner, DeductionStatus, ContractStatus } from '../types';
 import { formatDate, formatCurrency } from '../lib/utils';
 import { exportToCsv } from '../lib/csvUtils';
 import { CloseIcon, DownloadIcon } from './icons/IconComponents';
+import { BulkPaymentHistory } from './BulkPaymentHistory';
 
 type ActiveTab = '전체' | '고소건';
 
@@ -457,6 +458,9 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({
           CSV로 내보내기
         </button>
       </div>
+
+      {/* 일괄 납부 이력 + 롤백 + 과거 데이터 정리 */}
+      <BulkPaymentHistory />
 
       {/* 탭 */}
       <div className="flex space-x-1 mb-4 bg-slate-800 p-1 rounded-lg w-fit">

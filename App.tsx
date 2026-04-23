@@ -617,7 +617,6 @@ const App: React.FC = () => {
   ) => {
     if (!supabase) return;
 
-    // 해당 파트너사(복수 가능)의 계약 중 제외 건 + 실행일 미래 건을 뺀 목록
     const today = getToday();
     const partnerIdSet = new Set(partnerId.split(','));
     const targetContracts = contracts.filter(c =>
@@ -638,30 +637,92 @@ const App: React.FC = () => {
       }
     }
 
-    // 기간 내 미납 차감분을 오래된 순서대로 모아서 금액 배분
-    let remaining = inputAmount;
-    const updates: { contractId: string; deductions: any[] }[] = [];
+    // 새 분배 계획 (계약 가로질러 날짜 오름차순, 마지막 부분일은 동일 스프레드)
+    const { planBulkPayment } = await import('./lib/bulkPaymentPlanner');
+    const plan = planBulkPayment(
+      contractsToProcess.map(c => ({
+        id: c.id,
+        daily_deductions: (c.daily_deductions || []) as any,
+      })),
+      dateFrom,
+      dateTo,
+      inputAmount
+    );
 
-    for (const contract of contractsToProcess) {
-      const deductions = [...(contract.daily_deductions || [])].sort(
-        (a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0
-      );
-      let changed = false;
-      const updated = deductions.map(d => {
-        if (remaining <= 0 || d.status === '납부완료') return d;
-        if (d.date < dateFrom || d.date > dateTo) return d;
-        const unpaid = d.amount - d.paid_amount;
-        if (unpaid <= 0) return d;
-        const payment = Math.min(remaining, unpaid);
-        remaining -= payment;
-        changed = true;
-        const newPaid = d.paid_amount + payment;
-        return { ...d, paid_amount: newPaid, status: newPaid >= d.amount ? '납부완료' : '부분납부' };
-      });
-      if (changed) updates.push({ contractId: contract.id, deductions: updated });
+    if (plan.allocations.length === 0) {
+      alert('분배할 미납 차감이 없습니다.');
+      return { processed: 0, remaining: inputAmount };
     }
 
-    // DB 업데이트
+    // 1. batch + allocations DB 기록 (먼저 audit 남김)
+    let batchId: string | null = null;
+    try {
+      const partnerNames = Array.from(partnerIdSet)
+        .map(id => partners.find(p => p.id === id)?.name || '')
+        .filter(Boolean);
+      const { data: batchData, error: batchErr } = await (supabase.from('bulk_payment_batches') as any)
+        .insert({
+          partner_ids: Array.from(partnerIdSet),
+          partner_names: partnerNames,
+          date_from: dateFrom,
+          date_to: dateTo,
+          input_amount: inputAmount,
+          total_distributed: plan.total_distributed,
+          remaining_amount: plan.remaining,
+          contract_count: plan.affected_contract_count,
+          deduction_count: plan.allocations.length,
+          algorithm: plan.algorithm,
+          status: 'completed',
+        })
+        .select('id')
+        .single();
+      if (batchErr) throw batchErr;
+      batchId = batchData.id;
+
+      // allocations 기록 (벌크)
+      const allocationRows = plan.allocations.map(a => ({
+        batch_id: batchId,
+        contract_id: a.contract_id,
+        deduction_id: a.deduction_id,
+        due_date: a.due_date,
+        prev_paid_amount: a.prev_paid,
+        new_paid_amount: a.new_paid,
+        prev_status: a.prev_status,
+        new_status: a.new_status,
+        payment_amount: a.payment,
+        spread: a.spread,
+      }));
+      // 100개씩 청크로 insert (대용량 안전)
+      for (let i = 0; i < allocationRows.length; i += 100) {
+        const chunk = allocationRows.slice(i, i + 100);
+        const { error: allocErr } = await (supabase.from('bulk_payment_allocations') as any).insert(chunk);
+        if (allocErr) throw allocErr;
+      }
+    } catch (e: any) {
+      alert(`일괄 납부 audit 기록 실패: ${e.message}\n분배는 진행되지 않았습니다.`);
+      return { processed: 0, remaining: inputAmount };
+    }
+
+    // 2. 각 계약의 daily_deductions JSON 갱신
+    const allocByContract = new Map<string, typeof plan.allocations>();
+    for (const a of plan.allocations) {
+      if (!allocByContract.has(a.contract_id)) allocByContract.set(a.contract_id, []);
+      allocByContract.get(a.contract_id)!.push(a);
+    }
+
+    const updates: { contractId: string; deductions: any[] }[] = [];
+    for (const c of contractsToProcess) {
+      const allocs = allocByContract.get(c.id);
+      if (!allocs || allocs.length === 0) continue;
+      const allocByDeductionId = new Map(allocs.map(a => [a.deduction_id, a]));
+      const updated = (c.daily_deductions || []).map(d => {
+        const a = allocByDeductionId.get((d as any).id);
+        if (!a) return d;
+        return { ...d, paid_amount: a.new_paid, status: a.new_status as any };
+      });
+      updates.push({ contractId: c.id, deductions: updated });
+    }
+
     try {
       for (const u of updates) {
         await (supabase.from('contracts') as any)
@@ -675,12 +736,12 @@ const App: React.FC = () => {
         if (!newDed) return c;
         return { ...c, daily_deductions: newDed, unpaid_balance: calcUnpaidBalance(newDed) };
       }) as Contract[]);
-      return { processed: updates.length, remaining };
+      return { processed: plan.affected_contract_count, remaining: plan.remaining };
     } catch (error: any) {
-      alert(`일괄 납부 처리 실패: ${error.message}`);
+      alert(`일괄 납부 적용 실패: ${error.message}\n\n⚠️ batch ${batchId} 가 audit에 기록됐으나 일부 계약이 적용되지 않았을 수 있습니다.\n일괄 납부 이력에서 롤백 후 다시 시도하세요.`);
       return { processed: 0, remaining: inputAmount };
     }
-  }, [contracts]);
+  }, [contracts, partners]);
 
   const handleSettleDeduction = useCallback(async (contractId: string, deductionId: string) => {
     if (!supabase) return;
