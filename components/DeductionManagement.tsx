@@ -209,13 +209,13 @@ const ContractDeductionCard = memo<{
           <p className="text-sm text-slate-400">{contract.device_name} / {partnerName}</p>
         </div>
         <div className="flex-1 text-right px-4">
-          <p className="text-sm text-slate-400">미납액</p>
+          <p className="text-sm text-slate-400" title="오늘까지 청구된 차감 중 아직 받지 못한 금액">오늘까지 미납액</p>
           <p className={`font-bold text-xl ${contract.unpaid_balance > 0 ? 'text-red-400' : 'text-green-400'}`}>
             {formatCurrency(contract.unpaid_balance)}
           </p>
         </div>
         <div className="flex-1 text-right px-4">
-          <p className="text-sm text-slate-400">총 잔액</p>
+          <p className="text-sm text-slate-400" title="만기일까지 모든 차감 합 중 아직 받지 못한 금액 (미래 차감 포함)">잔여 미수액</p>
           <p className="font-bold text-xl text-yellow-400">{formatCurrency(balance)}</p>
         </div>
         <div className="flex items-center space-x-2 px-4">
