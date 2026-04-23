@@ -3,6 +3,19 @@ import { supabase } from '../lib/supabaseClient';
 import { formatCurrency } from '../lib/utils';
 import { InfoTooltip } from './InfoTooltip';
 
+// UTC ISO 문자열 → 한국시간 "YYYY-MM-DD HH:MM" (초 단위 잘라냄)
+function formatKST(iso: string | null | undefined): string {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '-';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${y}-${m}-${day} ${hh}:${mm}`;
+}
+
 interface Batch {
   id: string;
   partner_names: string[];
@@ -80,7 +93,7 @@ export const BulkPaymentHistory: React.FC<Props> = ({ onAfterRevert }) => {
     }
   };
 
-  // 1번 정리 — 과거 이상 데이터 식별
+  // 1번 정리 — 과거 이상 데이터 식별 (PostgREST 1000건 제한 우회: range 명시)
   const handleInvestigate = async () => {
     if (!supabase || !partnerKeyword.trim()) return;
     setInvestigating(true);
@@ -88,7 +101,7 @@ export const BulkPaymentHistory: React.FC<Props> = ({ onAfterRevert }) => {
       const { data, error } = await (supabase.rpc as any)('find_recent_deduction_changes', {
         p_partner_keyword: partnerKeyword.trim(),
         p_minutes: searchMinutes,
-      });
+      }).range(0, 99999);
       if (error) throw error;
       setInvestigateRows((data || []) as any[]);
     } catch (e: any) {
@@ -178,7 +191,7 @@ export const BulkPaymentHistory: React.FC<Props> = ({ onAfterRevert }) => {
                 <tbody>
                   {batches.map(b => (
                     <tr key={b.id} className="border-b border-slate-700/50 hover:bg-slate-700/30">
-                      <td className="p-2 text-slate-400 whitespace-nowrap">{b.created_at.slice(0, 16).replace('T', ' ')}</td>
+                      <td className="p-2 text-slate-400 whitespace-nowrap">{formatKST(b.created_at)}</td>
                       <td className="p-2 text-slate-300">{b.partner_names?.join(', ') || '-'}</td>
                       <td className="p-2 text-slate-400">{b.date_from} ~ {b.date_to}</td>
                       <td className="p-2 text-right text-white">{formatCurrency(b.input_amount)}</td>
@@ -189,7 +202,7 @@ export const BulkPaymentHistory: React.FC<Props> = ({ onAfterRevert }) => {
                         {b.status === 'completed' ? (
                           <span className="text-green-400">완료</span>
                         ) : (
-                          <span className="text-slate-500">롤백됨<br/><span className="text-[10px]">{b.reverted_at?.slice(0, 16).replace('T', ' ')}</span></span>
+                          <span className="text-slate-500">롤백됨<br/><span className="text-[10px]">{formatKST(b.reverted_at)}</span></span>
                         )}
                       </td>
                       <td className="p-2 text-center">
@@ -253,7 +266,7 @@ export const BulkPaymentHistory: React.FC<Props> = ({ onAfterRevert }) => {
                     <tbody>
                       {investigateRows.map(r => (
                         <tr key={r.deduction_id_in_table} className="border-b border-slate-700/50">
-                          <td className="p-2 text-slate-400">{r.updated_at?.slice(0, 16).replace('T', ' ')}</td>
+                          <td className="p-2 text-slate-400">{formatKST(r.updated_at)}</td>
                           <td className="p-2 text-white">{r.lessee_name} #{r.contract_number}</td>
                           <td className="p-2 text-slate-300">{r.due_date}</td>
                           <td className="p-2 text-right text-slate-300">{formatCurrency(r.amount)}</td>
