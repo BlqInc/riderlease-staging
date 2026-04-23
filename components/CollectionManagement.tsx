@@ -7,6 +7,7 @@ import { BankDepositUpload } from './BankDepositUpload';
 import { BankDepositHistory } from './BankDepositHistory';
 import { CollectionDashboard } from './CollectionDashboard';
 import { ExpiredCollectionActions } from './ExpiredCollectionActions';
+import { AutomationCenter } from './AutomationCenter';
 import { InfoTooltip } from './InfoTooltip';
 
 interface CollectionManagementProps {
@@ -224,7 +225,10 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
       {/* 📊 회수 대시보드 (기간별 KPI + 일별 차트 + 위험 총판) */}
       <CollectionDashboard />
 
-      {/* 🚨 만료 계약 회수 관리 (조치 체크리스트) */}
+      {/* 🔔 자동 조치 센터 (SMS/신정사 메일 큐) */}
+      <AutomationCenter />
+
+      {/* 🚨 미수 계약 회수 관리 (조치 체크리스트) */}
       <ExpiredCollectionActions />
 
       {/* 계약별 상세 목록 토글 */}
