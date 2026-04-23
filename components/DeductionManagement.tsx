@@ -620,9 +620,9 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({
       {bulkPayModal && onBulkDistributorPayment && (() => {
         const today = new Date().toISOString().slice(0, 10);
         const partnerIdSet = new Set(bulkPayModal.partnerIds);
+        // status 필터 제거: '정산완료'(채권사 정산)는 회수와 무관해 일괄납부 대상이 됨
         const distContracts = contracts.filter(c =>
           partnerIdSet.has(c.partner_id) &&
-          c.status === '진행중' &&
           (!c.execution_date || c.execution_date <= today)
         );
         const inputAmt = Number(bulkPayForm.amount) || 0;

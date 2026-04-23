@@ -619,10 +619,10 @@ const App: React.FC = () => {
 
     const today = getToday();
     const partnerIdSet = new Set(partnerId.split(','));
+    // status 필터 제거: '정산완료'는 채권사 정산으로 회수와 무관 → 모든 status 포함
     const targetContracts = contracts.filter(c =>
       partnerIdSet.has(c.partner_id) &&
       !excludeContractIds.includes(c.id) &&
-      c.status === '진행중' &&
       (!c.execution_date || c.execution_date <= today)
     );
 
