@@ -119,11 +119,16 @@ const ContractDeductionCard = memo<{
 
   const { balance, sortedDeductions } = useMemo(() => {
     const deductions = contract.daily_deductions || [];
-    const paid = deductions.reduce((sum, d) => sum + d.paid_amount, 0);
+    // 차감 단위로 미납액 합산 (음수 방지 + 데이터 이상 시에도 정확)
+    // 이전: contract.total_amount - paid → 데이터 이상 계약에서 음수 발생
+    const remaining = deductions.reduce(
+      (sum, d) => sum + Math.max((d.amount || 0) - (d.paid_amount || 0), 0),
+      0
+    );
     // YYYY-MM-DD 형식은 문자열 비교로 날짜 정렬 가능 → Date 객체 생성 불필요
     const sorted = [...deductions].sort((a, b) => b.date < a.date ? -1 : b.date > a.date ? 1 : 0);
-    return { balance: contract.total_amount - paid, sortedDeductions: sorted };
-  }, [contract.daily_deductions, contract.total_amount]);
+    return { balance: remaining, sortedDeductions: sorted };
+  }, [contract.daily_deductions]);
 
   // 체크된 항목 중 미납/부분납부 건수, 완납 건수 계산
   const { checkedUnpaidCount, checkedPaidCount } = useMemo(() => {
