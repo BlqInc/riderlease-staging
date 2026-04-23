@@ -117,10 +117,12 @@ export const CollectionDashboard: React.FC = () => {
         const metricsArgs: any = { from_date: fromDate, to_date: toDate };
         if (execFrom) metricsArgs.exec_from = execFrom;
         if (execTo) metricsArgs.exec_to = execTo;
-        const healthArgs: any = { anchor_date: anchorDate };
+        // health/attention은 기간 끝일(toDate) 기준으로 호출 → 기간 필터에 반응
+        const periodAnchor = toDate || anchorDate;
+        const healthArgs: any = { anchor_date: periodAnchor };
         if (execFrom) healthArgs.exec_from = execFrom;
         if (execTo) healthArgs.exec_to = execTo;
-        const attentionArgs: any = { limit_count: 10, anchor_date: anchorDate };
+        const attentionArgs: any = { limit_count: 10, anchor_date: periodAnchor };
         const [metricsRes, attentionRes, healthRes] = await Promise.all([
           (supabase!.rpc as any)('get_daily_recovery_metrics', metricsArgs),
           (supabase!.rpc as any)('get_attention_distributors', attentionArgs),
@@ -339,30 +341,30 @@ export const CollectionDashboard: React.FC = () => {
             />
           </div>
 
-          {/* KPI 2행: 전체 기준 지표 (기준일 + cohort 반영) */}
+          {/* KPI 2행: 기간 끝일(toDate) 기준 누적 지표 */}
           {health && (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <KpiCard
                 title="전체 납부율"
                 value={`${health.total_expected > 0 ? (health.total_paid / health.total_expected * 100).toFixed(1) : '0.0'}%`}
-                sub={`기준일(${anchorDate})까지 누적`}
+                sub={`${toDate || anchorDate}까지 누적`}
                 tone={health.total_expected === 0 ? 'default'
                   : (health.total_paid / health.total_expected) >= 0.8 ? 'good'
                   : (health.total_paid / health.total_expected) >= 0.5 ? 'warn' : 'bad'}
-                tooltip={`기준일까지 받기로 한 금액 중 실제 받은 비율.\n총 납부 ÷ 총 예상 × 100\n\n계약 유효기간 내 차감만 집계합니다.`}
+                tooltip={`기간 끝일까지 받기로 한 금액 중 실제 받은 비율.\n총 납부 ÷ 총 예상 × 100\n\n기간 필터(이번 주/이번 달/지정)에 따라 끝일이 변하면 같이 변합니다.\n계약 유효기간 내 차감만 집계.`}
               />
               <KpiCard
                 title="8일+ 연체 건수"
                 value={`${health.overdue_active}건`}
-                sub="진행중 계약 중"
+                sub={`${toDate || anchorDate} 기준`}
                 tone={health.overdue_active > 0 ? 'bad' : 'good'}
-                tooltip={`가장 오래된 미납이 8일 이상 연체된 진행중 계약 수.\n기준일 기준으로 계산.\n7일 이하는 정상 범주로 제외.`}
+                tooltip={`기간 끝일 기준 가장 오래된 미납이 8일 이상 연체된 계약 수.\n7일 이하는 정상 범주로 제외.\n\n기간 필터에 따라 시점이 변합니다.`}
               />
               <KpiCard
-                title="이번 달 회수 예정액"
+                title="기간 끝 월 회수 예정액"
                 value={formatCurrency(health.monthly_forecast)}
-                sub="기준일 속한 달의 남은 일수 × 일차감"
-                tooltip={`기준일이 속한 달의 남은 일수 × 진행중 계약의 일차감 합계.\n\n예) 기준일이 4/21이면 남은 일수는 9일 (4/22~4/30).\n진행중 계약들의 일차감 × 9일 합계`}
+                sub={`${toDate || anchorDate} 속한 달 남은 일수 기준`}
+                tooltip={`기간 끝일이 속한 달의 남은 일수 × 계약별 일차감 합계.\n\n예) 기간 끝이 4/15면 남은 일수 15일 (4/16~4/30).\n각 계약 daily_deduction × 15 의 총합.`}
               />
             </div>
           )}
