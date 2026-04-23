@@ -289,11 +289,14 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
       const contractById = new Map<string, any>();
       (affectedContracts || []).forEach((c: any) => contractById.set(c.id, c));
 
-      // 3) 영업자별로 미납 차감분에 분배 (메모리 상에서만 계산, DB는 아직 안 건드림)
+      // 3) 영업자별로 미납 차감분에 분배 (planBulkPayment로 일괄 납부와 동일 알고리즘)
+      // - 여러 계약을 가로질러 가장 오래된 날짜부터 일별로 처리
+      // - 마지막 부분 충당일에는 동일 분배
+      const { planBulkPayment } = await import('../lib/bulkPaymentPlanner');
       const contractUpdates = new Map<string, { before: any[]; after: any[] }>();
       contractUpdatesRef.current = contractUpdates;
+
       for (const [_, { sp, totalAmount, deposits }] of grouped) {
-        let remaining = totalAmount;
         const partnerSet = new Set(sp.partner_ids);
         const maxDepositDate = deposits.reduce((m, d) => d.date > m ? d.date : m, '');
         const targetContracts = (affectedContracts || []).filter((c: any) =>
@@ -302,42 +305,36 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
           (!c.execution_date || c.execution_date <= maxDepositDate)
         );
 
-        type DedRef = { contractId: string; dedIdx: number; date: string; amount: number; paid: number };
-        const allDeds: DedRef[] = [];
-        for (const c of targetContracts) {
-          const ded = c.daily_deductions || [];
-          ded.forEach((d: any, idx: number) => {
-            if (d.status === '납부완료') return;
-            if (c.execution_date && d.date < c.execution_date) return;
-            if (c.expiry_date && d.date > c.expiry_date) return;
-            allDeds.push({
-              contractId: c.id, dedIdx: idx, date: d.date,
-              amount: Number(d.amount) || 0, paid: Number(d.paid_amount) || 0,
-            });
-          });
-        }
-        allDeds.sort((a, b) => a.date.localeCompare(b.date));
+        // planBulkPayment 입력 형식으로 변환 — 계약 유효기간 외 차감 미리 제거
+        const plannerInput = targetContracts.map((c: any) => ({
+          id: c.id,
+          daily_deductions: (c.daily_deductions || []).filter((d: any) => {
+            if (c.execution_date && d.date < c.execution_date) return false;
+            if (c.expiry_date && d.date > c.expiry_date) return false;
+            return true;
+          }),
+        }));
 
-        for (const dr of allDeds) {
-          if (remaining <= 0) break;
-          if (!allowPrepay && maxDepositDate && dr.date > maxDepositDate) break;
-          const owed = dr.amount - dr.paid;
-          if (owed <= 0) continue;
-          const payment = Math.min(remaining, owed);
-          remaining -= payment;
+        const dateFrom = '0000-01-01';
+        const dateTo = allowPrepay ? '9999-12-31' : maxDepositDate;
+        const plan = planBulkPayment(plannerInput, dateFrom, dateTo, totalAmount);
 
-          let entry = contractUpdates.get(dr.contractId);
+        // 알로케이션을 contractUpdates 형식으로 적용 (deduction.id 매칭)
+        for (const a of plan.allocations) {
+          let entry = contractUpdates.get(a.contract_id);
           if (!entry) {
-            const orig = contractById.get(dr.contractId)?.daily_deductions || [];
+            const orig = contractById.get(a.contract_id)?.daily_deductions || [];
             entry = { before: JSON.parse(JSON.stringify(orig)), after: JSON.parse(JSON.stringify(orig)) };
-            contractUpdates.set(dr.contractId, entry);
+            contractUpdates.set(a.contract_id, entry);
           }
-          const newPaid = entry.after[dr.dedIdx].paid_amount + payment;
-          entry.after[dr.dedIdx] = {
-            ...entry.after[dr.dedIdx],
-            paid_amount: newPaid,
-            status: newPaid >= entry.after[dr.dedIdx].amount ? '납부완료' : '부분납부',
-          };
+          const idx = entry.after.findIndex((d: any) => d.id === a.deduction_id);
+          if (idx >= 0) {
+            entry.after[idx] = {
+              ...entry.after[idx],
+              paid_amount: a.new_paid,
+              status: a.new_status,
+            };
+          }
         }
       }
 

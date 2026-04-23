@@ -134,7 +134,8 @@ $$;
 GRANT EXECUTE ON FUNCTION revert_bulk_payment(UUID) TO anon, authenticated;
 
 -- [4] 과거 이상 데이터 식별 (audit 없던 시기)
--- 특정 파트너의 daily_deductions 중 최근 N분 내에 변경된 행 + paid_amount > 0
+-- 트리거가 JSON 갱신 시 모든 행을 DELETE+INSERT 하므로 paid_amount=0 노이즈 발생
+-- → paid_amount > 0 만 반환하여 실제 납부된 행만 표시. LIMIT으로 PostgREST 1000 제한 우회.
 DROP FUNCTION IF EXISTS find_recent_deduction_changes(TEXT, INT);
 CREATE OR REPLACE FUNCTION find_recent_deduction_changes(
   p_partner_keyword TEXT,
@@ -169,7 +170,9 @@ LANGUAGE sql STABLE AS $$
   JOIN daily_deductions dd ON dd.contract_id = c.id
   WHERE p.name ILIKE '%' || p_partner_keyword || '%'
     AND dd.updated_at > NOW() - (p_minutes || ' minutes')::INTERVAL
-  ORDER BY dd.updated_at DESC, c.contract_number, dd.due_date;
+    AND dd.paid_amount > 0
+  ORDER BY dd.updated_at DESC, c.contract_number, dd.due_date
+  LIMIT 50000;
 $$;
 GRANT EXECUTE ON FUNCTION find_recent_deduction_changes(TEXT, INT) TO anon, authenticated;
 
@@ -197,12 +200,14 @@ BEGIN
     JOIN daily_deductions dd ON dd.contract_id = c.id
     WHERE p.name ILIKE '%' || p_partner_keyword || '%'
       AND dd.updated_at > NOW() - (p_minutes || ' minutes')::INTERVAL
+      AND dd.paid_amount > 0
   LOOP
     -- 이 계약에서 리셋 대상이 되는 deduction의 legacy_id 모음
     SELECT ARRAY_AGG(dd.legacy_id) INTO v_target_ids
     FROM daily_deductions dd
     WHERE dd.contract_id = v_contract.id
       AND dd.updated_at > NOW() - (p_minutes || ' minutes')::INTERVAL
+      AND dd.paid_amount > 0
       AND dd.legacy_id IS NOT NULL;
 
     IF v_target_ids IS NULL OR array_length(v_target_ids, 1) IS NULL THEN
