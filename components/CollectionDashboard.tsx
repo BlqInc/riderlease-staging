@@ -117,11 +117,13 @@ export const CollectionDashboard: React.FC = () => {
         const metricsArgs: any = { from_date: fromDate, to_date: toDate };
         if (execFrom) metricsArgs.exec_from = execFrom;
         if (execTo) metricsArgs.exec_to = execTo;
-        // health/attention은 기간 끝일(toDate) 기준으로 호출 → 기간 필터에 반응
+        // health/attention은 기간 끝일(toDate) 기준 + 기간 시작(fromDate)으로 호출
+        // → total_paid/expected/unpaid가 기간 안의 차감만 집계됨 (기간 전체에 반응)
         const periodAnchor = toDate || anchorDate;
         const healthArgs: any = { anchor_date: periodAnchor };
         if (execFrom) healthArgs.exec_from = execFrom;
         if (execTo) healthArgs.exec_to = execTo;
+        if (fromDate) healthArgs.period_from = fromDate;
         const attentionArgs: any = { limit_count: 10, anchor_date: periodAnchor };
         const [metricsRes, attentionRes, healthRes] = await Promise.all([
           (supabase!.rpc as any)('get_daily_recovery_metrics', metricsArgs),
@@ -345,20 +347,20 @@ export const CollectionDashboard: React.FC = () => {
           {health && (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <KpiCard
-                title="전체 납부율"
+                title="기간 납부율"
                 value={`${health.total_expected > 0 ? (health.total_paid / health.total_expected * 100).toFixed(1) : '0.0'}%`}
-                sub={`${toDate || anchorDate}까지 누적`}
+                sub={`${fromDate} ~ ${toDate || anchorDate}`}
                 tone={health.total_expected === 0 ? 'default'
                   : (health.total_paid / health.total_expected) >= 0.8 ? 'good'
                   : (health.total_paid / health.total_expected) >= 0.5 ? 'warn' : 'bad'}
-                tooltip={`기간 끝일까지 받기로 한 금액 중 실제 받은 비율.\n총 납부 ÷ 총 예상 × 100\n\n기간 필터(이번 주/이번 달/지정)에 따라 끝일이 변하면 같이 변합니다.\n계약 유효기간 내 차감만 집계.`}
+                tooltip={`선택한 기간 내 받기로 한 금액 중 실제 받은 비율.\n기간 내 납부 ÷ 기간 내 예상 × 100\n\n기간 필터(오늘/이번 주/이번 달/지정)에 100% 반응.`}
               />
               <KpiCard
                 title="8일+ 연체 건수"
                 value={`${health.overdue_active}건`}
                 sub={`${toDate || anchorDate} 기준`}
                 tone={health.overdue_active > 0 ? 'bad' : 'good'}
-                tooltip={`기간 끝일 기준 가장 오래된 미납이 8일 이상 연체된 계약 수.\n7일 이하는 정상 범주로 제외.\n\n기간 필터에 따라 시점이 변합니다.`}
+                tooltip={`기간 끝일 시점에 가장 오래된 미납이 8일 이상 연체된 계약 수.\n시점 기반이라 기간 끝일(toDate)에 따라 달라집니다.\n7일 이하는 정상 범주로 제외.`}
               />
               <KpiCard
                 title="기간 끝 월 회수 예정액"
