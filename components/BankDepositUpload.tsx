@@ -532,8 +532,8 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
                   <th className="p-2 text-left text-slate-400">입금자명</th>
                   <th className="p-2 text-right text-slate-400">금액</th>
                   <th className="p-2 text-left text-slate-400">매칭 영업자</th>
-                  <th className="p-2 text-right text-slate-400">예상 미납</th>
-                  <th className="p-2 text-right text-slate-400">차액</th>
+                  <th className="p-2 text-right text-slate-400" title="시스템에 잡힌 그 영업자의 미납액 (입금일 이전 미납 합계, 영업자 담당 파트너 계약만)">예상 미납 ⓘ</th>
+                  <th className="p-2 text-right text-slate-400" title="입금액 − 예상 미납. 양수=초과 입금, 음수=부족 입금">차액 ⓘ</th>
                   <th className="p-2 text-center text-slate-400">상태</th>
                 </tr>
               </thead>
@@ -546,13 +546,21 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
                     <td className="p-2 text-slate-300">{p.matchedSalespersonName || <span className="text-red-400">미매칭</span>}</td>
                     <td className="p-2 text-right text-slate-400">{p.expectedAmount > 0 ? formatCurrency(p.expectedAmount) : '-'}</td>
                     <td className={`p-2 text-right ${p.diff === 0 ? 'text-green-400' : p.diff > 0 ? 'text-blue-400' : 'text-yellow-400'}`}>
-                      {p.matchedSalespersonId ? (p.diff === 0 ? '일치' : formatCurrency(p.diff)) : '-'}
+                      {p.matchedSalespersonId
+                        ? (p.diff === 0 ? '일치'
+                           : p.diff > 0 ? `+${formatCurrency(p.diff)}`
+                           : formatCurrency(p.diff))
+                        : '-'}
                     </td>
                     <td className="p-2 text-center">
-                      {p.status === 'duplicate' ? <span className="bg-orange-500/20 text-orange-300 px-2 py-0.5 rounded">중복</span> :
-                       p.status === 'matched' ? <span className="bg-green-500/20 text-green-300 px-2 py-0.5 rounded">일치</span> :
-                       p.status === 'partial' ? <span className="bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded">차액</span> :
-                       <span className="bg-red-500/20 text-red-300 px-2 py-0.5 rounded">미매칭</span>}
+                      {p.status === 'duplicate' ? <span className="bg-orange-500/20 text-orange-300 px-2 py-0.5 rounded" title="이미 처리된 입금 (날짜+입금자+금액 동일) 또는 그 날짜 차감이 모두 납부완료">중복</span> :
+                       p.status === 'matched' ? <span className="bg-green-500/20 text-green-300 px-2 py-0.5 rounded" title="입금액이 예상 미납과 일치 (1원 미만 오차)">일치</span> :
+                       p.status === 'partial' ? (
+                         p.diff > 0
+                           ? <span className="bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded" title="입금이 예상 미납보다 많음 (선납 옵션 미체크 시 미배분)">초과</span>
+                           : <span className="bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded" title="입금이 예상 미납보다 적음 (오래된 미납부터 일부만 충당)">부족</span>
+                       ) :
+                       <span className="bg-red-500/20 text-red-300 px-2 py-0.5 rounded" title="입금자명에 해당하는 영업자를 못 찾음">미매칭</span>}
                     </td>
                   </tr>
                 ))}
