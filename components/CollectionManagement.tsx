@@ -105,7 +105,8 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
       const c = contractStats[i];
       totalExpected += c.expectedByToday;
       totalPaidSum += c.totalPaid;
-      if (c.contract.status === ContractStatus.ACTIVE && c.overdueDays >= 8) overdueContracts++;
+      // 정산완료(채권사 정산)는 회수 흐름과 무관하므로 진행중과 동일하게 카운트, 만료만 제외
+      if (c.contract.status !== ContractStatus.EXPIRED && c.overdueDays >= 8) overdueContracts++;
     }
     const overallRate = totalExpected > 0 ? (totalPaidSum / totalExpected) * 100 : 0;
 
@@ -119,7 +120,8 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
     let monthlyExpected = 0;
     for (let i = 0; i < safeContracts.length; i++) {
       const c = safeContracts[i];
-      if (c.status === ContractStatus.ACTIVE) {
+      // 정산완료도 일차감 계속되므로 포함, 만료만 제외
+      if (c.status !== ContractStatus.EXPIRED) {
         monthlyExpected += (Number(c.daily_deduction) || 0) * remainingDays;
       }
     }

@@ -80,7 +80,7 @@ LANGUAGE sql STABLE AS $$
     SUM(expected)::NUMERIC,
     SUM(paid)::NUMERIC,
     SUM(unpaid)::NUMERIC,
-    (SUM(CASE WHEN contract_status = '진행중' THEN daily_deduction ELSE 0 END)
+    (SUM(CASE WHEN contract_status <> '만료' THEN daily_deduction ELSE 0 END)
      * (SELECT days_left FROM month_remaining))::NUMERIC
   FROM per_contract;
 $$;

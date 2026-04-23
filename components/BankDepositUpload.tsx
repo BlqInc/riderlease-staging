@@ -281,10 +281,11 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
       for (const sp of salespeople.filter(s => affectedSpIds.includes(s.id))) {
         sp.partner_ids.forEach(p => affectedPartnerIds.add(p));
       }
+      // status 필터 제거: 정산완료(채권사 정산)도 분배 대상 포함, 만료만 제외
       const { data: affectedContracts } = await (supabase.from('contracts') as any)
         .select('id, partner_id, execution_date, expiry_date, daily_deductions, status')
         .in('partner_id', Array.from(affectedPartnerIds))
-        .eq('status', '진행중');
+        .neq('status', '만료');
 
       const contractById = new Map<string, any>();
       (affectedContracts || []).forEach((c: any) => contractById.set(c.id, c));
@@ -299,9 +300,9 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
       for (const [_, { sp, totalAmount, deposits }] of grouped) {
         const partnerSet = new Set(sp.partner_ids);
         const maxDepositDate = deposits.reduce((m, d) => d.date > m ? d.date : m, '');
+        // status 필터 제거: '정산완료'는 채권사 정산이라 회수와 무관하므로 분배 대상 포함
         const targetContracts = (affectedContracts || []).filter((c: any) =>
           c.partner_id && partnerSet.has(c.partner_id) &&
-          c.status === '진행중' &&
           (!c.execution_date || c.execution_date <= maxDepositDate)
         );
 
