@@ -628,15 +628,11 @@ const App: React.FC = () => {
       (Number(c.unpaid_balance) || 0) > 0
     );
 
-    // daily_deductions가 없으면 먼저 로드
+    // 항상 DB에서 최신 daily_deductions 가져옴 (race condition 방지: 사용자가 직전에 수동 처리한 결과 보존)
     const contractsToProcess: Contract[] = [];
     for (const c of targetContracts) {
-      if (c.daily_deductions) {
-        contractsToProcess.push(c);
-      } else {
-        const { data } = await (supabase.from('contracts') as any).select('daily_deductions').eq('id', c.id).single();
-        contractsToProcess.push({ ...c, daily_deductions: data?.daily_deductions || [] });
-      }
+      const { data } = await (supabase.from('contracts') as any).select('daily_deductions').eq('id', c.id).single();
+      contractsToProcess.push({ ...c, daily_deductions: data?.daily_deductions || [] });
     }
 
     // 새 분배 계획 (계약 가로질러 날짜 오름차순, 마지막 부분일은 동일 스프레드)
@@ -747,10 +743,13 @@ const App: React.FC = () => {
 
   const handleSettleDeduction = useCallback(async (contractId: string, deductionId: string) => {
     if (!supabase) return;
-    const contract = contracts.find(c => c.id === contractId);
-    if (!contract || !contract.daily_deductions) return;
+    // 항상 DB에서 최신 daily_deductions 가져옴 (race condition 방지)
+    const { data: latest, error: fetchErr } = await (supabase.from('contracts') as any)
+      .select('daily_deductions').eq('id', contractId).single();
+    if (fetchErr || !latest) { alert('계약 정보 로드 실패'); return; }
+    const currentDeductions = (latest.daily_deductions || []) as any[];
 
-    const updatedDeductions = contract.daily_deductions.map(d =>
+    const updatedDeductions = currentDeductions.map(d =>
       d.id === deductionId ? { ...d, paid_amount: d.amount, status: DeductionStatus.PAID } : d
     );
     try {
@@ -766,14 +765,17 @@ const App: React.FC = () => {
     } catch (error: any) {
       alert(`처리 실패: ${error.message}`);
     }
-  }, [contracts]);
+  }, []);
 
   const handleCancelDeduction = useCallback(async (contractId: string, deductionId: string) => {
     if (!supabase) return;
-    const contract = contracts.find(c => c.id === contractId);
-    if (!contract || !contract.daily_deductions) return;
+    // 항상 DB에서 최신 daily_deductions 가져옴 (race condition 방지)
+    const { data: latest, error: fetchErr } = await (supabase.from('contracts') as any)
+      .select('daily_deductions').eq('id', contractId).single();
+    if (fetchErr || !latest) { alert('계약 정보 로드 실패'); return; }
+    const currentDeductions = (latest.daily_deductions || []) as any[];
 
-    const updatedDeductions = contract.daily_deductions.map(d =>
+    const updatedDeductions = currentDeductions.map(d =>
       d.id === deductionId ? { ...d, paid_amount: 0, status: DeductionStatus.UNPAID } : d
     );
     try {
@@ -789,14 +791,18 @@ const App: React.FC = () => {
     } catch (error: any) {
       alert(`취소 실패: ${error.message}`);
     }
-  }, [contracts]);
+  }, []);
 
   const handleBulkCancelDeductions = useCallback(async (contractId: string, deductionIds: string[]) => {
     if (!supabase) return;
-    const contract = contracts.find(c => c.id === contractId);
-    if (!contract || !contract.daily_deductions) return;
+    // 항상 DB에서 최신 daily_deductions 가져옴 (race condition 방지)
+    const { data: latest, error: fetchErr } = await (supabase.from('contracts') as any)
+      .select('daily_deductions').eq('id', contractId).single();
+    if (fetchErr || !latest) { alert('계약 정보 로드 실패'); return; }
+    const currentDeductions = (latest.daily_deductions || []) as any[];
+
     const idSet = new Set(deductionIds);
-    const updatedDeductions = contract.daily_deductions.map(d =>
+    const updatedDeductions = currentDeductions.map(d =>
       idSet.has(d.id) && d.status === DeductionStatus.PAID
         ? { ...d, status: DeductionStatus.UNPAID, paid_amount: 0 }
         : d
@@ -830,14 +836,18 @@ const App: React.FC = () => {
     } catch (error: any) {
       alert(`처리 실패: ${error.message}`);
     }
-  }, [contracts]);
+  }, []);
 
   const handleBulkSettleDeductions = useCallback(async (contractId: string, deductionIds: string[]) => {
     if (!supabase) return;
-    const contract = contracts.find(c => c.id === contractId);
-    if (!contract || !contract.daily_deductions) return;
+    // 항상 DB에서 최신 daily_deductions 가져옴 (race condition 방지)
+    const { data: latest, error: fetchErr } = await (supabase.from('contracts') as any)
+      .select('daily_deductions').eq('id', contractId).single();
+    if (fetchErr || !latest) { alert('계약 정보 로드 실패'); return; }
+    const currentDeductions = (latest.daily_deductions || []) as any[];
+
     const idSet = new Set(deductionIds);
-    const updatedDeductions = contract.daily_deductions.map(d =>
+    const updatedDeductions = currentDeductions.map(d =>
       idSet.has(d.id) && d.status !== DeductionStatus.PAID
         ? { ...d, status: DeductionStatus.PAID, paid_amount: d.amount }
         : d
@@ -855,7 +865,7 @@ const App: React.FC = () => {
     } catch (error: any) {
       alert(`처리 실패: ${error.message}`);
     }
-  }, [contracts]);
+  }, []);
 
   const handleUpdatePrerequisites = useCallback(async (contractId: string, updates: any) => {
     if (!supabase) return;
