@@ -620,12 +620,16 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({
       {bulkPayModal && onBulkDistributorPayment && (() => {
         const today = new Date().toISOString().slice(0, 10);
         const partnerIdSet = new Set(bulkPayModal.partnerIds);
-        // status 필터 제거: '정산완료'(채권사 정산)는 회수와 무관해 일괄납부 대상이 됨
-        // 고소건(is_lawsuit) 자동 제외: 별도 회수 절차 진행 중이라 일괄납부 대상 아님
+        // 필터:
+        // - 같은 파트너
+        // - 고소건 제외 (별도 회수 절차)
+        // - 실행일 도래
+        // - 미수액 > 0 (이미 다 갚은 계약은 분배할 게 없음 → 대상 아님)
         const distContracts = contracts.filter(c =>
           partnerIdSet.has(c.partner_id) &&
           !c.is_lawsuit &&
-          (!c.execution_date || c.execution_date <= today)
+          (!c.execution_date || c.execution_date <= today) &&
+          (Number(c.unpaid_balance) || 0) > 0
         );
         const inputAmt = Number(bulkPayForm.amount) || 0;
         const expectedTotal = distContracts

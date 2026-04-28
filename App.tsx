@@ -619,13 +619,13 @@ const App: React.FC = () => {
 
     const today = getToday();
     const partnerIdSet = new Set(partnerId.split(','));
-    // status 필터 제거: '정산완료'는 채권사 정산으로 회수와 무관 → 모든 status 포함
-    // 고소건(is_lawsuit) 자동 제외: 별도 회수 절차라 일괄납부 분배 대상 아님
+    // 필터: 같은 파트너 + 고소건 제외 + 실행일 도래 + 미수액 > 0 (이미 완납된 계약은 대상 아님)
     const targetContracts = contracts.filter(c =>
       partnerIdSet.has(c.partner_id) &&
       !excludeContractIds.includes(c.id) &&
       !c.is_lawsuit &&
-      (!c.execution_date || c.execution_date <= today)
+      (!c.execution_date || c.execution_date <= today) &&
+      (Number(c.unpaid_balance) || 0) > 0
     );
 
     // daily_deductions가 없으면 먼저 로드
