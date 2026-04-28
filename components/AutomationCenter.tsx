@@ -61,7 +61,31 @@ async function sendSmsApi(target: string, body: string): Promise<{ ok: true; mes
     const { data, error } = await supabase.functions.invoke('send-sms', {
       body: { to: target, text: body },
     });
-    if (error) return { ok: false, error: error.message || String(error) };
+    if (error) {
+      // Function이 non-2xx 반환 시 본문 추출 시도
+      const ctx: any = (error as any).context;
+      let bodyText = '';
+      if (ctx?.body) {
+        try {
+          // ReadableStream → text 변환
+          const reader = ctx.body.getReader?.();
+          if (reader) {
+            const chunks: Uint8Array[] = [];
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              if (value) chunks.push(value);
+            }
+            const total = chunks.reduce((s, c) => s + c.length, 0);
+            const merged = new Uint8Array(total);
+            let offset = 0;
+            for (const c of chunks) { merged.set(c, offset); offset += c.length; }
+            bodyText = new TextDecoder().decode(merged);
+          }
+        } catch {}
+      }
+      return { ok: false, error: `${error.message || 'Edge Function 오류'}${bodyText ? '\n응답: ' + bodyText : ''}` };
+    }
     if (!data?.ok) return { ok: false, error: data?.error || 'SMS 발송 실패' };
     return { ok: true, messageId: data.message_id };
   } catch (e: any) {

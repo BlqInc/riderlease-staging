@@ -17,9 +17,11 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-function jsonResponse(body: any, status = 200) {
+function jsonResponse(body: any, _status = 200) {
+  // 항상 200으로 반환 (에러는 body.ok=false로 표현)
+  // 그래야 supabase.functions.invoke가 정상적으로 data를 받아 클라이언트에 전달함
   return new Response(JSON.stringify(body), {
-    status,
+    status: 200,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
 }
