@@ -282,10 +282,12 @@ export const BankDepositUpload: React.FC<Props> = ({ contracts, partners, salesp
         sp.partner_ids.forEach(p => affectedPartnerIds.add(p));
       }
       // status 필터 제거: 정산완료(채권사 정산)도 분배 대상 포함, 만료만 제외
+      // 고소건(is_lawsuit)도 분배에서 제외 (별도 회수 절차)
       const { data: affectedContracts } = await (supabase.from('contracts') as any)
-        .select('id, partner_id, execution_date, expiry_date, daily_deductions, status')
+        .select('id, partner_id, execution_date, expiry_date, daily_deductions, status, is_lawsuit')
         .in('partner_id', Array.from(affectedPartnerIds))
-        .neq('status', '만료');
+        .neq('status', '만료')
+        .or('is_lawsuit.is.null,is_lawsuit.eq.false');
 
       const contractById = new Map<string, any>();
       (affectedContracts || []).forEach((c: any) => contractById.set(c.id, c));
