@@ -102,16 +102,17 @@ serve(async (req) => {
     const byteLength = new TextEncoder().encode(text).length;
     const type = byteLength > 90 ? 'LMS' : 'SMS';
 
+    // /v4/send-many/detail 엔드포인트가 더 안정적 (단일 발송도 messages 배열로)
     const body = {
-      message: {
+      messages: [{
         to: normalizePhone(to),
         from: normalizePhone(sender),
         text,
         type,
-      },
+      }],
     };
 
-    const res = await fetch('https://api.solapi.com/messages/v4/send', {
+    const res = await fetch('https://api.solapi.com/messages/v4/send-many/detail', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -121,20 +122,33 @@ serve(async (req) => {
     });
 
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
+
+    // Solapi는 HTTP 200으로 와도 본문에 errorCode가 있을 수 있음
+    if (!res.ok || data?.errorCode) {
       return jsonResponse({
         ok: false,
-        error: `Solapi 오류: ${data.errorCode || res.status} ${data.errorMessage || ''}`,
+        error: `Solapi 오류 (HTTP ${res.status}): ${data?.errorCode || ''} ${data?.errorMessage || ''}`,
         raw: data,
-      }, 500);
+      });
+    }
+
+    // send-many 응답: groupInfo.count.registeredFailed > 0 이면 일부/전체 실패
+    const failedCount = data?.groupInfo?.count?.registeredFailed ?? 0;
+    const failedList = data?.failedMessageList ?? [];
+    if (failedCount > 0 || failedList.length > 0) {
+      const firstError = failedList[0];
+      return jsonResponse({
+        ok: false,
+        error: `Solapi 메시지 실패: ${firstError?.statusCode || ''} ${firstError?.statusMessage || JSON.stringify(failedList)}`,
+        raw: data,
+      });
     }
 
     return jsonResponse({
       ok: true,
       type,
-      message_id: data.messageId,
-      group_id: data.groupId,
-      status_code: data.statusCode,
+      group_id: data?.groupInfo?.groupId,
+      message_id: data?.messageList?.[0]?.messageId,
       raw: data,
     });
   } catch (e: any) {
