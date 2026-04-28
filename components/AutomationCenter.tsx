@@ -53,14 +53,23 @@ interface DispatchLog {
   is_mock: boolean;
 }
 
-// ===== 발송 stub (나중에 실제 API로 교체) =====
-async function sendSmsStub(_target: string, _body: string): Promise<{ ok: true } | { ok: false; error: string }> {
-  // TODO: 실제 SMS 게이트웨이 연동 (Aligo, NHN Cloud 등)
-  await new Promise(r => setTimeout(r, 200));
-  return { ok: true };
+// ===== 발송 (Solapi via Supabase Edge Function) =====
+async function sendSms(target: string, body: string): Promise<{ ok: true; messageId?: string } | { ok: false; error: string }> {
+  if (!supabase) return { ok: false, error: 'Supabase 미초기화' };
+  try {
+    const { data, error } = await supabase.functions.invoke('send-sms', {
+      body: { to: target, text: body },
+    });
+    if (error) return { ok: false, error: error.message || String(error) };
+    if (!data?.ok) return { ok: false, error: data?.error || 'SMS 발송 실패' };
+    return { ok: true, messageId: data.message_id };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || String(e) };
+  }
 }
+
+// 이메일은 별도 provider 필요 (Resend, SendGrid 등). 일단 mock 유지.
 async function sendEmailStub(_to: string, _subject: string, _body: string): Promise<{ ok: true } | { ok: false; error: string }> {
-  // TODO: 실제 메일 API 연동 (Supabase Edge Function + Resend 등)
   await new Promise(r => setTimeout(r, 300));
   return { ok: true };
 }
@@ -83,6 +92,28 @@ export const AutomationCenter: React.FC<{ anchorDate?: string }> = ({ anchorDate
   const [agencyChoice, setAgencyChoice] = useState<number>(0); // 0 or 1 (둘 중 하나)
   const [previewing, setPreviewing] = useState<{ type: 'sms'|'agency'; contractId: string } | null>(null);
   const [sending, setSending] = useState(false);
+  // 테스트 발송용
+  const [testPhone, setTestPhone] = useState('');
+  const [testText, setTestText] = useState('[(주)비엘큐] 테스트 발송입니다.');
+  const [testSending, setTestSending] = useState(false);
+
+  const handleTestSend = async () => {
+    if (!testPhone.trim() || !testText.trim()) {
+      alert('수신번호와 문구를 입력해주세요.');
+      return;
+    }
+    setTestSending(true);
+    try {
+      const result = await sendSms(testPhone.trim(), testText.trim());
+      if (result.ok) {
+        alert(`✅ 발송 성공\nmessage_id: ${(result as any).messageId || '(없음)'}\n\n핸드폰 확인해보세요.`);
+      } else {
+        alert(`❌ 발송 실패\n${result.error}`);
+      }
+    } finally {
+      setTestSending(false);
+    }
+  };
 
   // 데이터 로드
   const loadAll = useCallback(async () => {
@@ -189,14 +220,14 @@ export const AutomationCenter: React.FC<{ anchorDate?: string }> = ({ anchorDate
           failCount++;
           continue;
         }
-        const result = await sendSmsStub(recipient.contact, body);
+        const result = await sendSms(recipient.contact, body);
         await (supabase.from('automation_dispatch_log') as any).insert({
           contract_id: c.contract_id, action_type: recipient.type,
           target_address: recipient.contact, target_name: recipient.name, body,
           status: result.ok ? 'sent' : 'failed',
           sent_at: result.ok ? new Date().toISOString() : null,
           error: result.ok ? null : result.error,
-          is_mock: true,
+          is_mock: false,  // 실제 발송으로 변경
         });
         if (result.ok) okCount++; else failCount++;
       }
@@ -295,12 +326,11 @@ export const AutomationCenter: React.FC<{ anchorDate?: string }> = ({ anchorDate
         <div>
           <h3 className="text-xl font-bold text-white flex items-center gap-2">
             🔔 자동 조치 센터
-            <span className="text-[10px] bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded font-normal">
-              MOCK 모드 - 실제 발송 X
-            </span>
-            <InfoTooltip text={`8일+ 연체 → 자동 SMS 큐\n21일+ 연체 → 신정사 메일 큐\n\n발송 전 사람이 한 번 검토하고 승인합니다.\n현재는 발송 stub 모드로 이력만 기록됩니다.`} />
+            <span className="text-[10px] bg-green-500/20 text-green-300 px-2 py-0.5 rounded font-normal">SMS LIVE</span>
+            <span className="text-[10px] bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded font-normal">메일 MOCK</span>
+            <InfoTooltip text={`8일+ 연체 → 자동 SMS 큐 (Solapi 실제 발송)\n21일+ 연체 → 신정사 메일 큐 (mock)\n\n발송 전 사람이 한 번 검토하고 승인합니다.\nSMS는 추심법 야간(21~8시) 발송 자동 차단됩니다.`} />
           </h3>
-          <p className="text-xs text-slate-500 mt-1">발송 큐 검토 → 승인 → 이력 저장. 실제 API는 추후 연결.</p>
+          <p className="text-xs text-slate-500 mt-1">SMS는 Solapi로 실제 발송, 메일은 stub. 야간 자동 차단.</p>
         </div>
         <button onClick={() => setOpen(o => !o)}
           className="text-sm bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded">
@@ -588,6 +618,26 @@ export const AutomationCenter: React.FC<{ anchorDate?: string }> = ({ anchorDate
                 className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm px-4 py-2 rounded">
                 설정 저장
               </button>
+
+              {/* 테스트 발송 */}
+              <div className="border-t border-slate-700 pt-4 mt-4">
+                <p className="text-sm font-semibold text-white mb-2">🧪 SMS 테스트 발송</p>
+                <p className="text-[11px] text-slate-500 mb-2">
+                  Edge Function + Solapi 연결 검증용. 본인 핸드폰으로 1건 보내서 확인하세요. 야간(21~8시)은 자동 차단.
+                </p>
+                <div className="flex gap-2 flex-wrap">
+                  <input value={testPhone} onChange={e => setTestPhone(e.target.value)}
+                    placeholder="01012345678 (- 없이)"
+                    className="bg-slate-700 text-white text-sm rounded p-2 w-48" />
+                  <input value={testText} onChange={e => setTestText(e.target.value)}
+                    placeholder="발송 문구"
+                    className="bg-slate-700 text-white text-sm rounded p-2 flex-1 min-w-[240px]" />
+                  <button onClick={handleTestSend} disabled={testSending}
+                    className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-sm px-4 py-2 rounded">
+                    {testSending ? '발송 중...' : '📱 테스트 발송'}
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
