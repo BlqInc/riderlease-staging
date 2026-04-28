@@ -54,7 +54,8 @@ interface DispatchLog {
 }
 
 // ===== 발송 (Solapi via Supabase Edge Function) =====
-async function sendSms(target: string, body: string): Promise<{ ok: true; messageId?: string } | { ok: false; error: string }> {
+// 이름이 컴포넌트 내부 sendSms와 겹치면 안 됨 → sendSmsApi
+async function sendSmsApi(target: string, body: string): Promise<{ ok: true; messageId?: string } | { ok: false; error: string }> {
   if (!supabase) return { ok: false, error: 'Supabase 미초기화' };
   try {
     const { data, error } = await supabase.functions.invoke('send-sms', {
@@ -104,7 +105,7 @@ export const AutomationCenter: React.FC<{ anchorDate?: string }> = ({ anchorDate
     }
     setTestSending(true);
     try {
-      const result = await sendSms(testPhone.trim(), testText.trim());
+      const result = await sendSmsApi(testPhone.trim(), testText.trim());
       if (result.ok) {
         alert(`✅ 발송 성공\nmessage_id: ${(result as any).messageId || '(없음)'}\n\n핸드폰 확인해보세요.`);
       } else {
@@ -220,7 +221,7 @@ export const AutomationCenter: React.FC<{ anchorDate?: string }> = ({ anchorDate
           failCount++;
           continue;
         }
-        const result = await sendSms(recipient.contact, body);
+        const result = await sendSmsApi(recipient.contact, body);
         await (supabase.from('automation_dispatch_log') as any).insert({
           contract_id: c.contract_id, action_type: recipient.type,
           target_address: recipient.contact, target_name: recipient.name, body,
