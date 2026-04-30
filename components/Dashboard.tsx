@@ -3,6 +3,33 @@ import React, { useState, useMemo } from 'react';
 import { Contract, Partner, DeductionStatus, SettlementStatus } from '../types';
 import { formatCurrency, formatDate } from '../lib/utils';
 
+// 동적 import 로 xlsx 번들 사이즈 영향 최소화
+async function downloadExcel(rows: any[][], filename: string) {
+  const XLSX = await import('xlsx-js-style');
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  // 헤더 스타일
+  const headerStyle = {
+    fill: { fgColor: { rgb: '4472C4' } },
+    font: { bold: true, color: { rgb: 'FFFFFF' } },
+    alignment: { horizontal: 'center', vertical: 'center' },
+    border: { top:{style:'thin'}, bottom:{style:'thin'}, left:{style:'thin'}, right:{style:'thin'} },
+  };
+  // 첫 행에 헤더 스타일 적용
+  const range = XLSX.utils.decode_range(ws['!ref']!);
+  for (let c = range.s.c; c <= range.e.c; c++) {
+    const addr = XLSX.utils.encode_cell({ r: 0, c });
+    if (ws[addr]) ws[addr].s = headerStyle;
+  }
+  // 컬럼 너비 자동 (대략)
+  ws['!cols'] = rows[0].map((_, c) => {
+    const maxLen = Math.max(...rows.map(r => String(r[c] ?? '').length));
+    return { wch: Math.min(Math.max(maxLen + 2, 8), 30) };
+  });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '계약 상세');
+  XLSX.writeFile(wb, filename);
+}
+
 interface DashboardProps {
   contracts: Contract[];
   partners: Partner[];
@@ -205,13 +232,50 @@ export const Dashboard: React.FC<DashboardProps> = ({ contracts = [], partners =
       {/* Section 3: Advanced Search & Analysis */}
       <div className="bg-slate-800 rounded-lg shadow-lg border border-slate-700 overflow-hidden">
           <div className="p-6 border-b border-slate-700 bg-slate-700/30">
-              <h3 className="text-xl font-bold text-white flex items-center">
-                  <svg className="w-6 h-6 mr-2 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2z" />
-                  </svg>
-                  상세 검색 및 분석
-              </h3>
-              <p className="text-sm text-slate-400 mt-1">특정 기간의 성과를 조회하고 분석합니다.</p>
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div>
+                  <h3 className="text-xl font-bold text-white flex items-center">
+                      <svg className="w-6 h-6 mr-2 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2z" />
+                      </svg>
+                      상세 검색 및 분석
+                  </h3>
+                  <p className="text-sm text-slate-400 mt-1">특정 기간의 성과를 조회하고 분석합니다.</p>
+                </div>
+                <button
+                  onClick={() => {
+                    if (filteredContracts.length === 0) {
+                      alert('다운로드할 계약이 없습니다. 검색 조건을 조정해주세요.');
+                      return;
+                    }
+                    const header = ['계약번호', '파트너사', '총판', '계약자', '기기명', '계약일', '실행일', '만료일', '수량', '일차감(단가×수량)', '채권액', '상태'];
+                    const dataRows = filteredContracts.map(c => [
+                      c.contract_number,
+                      (c.partner_id && partnerMap.has(c.partner_id) ? partnerMap.get(c.partner_id) : '') || '',
+                      c.distributor_name || '',
+                      c.lessee_name || '',
+                      c.device_name || '',
+                      c.contract_date || '',
+                      c.execution_date || '',
+                      c.expiry_date || '',
+                      c.units_required || 1,
+                      (Number(c.daily_deduction) || 0) * (Number(c.units_required) || 1),
+                      Number(c.total_amount) || 0,
+                      c.status || '',
+                    ]);
+                    // 합계 행
+                    const sumUnits = filteredContracts.reduce((s, c) => s + (c.units_required || 1), 0);
+                    const sumAmount = filteredContracts.reduce((s, c) => s + (Number(c.total_amount) || 0), 0);
+                    const totalRow = ['합계', '', '', '', '', '', '', '', sumUnits, '', sumAmount, ''];
+                    const fname = `계약상세검색_${startDate || 'all'}_${endDate || 'all'}.xlsx`;
+                    downloadExcel([header, ...dataRows, totalRow], fname);
+                  }}
+                  className="bg-green-600 hover:bg-green-700 text-white text-sm font-semibold px-4 py-2 rounded-lg flex items-center gap-2 whitespace-nowrap"
+                  title="현재 검색 조건의 결과를 엑셀로 다운로드"
+                >
+                  📥 엑셀 다운로드
+                </button>
+              </div>
               
               <div className="mt-6 grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
                   <div>
