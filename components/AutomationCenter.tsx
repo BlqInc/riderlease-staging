@@ -13,12 +13,15 @@ interface AutomationSettings {
   credit_agencies: CreditAgency[];
 }
 interface SmsTarget {
-  contract_id: string;
-  contract_number: number;
+  // 사람 단위 집계
   lessee_name: string;
   lessee_contact: string | null;
-  distributor_name: string;
-  distributor_contact: string | null;
+  contract_ids: string[];
+  contract_numbers: number[];
+  distributor_names: string[];
+  distributor_contacts: string[];
+  device_names: string[];
+  contract_count: number;
   overdue_days: number;
   total_unpaid: number;
   past_send_count: number;
@@ -163,12 +166,14 @@ export const AutomationCenter: React.FC<{ anchorDate?: string }> = ({ anchorDate
         });
       }
       setSmsTargets(((smsRes.data || []) as any[]).map((r: any) => ({
-        contract_id: r.contract_id,
-        contract_number: Number(r.contract_number) || 0,
         lessee_name: r.lessee_name || '',
         lessee_contact: r.lessee_contact,
-        distributor_name: r.distributor_name || '',
-        distributor_contact: r.distributor_contact,
+        contract_ids: (r.contract_ids || []) as string[],
+        contract_numbers: (r.contract_numbers || []).map((n: any) => Number(n) || 0),
+        distributor_names: (r.distributor_names || []) as string[],
+        distributor_contacts: (r.distributor_contacts || []) as string[],
+        device_names: (r.device_names || []) as string[],
+        contract_count: Number(r.contract_count) || 0,
         overdue_days: Number(r.overdue_days) || 0,
         total_unpaid: Number(r.total_unpaid) || 0,
         past_send_count: Number(r.past_send_count) || 0,
@@ -217,48 +222,74 @@ export const AutomationCenter: React.FC<{ anchorDate?: string }> = ({ anchorDate
     }
   };
 
-  // ===== SMS 발송 =====
-  const sendSms = async (contracts: SmsTarget[]) => {
+  // ===== SMS 발송 (사람 단위) =====
+  const sendSms = async (targets: SmsTarget[]) => {
     if (!supabase || !settings) return;
-    if (contracts.length === 0) return;
-    if (!confirm(`${contracts.length}개 계약에 SMS 발송 (각 계약당 계약자+총판 2건)\n총 ${contracts.length * 2}건의 메시지가 발송됩니다.\n\n진행할까요?`)) return;
+    if (targets.length === 0) return;
+    // 총 발송 수: 각 사람 = 1(계약자) + N(unique distributor)
+    const totalSends = targets.reduce((s, t) =>
+      s + (t.lessee_contact ? 1 : 0) + t.distributor_contacts.filter(Boolean).length, 0);
+    if (!confirm(
+      `${targets.length}명에게 SMS 발송\n` +
+      `총 메시지 ${totalSends}건 (계약자 + 각 사람의 모든 unique 총판)\n\n진행할까요?`
+    )) return;
 
     setSending(true);
     let okCount = 0, failCount = 0;
-    for (const c of contracts) {
+    for (const t of targets) {
+      // 본문 생성 (사람 단위로 합산)
+      const devices = t.device_names
+        .map((d, i) => `${i + 1}. ${d || '(기기명 없음)'} (#${t.contract_numbers[i]})`)
+        .join('\n');
       const body = renderTemplate(settings.sms_template, {
-        name: c.lessee_name,
-        days: String(c.overdue_days),
-        amount: formatCurrency(c.total_unpaid),
+        name: t.lessee_name,
+        days: String(t.overdue_days),
+        amount: formatCurrency(t.total_unpaid),
+        devices,
+        contract_count: String(t.contract_count),
       });
-      // 계약자 + 총판 2건
-      for (const recipient of [
-        { type: 'sms_lessee', name: c.lessee_name, contact: c.lessee_contact },
-        { type: 'sms_distributor', name: c.distributor_name, contact: c.distributor_contact },
-      ] as const) {
-        if (!recipient.contact) {
+
+      // 수신처 모음: 계약자 1명 + unique distributor 여러 명
+      type Recipient = { type: 'sms_lessee' | 'sms_distributor'; name: string; contact: string | null };
+      const recipients: Recipient[] = [];
+      recipients.push({ type: 'sms_lessee', name: t.lessee_name, contact: t.lessee_contact });
+      // distributor — 같은 contact 중복 제거
+      const seenDistContact = new Set<string>();
+      t.distributor_contacts.forEach((contact, i) => {
+        if (!contact || seenDistContact.has(contact)) return;
+        seenDistContact.add(contact);
+        const distName = t.distributor_names[i] || t.distributor_names[0] || '총판';
+        recipients.push({ type: 'sms_distributor', name: distName, contact });
+      });
+
+      for (const r of recipients) {
+        if (!r.contact) {
           await (supabase.from('automation_dispatch_log') as any).insert({
-            contract_id: c.contract_id, action_type: recipient.type,
-            target_address: '', target_name: recipient.name, body,
-            status: 'failed', error: '연락처 없음', is_mock: true,
+            contract_id: t.contract_ids[0] || null,
+            contract_ids: t.contract_ids,
+            action_type: r.type,
+            target_address: '', target_name: r.name, body,
+            status: 'failed', error: '연락처 없음', is_mock: false,
           });
           failCount++;
           continue;
         }
-        const result = await sendSmsApi(recipient.contact, body);
+        const result = await sendSmsApi(r.contact, body);
         await (supabase.from('automation_dispatch_log') as any).insert({
-          contract_id: c.contract_id, action_type: recipient.type,
-          target_address: recipient.contact, target_name: recipient.name, body,
+          contract_id: t.contract_ids[0] || null,
+          contract_ids: t.contract_ids,
+          action_type: r.type,
+          target_address: r.contact, target_name: r.name, body,
           status: result.ok ? 'sent' : 'failed',
           sent_at: result.ok ? new Date().toISOString() : null,
-          error: result.ok ? null : result.error,
-          is_mock: false,  // 실제 발송으로 변경
+          error: result.ok ? null : (result as any).error,
+          is_mock: false,
         });
         if (result.ok) okCount++; else failCount++;
       }
     }
     setSending(false);
-    alert(`발송 완료\n성공: ${okCount}건\n실패: ${failCount}건\n\n(현재 mock 모드 - 실제로는 발송되지 않음)`);
+    alert(`발송 완료\n성공: ${okCount}건\n실패: ${failCount}건`);
     setSmsSelected(new Set());
     loadAll();
   };
@@ -304,20 +335,38 @@ export const AutomationCenter: React.FC<{ anchorDate?: string }> = ({ anchorDate
     loadAll();
   };
 
+  // 사람 키 = lessee_name + '|' + lessee_contact
+  const smsKey = (t: SmsTarget) => `${t.lessee_name}|${t.lessee_contact || ''}`;
+
   // ===== 미리보기 =====
   const previewContent = useMemo(() => {
     if (!previewing || !settings) return null;
     if (previewing.type === 'sms') {
-      const c = smsTargets.find(t => t.contract_id === previewing.contractId);
+      const c = smsTargets.find(t => smsKey(t) === previewing.contractId);
       if (!c) return null;
+      const devices = c.device_names
+        .map((d, i) => `${i + 1}. ${d || '(기기명 없음)'} (#${c.contract_numbers[i]})`)
+        .join('\n');
       const body = renderTemplate(settings.sms_template, {
-        name: c.lessee_name, days: String(c.overdue_days), amount: formatCurrency(c.total_unpaid),
+        name: c.lessee_name,
+        days: String(c.overdue_days),
+        amount: formatCurrency(c.total_unpaid),
+        devices,
+        contract_count: String(c.contract_count),
+      });
+      const distItems = [];
+      const seen = new Set<string>();
+      c.distributor_contacts.forEach((contact, i) => {
+        if (!contact || seen.has(contact)) return;
+        seen.add(contact);
+        const dn = c.distributor_names[i] || c.distributor_names[0] || '총판';
+        distItems.push({ label: `수신 ${distItems.length + 2} (총판: ${dn})`, value: contact, body });
       });
       return {
-        title: `SMS 미리보기 — ${c.lessee_name}`,
+        title: `SMS 미리보기 — ${c.lessee_name} (${c.contract_count}건 합산)`,
         items: [
           { label: '수신 1 (계약자)', value: `${c.lessee_name} ${c.lessee_contact || '(연락처 없음)'}`, body },
-          { label: '수신 2 (총판)', value: `${c.distributor_name} ${c.distributor_contact || '(연락처 없음)'}`, body },
+          ...distItems,
         ],
       };
     } else {
@@ -338,7 +387,7 @@ export const AutomationCenter: React.FC<{ anchorDate?: string }> = ({ anchorDate
   // 일괄 토글
   const toggleAllSms = () => {
     if (smsSelected.size === smsTargets.length) setSmsSelected(new Set());
-    else setSmsSelected(new Set(smsTargets.map(t => t.contract_id)));
+    else setSmsSelected(new Set(smsTargets.map(t => smsKey(t))));
   };
   const toggleAllAgency = () => {
     if (agencySelected.size === agencyTargets.length) setAgencySelected(new Set());
@@ -386,21 +435,21 @@ export const AutomationCenter: React.FC<{ anchorDate?: string }> = ({ anchorDate
             ))}
           </div>
 
-          {/* SMS 대기 */}
+          {/* SMS 대기 — 사람 단위 */}
           {tab === 'sms' && (
             <div className="bg-slate-900/40 rounded-lg p-4 border border-slate-700/50">
               <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                 <div className="text-xs text-slate-400">
-                  8일 이상 연체 · 같은 계약 최대 {settings?.sms_max_count}회 · 최근 발송 {settings?.sms_cooldown_days}일 이내 제외
+                  사람 단위 집계 · 8일 이상 연체 · 같은 사람 최대 {settings?.sms_max_count}회 · 최근 발송 {settings?.sms_cooldown_days}일 이내 제외
                 </div>
                 <div className="flex items-center gap-2">
                   <button onClick={toggleAllSms} className="text-xs text-slate-300 hover:text-white bg-slate-700 px-2 py-1 rounded">
                     {smsSelected.size === smsTargets.length && smsTargets.length > 0 ? '전체 해제' : '전체 선택'}
                   </button>
-                  <button onClick={() => sendSms(smsTargets.filter(t => smsSelected.has(t.contract_id)))}
+                  <button onClick={() => sendSms(smsTargets.filter(t => smsSelected.has(smsKey(t))))}
                     disabled={sending || smsSelected.size === 0}
                     className="text-xs bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-3 py-1 rounded">
-                    {sending ? '발송 중...' : `선택 ${smsSelected.size}건 발송`}
+                    {sending ? '발송 중...' : `선택 ${smsSelected.size}명 발송`}
                   </button>
                 </div>
               </div>
@@ -413,45 +462,55 @@ export const AutomationCenter: React.FC<{ anchorDate?: string }> = ({ anchorDate
                       <tr className="text-slate-400 border-b border-slate-700">
                         <th className="p-2 text-center w-8"></th>
                         <th className="p-2 text-left">계약자</th>
-                        <th className="p-2 text-left">계약자 연락처</th>
-                        <th className="p-2 text-left">총판</th>
-                        <th className="p-2 text-left">총판 연락처</th>
+                        <th className="p-2 text-left">연락처</th>
+                        <th className="p-2 text-left">총판 (수)</th>
+                        <th className="p-2 text-center">계약수</th>
                         <th className="p-2 text-center">연체</th>
-                        <th className="p-2 text-right">미수액</th>
+                        <th className="p-2 text-right">총 미수액</th>
                         <th className="p-2 text-center">발송 횟수</th>
                         <th className="p-2 text-center">미리보기</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {smsTargets.map(t => (
-                        <tr key={t.contract_id} className="border-b border-slate-700/50 hover:bg-slate-700/30">
-                          <td className="p-2 text-center">
-                            <input type="checkbox" checked={smsSelected.has(t.contract_id)}
-                              onChange={() => {
-                                const next = new Set(smsSelected);
-                                if (next.has(t.contract_id)) next.delete(t.contract_id); else next.add(t.contract_id);
-                                setSmsSelected(next);
-                              }} />
-                          </td>
-                          <td className="p-2 text-white">{t.lessee_name} <span className="text-slate-500 text-xs">#{t.contract_number}</span></td>
-                          <td className="p-2 text-slate-300 text-xs">{t.lessee_contact || <span className="text-red-400">없음</span>}</td>
-                          <td className="p-2 text-slate-300">{t.distributor_name}</td>
-                          <td className="p-2 text-slate-300 text-xs">{t.distributor_contact || <span className="text-red-400">없음</span>}</td>
-                          <td className="p-2 text-center">
-                            <span className={`px-2 py-0.5 rounded text-xs font-bold ${
-                              t.overdue_days >= 21 ? 'bg-red-500/20 text-red-300'
-                              : t.overdue_days >= 14 ? 'bg-orange-500/20 text-orange-300'
-                              : 'bg-yellow-500/20 text-yellow-300'
-                            }`}>{t.overdue_days}일</span>
-                          </td>
-                          <td className="p-2 text-right text-red-400">{formatCurrency(t.total_unpaid)}</td>
-                          <td className="p-2 text-center text-slate-300">{t.past_send_count} / {settings?.sms_max_count}</td>
-                          <td className="p-2 text-center">
-                            <button onClick={() => setPreviewing({ type: 'sms', contractId: t.contract_id })}
-                              className="text-xs text-indigo-300 hover:text-indigo-100">👁 보기</button>
-                          </td>
-                        </tr>
-                      ))}
+                      {smsTargets.map(t => {
+                        const key = smsKey(t);
+                        return (
+                          <tr key={key} className="border-b border-slate-700/50 hover:bg-slate-700/30">
+                            <td className="p-2 text-center">
+                              <input type="checkbox" checked={smsSelected.has(key)}
+                                onChange={() => {
+                                  const next = new Set(smsSelected);
+                                  if (next.has(key)) next.delete(key); else next.add(key);
+                                  setSmsSelected(next);
+                                }} />
+                            </td>
+                            <td className="p-2 text-white">
+                              {t.lessee_name}
+                              <div className="text-[10px] text-slate-500">#{t.contract_numbers.join(', #')}</div>
+                            </td>
+                            <td className="p-2 text-slate-300 text-xs">{t.lessee_contact || <span className="text-red-400">없음</span>}</td>
+                            <td className="p-2 text-slate-300 text-xs">
+                              {t.distributor_names.slice(0, 2).join(', ')}
+                              {t.distributor_names.length > 2 && ` 외 ${t.distributor_names.length - 2}`}
+                              <div className="text-[10px] text-slate-500">총판 연락처 {t.distributor_contacts.length}개</div>
+                            </td>
+                            <td className="p-2 text-center text-slate-300">{t.contract_count}건</td>
+                            <td className="p-2 text-center">
+                              <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                                t.overdue_days >= 21 ? 'bg-red-500/20 text-red-300'
+                                : t.overdue_days >= 14 ? 'bg-orange-500/20 text-orange-300'
+                                : 'bg-yellow-500/20 text-yellow-300'
+                              }`}>{t.overdue_days}일</span>
+                            </td>
+                            <td className="p-2 text-right text-red-400">{formatCurrency(t.total_unpaid)}</td>
+                            <td className="p-2 text-center text-slate-300">{t.past_send_count} / {settings?.sms_max_count}</td>
+                            <td className="p-2 text-center">
+                              <button onClick={() => setPreviewing({ type: 'sms', contractId: key })}
+                                className="text-xs text-indigo-300 hover:text-indigo-100">👁 보기</button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
