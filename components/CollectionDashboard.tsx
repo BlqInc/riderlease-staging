@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabaseClient';
 import { formatCurrency, formatDate } from '../lib/utils';
 import { UnpaidDetailPanel } from './UnpaidDetailPanel';
 import { InfoTooltip } from './InfoTooltip';
+import { usePersistedState } from '../lib/usePersistedState';
 
 // recharts는 무거우므로 lazy load (초기 대시보드 진입 속도 개선)
 const LazyChart = lazy(() => import('./DashboardChart'));
@@ -55,22 +56,23 @@ const KpiCard: React.FC<{ title: string; value: string; sub?: string; tone?: 'de
 });
 
 export const CollectionDashboard: React.FC = () => {
-  const [preset, setPreset] = useState<PeriodPreset>('month');
-  const [fromDate, setFromDate] = useState('');
-  const [toDate, setToDate] = useState('');
+  // 페이지 이동 후에도 필터 유지 (localStorage)
+  const [preset, setPreset] = usePersistedState<PeriodPreset>('cd:preset', 'month');
+  const [fromDate, setFromDate] = usePersistedState<string>('cd:from-date', '');
+  const [toDate, setToDate] = usePersistedState<string>('cd:to-date', '');
   const [dailyMetrics, setDailyMetrics] = useState<DailyMetric[]>([]);
   const [attentionDist, setAttentionDist] = useState<AttentionDistributor[]>([]);
   const [health, setHealth] = useState<HealthSummary | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showChart, setShowChart] = useState(true);
+  const [showChart, setShowChart] = usePersistedState<boolean>('cd:show-chart', true);
   const [selectedBar, setSelectedBar] = useState<{ fromDate: string; toDate: string; label: string } | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   // 계약 시작일(execution_date) 코호트 필터
-  const [execFrom, setExecFrom] = useState('');
-  const [execTo, setExecTo] = useState('');
-  const [showExecFilter, setShowExecFilter] = useState(false);
+  const [execFrom, setExecFrom] = usePersistedState<string>('cd:exec-from', '');
+  const [execTo, setExecTo] = usePersistedState<string>('cd:exec-to', '');
+  const [showExecFilter, setShowExecFilter] = usePersistedState<boolean>('cd:show-exec-filter', false);
   // 기준일(anchor date): 기본 어제
-  const [useToday, setUseToday] = useState(false);
+  const [useToday, setUseToday] = usePersistedState<boolean>('cd:use-today', false);
   const anchorDate = useMemo(() => {
     const d = new Date();
     if (!useToday) d.setDate(d.getDate() - 1);

@@ -9,6 +9,7 @@ import { CollectionDashboard } from './CollectionDashboard';
 import { ExpiredCollectionActions } from './ExpiredCollectionActions';
 import { AutomationCenter } from './AutomationCenter';
 import { InfoTooltip } from './InfoTooltip';
+import { usePersistedState } from '../lib/usePersistedState';
 
 interface CollectionManagementProps {
   contracts: Contract[];
@@ -81,11 +82,12 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
   const [showUpload, setShowUpload] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const safeContracts = Array.isArray(contracts) ? contracts : [];
-  const [riskFilter, setRiskFilter] = useState<RiskLevel | '전체'>('전체');
-  const [keyword, setKeyword] = useState('');
-  const [sortKey, setSortKey] = useState<SortKey>('paymentRate');
-  const [sortAsc, setSortAsc] = useState<boolean>(true);
-  const [showContractList, setShowContractList] = useState<boolean>(false);
+  // 페이지 이동 후에도 필터 유지 (localStorage)
+  const [riskFilter, setRiskFilter] = usePersistedState<RiskLevel | '전체'>('cm:risk-filter', '전체');
+  const [keyword, setKeyword] = usePersistedState<string>('cm:keyword', '');
+  const [sortKey, setSortKey] = usePersistedState<SortKey>('cm:sort-key', 'paymentRate');
+  const [sortAsc, setSortAsc] = usePersistedState<boolean>('cm:sort-asc', true);
+  const [showContractList, setShowContractList] = usePersistedState<boolean>('cm:show-contract-list', false);
 
   // Compute per-contract stats
   const contractStats = useMemo(() => {

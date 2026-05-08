@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { formatCurrency, formatDate } from '../lib/utils';
 import { InfoTooltip } from './InfoTooltip';
+import { usePersistedState } from '../lib/usePersistedState';
 
 interface UnpaidContract {
   contract_id: string;
@@ -37,9 +38,10 @@ const ACTION_LABELS: { key: ActionKey; label: string; color: string }[] = [
 export const ExpiredCollectionActions: React.FC = () => {
   const [contracts, setContracts] = useState<UnpaidContract[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [filterAction, setFilterAction] = useState<ActionKey | 'all' | 'none'>('all');
-  const [tabMode, setTabMode] = useState<TabMode>('expired');
+  // 페이지 이동 후에도 필터 유지
+  const [search, setSearch] = usePersistedState<string>('eca:search', '');
+  const [filterAction, setFilterAction] = usePersistedState<ActionKey | 'all' | 'none'>('eca:filter-action', 'all');
+  const [tabMode, setTabMode] = usePersistedState<TabMode>('eca:tab-mode', 'expired');
   const [memoEditing, setMemoEditing] = useState<string | null>(null);
   const [memoValue, setMemoValue] = useState('');
   const [payEditing, setPayEditing] = useState<string | null>(null);
