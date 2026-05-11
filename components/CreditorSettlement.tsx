@@ -91,25 +91,43 @@ export const CreditorSettlement: React.FC<CreditorSettlementProps> = ({
     }, 0);
   }, [filteredSettlements, contracts, selectedCreditorId, todayStr]);
 
-  // 기간 범위 정산 총액 (일수 × 일일 정산액)
+  // 기간 범위 정산 총액 — 기간 안 각 날짜별 일일 정산액을 따로 계산해서 합산
+  // (기간 중 계약 추가/종료로 일일액이 변하는 경우도 정확히 반영)
   const queryRangeResult = useMemo(() => {
-    if (!queryDateFrom || !queryDateTo || queryDateFrom > queryDateTo) return { dailyTotal: 0, days: 0, rangeTotal: 0 };
+    if (!queryDateFrom || !queryDateTo || queryDateFrom > queryDateTo) {
+      return { dailyTotal: 0, days: 0, rangeTotal: 0 };
+    }
 
-    // 날짜 기준으로 일일 정산액 합산 (from 날짜 기준)
+    const from = new Date(queryDateFrom + 'T00:00:00');
+    const to = new Date(queryDateTo + 'T00:00:00');
+    const days = Math.round((to.getTime() - from.getTime()) / (1000 * 3600 * 24)) + 1;
+
+    // 각 날짜별 일일 정산액 합산 (그날 활성 settlement의 합)
+    let rangeTotal = 0;
+    for (let i = 0; i < days; i++) {
+      const d = new Date(from);
+      d.setDate(from.getDate() + i);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const dateStr = `${y}-${m}-${day}`;
+
+      filteredSettlements.forEach(s => {
+        if (s.start_date <= dateStr && dateStr <= s.end_date) {
+          rangeTotal += getSettlementTotal(s.settlement_round, dateStr);
+        }
+      });
+    }
+
+    // 시작일 기준 일일 정산액 (정보용)
     let dailyTotal = 0;
     filteredSettlements.forEach(s => {
-      const overlapStart = s.start_date > queryDateFrom ? s.start_date : queryDateFrom;
-      const overlapEnd = s.end_date < queryDateTo ? s.end_date : queryDateTo;
-      if (overlapStart <= overlapEnd) {
+      if (s.start_date <= queryDateFrom && queryDateFrom <= s.end_date) {
         dailyTotal += getSettlementTotal(s.settlement_round, queryDateFrom);
       }
     });
 
-    const from = new Date(queryDateFrom);
-    const to = new Date(queryDateTo);
-    const days = Math.round((to.getTime() - from.getTime()) / (1000 * 3600 * 24)) + 1;
-
-    return { dailyTotal, days, rangeTotal: dailyTotal * days };
+    return { dailyTotal, days, rangeTotal };
   }, [filteredSettlements, contracts, selectedCreditorId, queryDateFrom, queryDateTo]);
 
   const selectedSettlement = useMemo(() => {
@@ -238,13 +256,19 @@ export const CreditorSettlement: React.FC<CreditorSettlementProps> = ({
               </div>
               <div className="mt-3 space-y-1">
                 <div className="flex justify-between text-xs text-slate-400">
-                  <span>일일 정산액</span>
+                  <span>일일 정산액 (시작일 기준)</span>
                   <span>{formatCurrency(queryRangeResult.dailyTotal)}</span>
                 </div>
                 <div className="flex justify-between text-xs text-slate-400">
                   <span>조회 일수</span>
                   <span>{queryRangeResult.days}일</span>
                 </div>
+                {queryRangeResult.days > 0 && queryRangeResult.rangeTotal !== queryRangeResult.dailyTotal * queryRangeResult.days && (
+                  <div className="flex justify-between text-[10px] text-yellow-400/70">
+                    <span>※ 기간 중 계약 변동 있음 (일평균 다름)</span>
+                    <span>일평균 {formatCurrency(Math.round(queryRangeResult.rangeTotal / queryRangeResult.days))}</span>
+                  </div>
+                )}
                 <div className="border-t border-slate-700 pt-2 mt-2 flex justify-between items-center">
                   <span className="text-sm font-semibold text-slate-300">기간 합계</span>
                   <span className="text-xl font-bold text-yellow-400">{formatCurrency(queryRangeResult.rangeTotal)}</span>
