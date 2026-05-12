@@ -135,9 +135,12 @@ function fillTransferDocument(templateXml: string, group: GroupedContract): stri
   doc = setValueByRowByOccurrence(doc, '사업자 등록번호', 1, 1, data.공급자_사업자번호);
   // Row 6: 설치 주소
   doc = setValueByLabel(doc, '설치 주소', 1, data.이용자_집주소);
-  // Row 7: 담당자명 (2번째), 연락처 (2번째)
+  // Row 7: 받는사람 row3는 4컬럼 [담당자명, 값, 연락처, 값] 구조
   doc = setValueByRowByOccurrence(doc, '담당자명', 1, 1, data.이용자_성명);
-  doc = setValueByRowByOccurrence(doc, '연락처', 1, 1, data.이용자_휴대전화);
+  doc = setValueByRowByOccurrence(doc, '연락처', 1, 3, data.이용자_휴대전화);
+
+  // ─── 특이사항: "비엘큐 협력사 직배송" 자동 채움 ───
+  doc = fillSpecialNotes(doc, '비엘큐 협력사 직배송');
 
   // ─── 품목 테이블 (Row 10~13, 빈 3셀 행) ───
   const trRegex = /(<w:tr\b[^>]*>)([\s\S]*?)(<\/w:tr>)/g;
@@ -222,6 +225,25 @@ function fillTransferDocument(templateXml: string, group: GroupedContract): stri
   );
 
   return doc;
+}
+
+/** 특이사항 라벨 다음의 1셀 테이블에 텍스트를 채움 */
+function fillSpecialNotes(xml: string, text: string): string {
+  const labelIdx = xml.indexOf('특이사항</w:t>');
+  if (labelIdx < 0) return xml;
+  const tblStart = xml.indexOf('<w:tbl>', labelIdx);
+  if (tblStart < 0) return xml;
+  const tblEnd = xml.indexOf('</w:tbl>', tblStart);
+  if (tblEnd < 0) return xml;
+  const before = xml.slice(0, tblStart);
+  const tblSection = xml.slice(tblStart, tblEnd + '</w:tbl>'.length);
+  const after = xml.slice(tblEnd + '</w:tbl>'.length);
+  // 첫 번째 <w:tc>의 첫 빈 <w:p>에 텍스트 삽입
+  const newTblSection = tblSection.replace(
+    /(<w:tc\b[^>]*>[\s\S]*?<w:p\b[^>]*>(?:<w:pPr>[\s\S]*?<\/w:pPr>)?)(\s*<\/w:p>)/,
+    `$1<w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>${escapeXml(text)}</w:t></w:r>$2`
+  );
+  return before + newTblSection + after;
 }
 
 /** 빈 <w:p>에 텍스트를 넣기 */
