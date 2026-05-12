@@ -21,6 +21,7 @@ interface SmsTarget {
   distributor_names: string[];
   distributor_contacts: string[];
   device_names: string[];
+  units_required: number[];
   contract_count: number;
   overdue_days: number;
   total_unpaid: number;
@@ -107,6 +108,23 @@ function renderTemplate(tpl: string, vars: Record<string, string>) {
   return tpl.replace(/\{(\w+)\}/g, (_m, k) => vars[k] ?? `{${k}}`);
 }
 
+// 기기명 정규화: '(업)', '(중고)' 등 괄호 부가표기 제거 + 공백 정리
+function normalizeDeviceName(name: string): string {
+  return (name || '').replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+// 기기명 + 대수 합산 → "아이폰17프로맥스 512GB 4대" 형식 행들
+function buildDeviceLines(deviceNames: string[], units: number[]): string {
+  const map = new Map<string, number>();
+  deviceNames.forEach((name, i) => {
+    const norm = normalizeDeviceName(name) || '(기기명 없음)';
+    map.set(norm, (map.get(norm) || 0) + (units[i] || 1));
+  });
+  return Array.from(map.entries())
+    .map(([n, cnt]) => `- ${n} ${cnt}대`)
+    .join('\n');
+}
+
 export const AutomationCenter: React.FC<{ anchorDate?: string }> = ({ anchorDate }) => {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<'sms' | 'agency' | 'history' | 'settings'>('sms');
@@ -176,6 +194,7 @@ export const AutomationCenter: React.FC<{ anchorDate?: string }> = ({ anchorDate
         distributor_names: (r.distributor_names || []) as string[],
         distributor_contacts: (r.distributor_contacts || []) as string[],
         device_names: (r.device_names || []) as string[],
+        units_required: (r.units_required || []).map((n: any) => Number(n) || 1),
         contract_count: Number(r.contract_count) || 0,
         overdue_days: Number(r.overdue_days) || 0,
         total_unpaid: Number(r.total_unpaid) || 0,
@@ -240,10 +259,8 @@ export const AutomationCenter: React.FC<{ anchorDate?: string }> = ({ anchorDate
     setSending(true);
     let okCount = 0, failCount = 0;
     for (const t of targets) {
-      // 본문 생성 (사람 단위로 합산)
-      const devices = t.device_names
-        .map((d, i) => `${i + 1}. ${d || '(기기명 없음)'} (#${t.contract_numbers[i]})`)
-        .join('\n');
+      // 본문 생성 (사람 단위로 합산) — 기기명 정규화 후 대수 합산
+      const devices = buildDeviceLines(t.device_names, t.units_required);
       const body = renderTemplate(settings.sms_template, {
         name: t.lessee_name,
         days: String(t.overdue_days),
@@ -372,9 +389,7 @@ export const AutomationCenter: React.FC<{ anchorDate?: string }> = ({ anchorDate
     if (previewing.type === 'sms') {
       const c = smsTargets.find(t => smsKey(t) === previewing.contractId);
       if (!c) return null;
-      const devices = c.device_names
-        .map((d, i) => `${i + 1}. ${d || '(기기명 없음)'} (#${c.contract_numbers[i]})`)
-        .join('\n');
+      const devices = buildDeviceLines(c.device_names, c.units_required);
       const body = renderTemplate(settings.sms_template, {
         name: c.lessee_name,
         days: String(c.overdue_days),
