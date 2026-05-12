@@ -1055,7 +1055,7 @@ const App: React.FC = () => {
                   }}
                 />
               )}
-              {currentView === 'collectionManagement' && <CollectionManagement contracts={contracts} partners={partners} salespeople={salespeople} settlements={creditorSettlements} onDepositsProcessed={() => fetchData({ silent: true })} />}
+              {currentView === 'collectionManagement' && <CollectionManagement contracts={contracts} partners={partners} salespeople={salespeople} settlements={creditorSettlements} onDepositsProcessed={() => fetchData({ silent: true })} onSelectContract={selectContractWithDeductions} />}
               {currentView === 'deductionManagement' && (
                 <DeductionManagement
                   contracts={contracts}

@@ -20,6 +20,7 @@ interface CollectionManagementProps {
   salespeople?: Salesperson[];
   settlements?: CreditorSettlementRound[];
   onDepositsProcessed?: () => void;
+  onSelectContract?: (contract: Contract) => void;
 }
 
 // 상수 (컴포넌트 외부 - 매 렌더마다 재생성 방지)
@@ -62,14 +63,24 @@ interface CollectionRowProps {
   };
   selected: boolean;
   onToggle: (id: string) => void;
+  onSelectContract?: (contract: Contract) => void;
 }
-const CollectionRow = memo<CollectionRowProps>(({ row, selected, onToggle }) => (
+const CollectionRow = memo<CollectionRowProps>(({ row, selected, onToggle, onSelectContract }) => (
   <tr className="border-b border-slate-700/50 hover:bg-slate-700/30 transition-colors">
     <td className="p-3 text-center">
       <input type="checkbox" checked={selected} onChange={() => onToggle(row.contract.id)}
         className="h-3.5 w-3.5 rounded border-slate-500 bg-slate-700 text-indigo-600" />
     </td>
-    <td className="p-3 text-slate-300 font-mono text-xs">{row.contract.contract_number ?? '-'}</td>
+    <td className="p-3 font-mono text-xs">
+      {onSelectContract ? (
+        <button onClick={() => onSelectContract(row.contract)}
+          className="text-indigo-300 hover:text-indigo-200 hover:underline">
+          {row.contract.contract_number ?? '-'}
+        </button>
+      ) : (
+        <span className="text-slate-300">{row.contract.contract_number ?? '-'}</span>
+      )}
+    </td>
     <td className="p-3 text-white">{row.contract.lessee_name || '-'}</td>
     <td className="p-3 text-slate-300">{row.contract.distributor_name || '-'}</td>
     <td className="p-3 text-right text-slate-300">{formatCurrency(row.expectedByToday)}</td>
@@ -106,7 +117,7 @@ function formatRangeLabel(from: string, to: string): string {
   return `${from}~${to})`;
 }
 
-export const CollectionManagement: React.FC<CollectionManagementProps> = ({ contracts, partners, salespeople = [], settlements = [], onDepositsProcessed }) => {
+export const CollectionManagement: React.FC<CollectionManagementProps> = ({ contracts, partners, salespeople = [], settlements = [], onDepositsProcessed, onSelectContract }) => {
   const [showUpload, setShowUpload] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showExcelModal, setShowExcelModal] = useState(false);
@@ -509,7 +520,8 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
             ) : filtered.map(row => (
               <CollectionRow key={row.contract.id} row={row}
                 selected={selectedIds.has(row.contract.id)}
-                onToggle={toggleSelect} />
+                onToggle={toggleSelect}
+                onSelectContract={onSelectContract} />
             ))}
           </tbody>
         </table>
