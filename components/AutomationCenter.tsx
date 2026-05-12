@@ -120,6 +120,9 @@ export const AutomationCenter: React.FC<{ anchorDate?: string }> = ({ anchorDate
   const [agencyChoice, setAgencyChoice] = useState<number>(0); // 0 or 1 (둘 중 하나)
   const [previewing, setPreviewing] = useState<{ type: 'sms'|'agency'; contractId: string } | null>(null);
   const [sending, setSending] = useState(false);
+  // 검색 필터 (SMS 대기 / 신정사 대기 탭)
+  const [smsSearch, setSmsSearch] = useState('');
+  const [agencySearch, setAgencySearch] = useState('');
   // 테스트 발송용
   const [testPhone, setTestPhone] = useState('');
   const [testText, setTestText] = useState('[(주)비엘큐] 테스트 발송입니다.');
@@ -338,6 +341,31 @@ export const AutomationCenter: React.FC<{ anchorDate?: string }> = ({ anchorDate
   // 사람 키 = lessee_name + '|' + lessee_contact
   const smsKey = (t: SmsTarget) => `${t.lessee_name}|${t.lessee_contact || ''}`;
 
+  // 검색 필터 적용
+  const filteredSmsTargets = useMemo(() => {
+    const kw = smsSearch.trim().toLowerCase();
+    if (!kw) return smsTargets;
+    return smsTargets.filter(t =>
+      t.lessee_name.toLowerCase().includes(kw) ||
+      (t.lessee_contact || '').includes(kw) ||
+      t.distributor_names.some(d => (d || '').toLowerCase().includes(kw)) ||
+      t.device_names.some(d => (d || '').toLowerCase().includes(kw)) ||
+      t.contract_numbers.some(n => String(n).includes(kw))
+    );
+  }, [smsTargets, smsSearch]);
+
+  const filteredAgencyTargets = useMemo(() => {
+    const kw = agencySearch.trim().toLowerCase();
+    if (!kw) return agencyTargets;
+    return agencyTargets.filter(t =>
+      t.lessee_name.toLowerCase().includes(kw) ||
+      (t.lessee_contact || '').includes(kw) ||
+      (t.lessee_business_number || '').includes(kw) ||
+      t.distributor_name.toLowerCase().includes(kw) ||
+      String(t.contract_number).includes(kw)
+    );
+  }, [agencyTargets, agencySearch]);
+
   // ===== 미리보기 =====
   const previewContent = useMemo(() => {
     if (!previewing || !settings) return null;
@@ -384,10 +412,19 @@ export const AutomationCenter: React.FC<{ anchorDate?: string }> = ({ anchorDate
     }
   }, [previewing, settings, smsTargets, agencyTargets, agencyChoice]);
 
-  // 일괄 토글
+  // 일괄 토글 (필터된 결과 기준)
   const toggleAllSms = () => {
-    if (smsSelected.size === smsTargets.length) setSmsSelected(new Set());
-    else setSmsSelected(new Set(smsTargets.map(t => smsKey(t))));
+    const filteredKeys = filteredSmsTargets.map(t => smsKey(t));
+    const allSelected = filteredKeys.every(k => smsSelected.has(k));
+    if (allSelected) {
+      const next = new Set(smsSelected);
+      filteredKeys.forEach(k => next.delete(k));
+      setSmsSelected(next);
+    } else {
+      const next = new Set(smsSelected);
+      filteredKeys.forEach(k => next.add(k));
+      setSmsSelected(next);
+    }
   };
   const toggleAllAgency = () => {
     if (agencySelected.size === agencyTargets.length) setAgencySelected(new Set());
@@ -442,9 +479,20 @@ export const AutomationCenter: React.FC<{ anchorDate?: string }> = ({ anchorDate
                 <div className="text-xs text-slate-400">
                   사람 단위 집계 · 8일 이상 연체 · 같은 사람 최대 {settings?.sms_max_count}회 · 최근 발송 {settings?.sms_cooldown_days}일 이내 제외
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <input
+                    type="text"
+                    value={smsSearch}
+                    onChange={e => setSmsSearch(e.target.value)}
+                    placeholder="🔍 계약자/연락처/총판/기기/계약번호..."
+                    className="bg-slate-700 text-white text-xs rounded px-2 py-1 w-56 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                  {smsSearch && (
+                    <button onClick={() => setSmsSearch('')}
+                      className="text-xs text-slate-400 hover:text-white bg-slate-700 px-2 py-1 rounded">✕</button>
+                  )}
                   <button onClick={toggleAllSms} className="text-xs text-slate-300 hover:text-white bg-slate-700 px-2 py-1 rounded">
-                    {smsSelected.size === smsTargets.length && smsTargets.length > 0 ? '전체 해제' : '전체 선택'}
+                    {filteredSmsTargets.length > 0 && filteredSmsTargets.every(t => smsSelected.has(smsKey(t))) ? '전체 해제' : '전체 선택'}
                   </button>
                   <button onClick={() => sendSms(smsTargets.filter(t => smsSelected.has(smsKey(t))))}
                     disabled={sending || smsSelected.size === 0}
@@ -453,8 +501,11 @@ export const AutomationCenter: React.FC<{ anchorDate?: string }> = ({ anchorDate
                   </button>
                 </div>
               </div>
-              {smsTargets.length === 0 ? (
-                <p className="text-slate-500 text-sm text-center py-6">발송 대상이 없습니다.</p>
+              {smsSearch && (
+                <p className="text-[10px] text-slate-500 mb-2">검색 결과: {filteredSmsTargets.length}명 / 전체 {smsTargets.length}명</p>
+              )}
+              {filteredSmsTargets.length === 0 ? (
+                <p className="text-slate-500 text-sm text-center py-6">{smsSearch ? '검색 결과 없음' : '발송 대상이 없습니다.'}</p>
               ) : (
                 <div className="overflow-x-auto max-h-96 overflow-y-auto">
                   <table className="w-full text-sm">
@@ -472,7 +523,7 @@ export const AutomationCenter: React.FC<{ anchorDate?: string }> = ({ anchorDate
                       </tr>
                     </thead>
                     <tbody>
-                      {smsTargets.map(t => {
+                      {filteredSmsTargets.map(t => {
                         const key = smsKey(t);
                         return (
                           <tr key={key} className="border-b border-slate-700/50 hover:bg-slate-700/30">
@@ -524,6 +575,17 @@ export const AutomationCenter: React.FC<{ anchorDate?: string }> = ({ anchorDate
               <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                 <div className="text-xs text-slate-400">21일 이상 연체된 계약</div>
                 <div className="flex items-center gap-2 flex-wrap">
+                  <input
+                    type="text"
+                    value={agencySearch}
+                    onChange={e => setAgencySearch(e.target.value)}
+                    placeholder="🔍 계약자/연락처/사업자번호/총판/계약번호..."
+                    className="bg-slate-700 text-white text-xs rounded px-2 py-1 w-56 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                  {agencySearch && (
+                    <button onClick={() => setAgencySearch('')}
+                      className="text-xs text-slate-400 hover:text-white bg-slate-700 px-2 py-1 rounded">✕</button>
+                  )}
                   <span className="text-xs text-slate-400">신정사:</span>
                   {settings?.credit_agencies.map((a, i) => (
                     <button key={i} onClick={() => setAgencyChoice(i)}
@@ -534,7 +596,7 @@ export const AutomationCenter: React.FC<{ anchorDate?: string }> = ({ anchorDate
                     </button>
                   ))}
                   <button onClick={toggleAllAgency} className="text-xs text-slate-300 hover:text-white bg-slate-700 px-2 py-1 rounded">
-                    {agencySelected.size === agencyTargets.length && agencyTargets.length > 0 ? '전체 해제' : '전체 선택'}
+                    {filteredAgencyTargets.length > 0 && filteredAgencyTargets.every(t => agencySelected.has(t.contract_id)) ? '전체 해제' : '전체 선택'}
                   </button>
                   <button onClick={() => sendAgencyEmail(agencyTargets.filter(t => agencySelected.has(t.contract_id)))}
                     disabled={sending || agencySelected.size === 0}
@@ -543,8 +605,11 @@ export const AutomationCenter: React.FC<{ anchorDate?: string }> = ({ anchorDate
                   </button>
                 </div>
               </div>
-              {agencyTargets.length === 0 ? (
-                <p className="text-slate-500 text-sm text-center py-6">21일 이상 연체된 계약이 없습니다.</p>
+              {agencySearch && (
+                <p className="text-[10px] text-slate-500 mb-2">검색 결과: {filteredAgencyTargets.length}건 / 전체 {agencyTargets.length}건</p>
+              )}
+              {filteredAgencyTargets.length === 0 ? (
+                <p className="text-slate-500 text-sm text-center py-6">{agencySearch ? '검색 결과 없음' : '21일 이상 연체된 계약이 없습니다.'}</p>
               ) : (
                 <div className="overflow-x-auto max-h-96 overflow-y-auto">
                   <table className="w-full text-sm">
@@ -561,7 +626,7 @@ export const AutomationCenter: React.FC<{ anchorDate?: string }> = ({ anchorDate
                       </tr>
                     </thead>
                     <tbody>
-                      {agencyTargets.map(t => (
+                      {filteredAgencyTargets.map(t => (
                         <tr key={t.contract_id} className="border-b border-slate-700/50 hover:bg-slate-700/30">
                           <td className="p-2 text-center">
                             <input type="checkbox" checked={agencySelected.has(t.contract_id)}
