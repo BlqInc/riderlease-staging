@@ -10,6 +10,7 @@ import { ExpiredCollectionActions } from './ExpiredCollectionActions';
 import { AutomationCenter } from './AutomationCenter';
 import { InfoTooltip } from './InfoTooltip';
 import { usePersistedState } from '../lib/usePersistedState';
+import { supabase } from '../lib/supabaseClient';
 
 interface CollectionManagementProps {
   contracts: Contract[];
@@ -60,6 +61,7 @@ interface CollectionRowProps {
 }
 const CollectionRow = memo<CollectionRowProps>(({ row }) => (
   <tr className="border-b border-slate-700/50 hover:bg-slate-700/30 transition-colors">
+    <td className="p-3 text-slate-300 font-mono text-xs">{row.contract.contract_number ?? '-'}</td>
     <td className="p-3 text-white">{row.contract.lessee_name || '-'}</td>
     <td className="p-3 text-slate-300">{row.contract.distributor_name || '-'}</td>
     <td className="p-3 text-right text-slate-300">{formatCurrency(row.expectedByToday)}</td>
@@ -78,9 +80,30 @@ const CollectionRow = memo<CollectionRowProps>(({ row }) => (
   </tr>
 ));
 
+// 이번 달 1일~오늘 기본값
+function defaultRange(): { from: string; to: string } {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return { from: `${y}-${m}-01`, to: `${y}-${m}-${d}` };
+}
+
+function formatRangeLabel(from: string, to: string): string {
+  const f = from.split('-');
+  const t = to.split('-');
+  if (f.length === 3 && t.length === 3) {
+    return `${Number(f[1])}/${Number(f[2])}~${Number(t[1])}/${Number(t[2])})`;
+  }
+  return `${from}~${to})`;
+}
+
 export const CollectionManagement: React.FC<CollectionManagementProps> = ({ contracts, partners, salespeople = [], settlements = [], onDepositsProcessed }) => {
   const [showUpload, setShowUpload] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showExcelModal, setShowExcelModal] = useState(false);
+  const [excelRange, setExcelRange] = useState(defaultRange);
+  const [excelLoading, setExcelLoading] = useState(false);
   const safeContracts = Array.isArray(contracts) ? contracts : [];
   // 페이지 이동 후에도 필터 유지 (localStorage)
   const [riskFilter, setRiskFilter] = usePersistedState<RiskLevel | '전체'>('cm:risk-filter', '전체');
@@ -180,6 +203,106 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
     else { setSortKey(key); setSortAsc(true); }
   };
 
+  // ─── 엑셀 다운로드: 기간 × 계약 일별 풀림 ───
+  const handleExcelDownload = async () => {
+    if (excelLoading) return;
+    const { from, to } = excelRange;
+    if (!from || !to || from > to) { alert('기간을 올바르게 입력하세요.'); return; }
+    setExcelLoading(true);
+    try {
+      // 그 기간 내 bank_deposits 조회 (salesperson_id, depositor_name 매핑용)
+      const { data: deposits } = await (supabase.from('bank_deposits') as any)
+        .select('deposit_date, depositor_name, salesperson_id')
+        .gte('deposit_date', from)
+        .lte('deposit_date', to)
+        .is('reverted_at', null);
+
+      // (date|salesperson_id) → Set<depositor_name>
+      const depositorIndex = new Map<string, Set<string>>();
+      (deposits || []).forEach((d: any) => {
+        if (!d.salesperson_id || !d.deposit_date) return;
+        const key = `${d.deposit_date}|${d.salesperson_id}`;
+        const set = depositorIndex.get(key) || new Set<string>();
+        set.add(d.depositor_name || '');
+        depositorIndex.set(key, set);
+      });
+
+      // 계약 → 담당 영업자 매핑 (partner_id 기준)
+      const partnerToSalesperson = new Map<string, string>();
+      salespeople.forEach(s => (s.partner_ids || []).forEach(pid => partnerToSalesperson.set(pid, s.id)));
+
+      // 기간 내 날짜 배열
+      const dates: string[] = [];
+      const fromDate = new Date(from);
+      const toDate = new Date(to);
+      for (let d = new Date(fromDate); d <= toDate; d.setDate(d.getDate() + 1)) {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        dates.push(`${y}-${m}-${day}`);
+      }
+
+      // 행 생성: 현재 필터링된 계약 × 각 날짜 (해당 일자 daily_deduction 존재 시)
+      const dataRows: (string | number)[][] = [];
+      for (const date of dates) {
+        for (const row of filtered) {
+          const c = row.contract;
+          const dd = (c.daily_deductions || []).find(x => x.date === date);
+          if (!dd) continue;
+          const spId = c.partner_id ? partnerToSalesperson.get(c.partner_id) : undefined;
+          const names = spId ? Array.from(depositorIndex.get(`${date}|${spId}`) || []).filter(Boolean).join(', ') : '';
+          dataRows.push([
+            date,
+            c.contract_number ?? '',
+            c.lessee_name || '',
+            c.distributor_name || '',
+            names,
+            Number(dd.paid_amount) || 0,
+          ]);
+        }
+      }
+
+      // 엑셀 빌드
+      const XLSX = await import('xlsx-js-style');
+      const headerRow = [formatRangeLabel(from, to), '조회일자의 기준은 입금일자를 의미'];
+      const columnHeaders = ['일자', '계약번호', '계약자', '총판', '입금자명', '입금액'];
+      const aoa: any[][] = [headerRow, columnHeaders, ...dataRows];
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+      // 헤더 스타일 (행 1 = 컬럼 헤더)
+      const headerStyle = {
+        fill: { fgColor: { rgb: '4472C4' } },
+        font: { bold: true, color: { rgb: 'FFFFFF' } },
+        alignment: { horizontal: 'center', vertical: 'center' },
+        border: { top:{style:'thin'}, bottom:{style:'thin'}, left:{style:'thin'}, right:{style:'thin'} },
+      };
+      for (let c = 0; c < columnHeaders.length; c++) {
+        const addr = XLSX.utils.encode_cell({ r: 1, c });
+        if (ws[addr]) ws[addr].s = headerStyle;
+      }
+      // 입금액 컬럼 천단위 콤마
+      for (let r = 2; r < aoa.length; r++) {
+        const addr = XLSX.utils.encode_cell({ r, c: 5 });
+        if (ws[addr]) ws[addr].z = '#,##0';
+      }
+      // 컬럼 너비
+      ws['!cols'] = [
+        { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 20 }, { wch: 18 }, { wch: 12 },
+      ];
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, '회수내역');
+      const fname = `회수관리_${from.replace(/-/g,'')}-${to.replace(/-/g,'')}_${riskFilter}.xlsx`;
+      XLSX.writeFile(wb, fname);
+      setShowExcelModal(false);
+    } catch (e) {
+      console.error(e);
+      alert('엑셀 생성 실패: ' + (e as Error).message);
+    } finally {
+      setExcelLoading(false);
+    }
+  };
+
   const sortIndicator = (key: SortKey) => sortKey === key ? (sortAsc ? ' ▲' : ' ▼') : '';
 
   const riskCounts = useMemo(() => {
@@ -270,13 +393,54 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
         <input type="text" placeholder="계약자명, 총판명, 계약번호 검색..."
           value={keyword} onChange={e => setKeyword(e.target.value)}
           className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 flex-1 max-w-xs" />
+        <button onClick={() => setShowExcelModal(true)}
+          className="ml-auto bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors">
+          📥 엑셀 다운로드
+        </button>
       </div>
+
+      {/* 엑셀 다운로드 모달 */}
+      {showExcelModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => !excelLoading && setShowExcelModal(false)}>
+          <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 w-[420px] max-w-[90vw]" onClick={e => e.stopPropagation()}>
+            <h3 className="text-white font-semibold mb-1">회수 내역 엑셀 다운로드</h3>
+            <p className="text-xs text-slate-400 mb-4">
+              현재 필터 (<span className="text-slate-200">{riskFilter}</span>{keyword ? ` / "${keyword}"` : ''}) 기준 · 기간 내 일별 차감 풀림
+            </p>
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-slate-400 w-12">시작일</label>
+                <input type="date" value={excelRange.from}
+                  onChange={e => setExcelRange(r => ({ ...r, from: e.target.value }))}
+                  className="bg-slate-700 border border-slate-600 rounded px-2 py-1 text-sm text-white flex-1" />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-slate-400 w-12">종료일</label>
+                <input type="date" value={excelRange.to}
+                  onChange={e => setExcelRange(r => ({ ...r, to: e.target.value }))}
+                  className="bg-slate-700 border border-slate-600 rounded px-2 py-1 text-sm text-white flex-1" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-5">
+              <button onClick={() => setShowExcelModal(false)} disabled={excelLoading}
+                className="text-xs px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 disabled:opacity-50">
+                취소
+              </button>
+              <button onClick={handleExcelDownload} disabled={excelLoading}
+                className="text-xs px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50">
+                {excelLoading ? '생성 중...' : '다운로드'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Table */}
       <div className="bg-slate-800 rounded-lg shadow-lg border border-slate-700 overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-700 text-slate-400">
+              <th className="text-left p-3 font-medium">계약번호</th>
               <th className="text-left p-3 font-medium">계약자</th>
               <th className="text-left p-3 font-medium">총판</th>
               <th className="text-right p-3 font-medium cursor-pointer hover:text-white" onClick={() => handleSort('expectedByToday')}>
@@ -298,7 +462,7 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan={9} className="text-center text-slate-500 py-8">해당하는 계약이 없습니다</td></tr>
+              <tr><td colSpan={10} className="text-center text-slate-500 py-8">해당하는 계약이 없습니다</td></tr>
             ) : filtered.map(row => (
               <CollectionRow key={row.contract.id} row={row} />
             ))}
