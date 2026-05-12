@@ -12,6 +12,7 @@ import { InfoTooltip } from './InfoTooltip';
 import { usePersistedState } from '../lib/usePersistedState';
 import { supabase } from '../lib/supabaseClient';
 import { SettlementRequestModal } from './SettlementRequestModal';
+import { SettlementRequestList } from './SettlementRequestList';
 
 interface CollectionManagementProps {
   contracts: Contract[];
@@ -113,6 +114,7 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
   const [excelLoading, setExcelLoading] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showSettleModal, setShowSettleModal] = useState(false);
+  const [showSettleList, setShowSettleList] = useState(false);
 
   const toggleSelect = React.useCallback((id: string) => {
     setSelectedIds(prev => {
@@ -337,11 +339,15 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
         <h2 className="text-3xl font-bold text-white">회수 관리</h2>
         {onDepositsProcessed && (
           <div className="flex gap-2">
-            <button onClick={() => { setShowHistory(!showHistory); setShowUpload(false); }}
+            <button onClick={() => { setShowSettleList(!showSettleList); setShowHistory(false); setShowUpload(false); }}
+              className="bg-slate-700 hover:bg-slate-600 text-white font-bold px-4 py-2 rounded-lg">
+              {showSettleList ? '닫기' : '🧾 정산요청서'}
+            </button>
+            <button onClick={() => { setShowHistory(!showHistory); setShowUpload(false); setShowSettleList(false); }}
               className="bg-slate-700 hover:bg-slate-600 text-white font-bold px-4 py-2 rounded-lg">
               {showHistory ? '닫기' : '📋 입금 이력'}
             </button>
-            <button onClick={() => { setShowUpload(!showUpload); setShowHistory(false); }}
+            <button onClick={() => { setShowUpload(!showUpload); setShowHistory(false); setShowSettleList(false); }}
               className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2 rounded-lg">
               {showUpload ? '닫기' : '🏦 은행 입금내역 업로드'}
             </button>
@@ -363,8 +369,14 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
         <BankDepositHistory salespeople={salespeople} onReverted={onDepositsProcessed} />
       )}
 
-      {/* 업로드/이력 모드일 때는 아래 테이블/차트 숨김 (성능 최적화) */}
-      {!showUpload && !showHistory && (
+      {showSettleList && onDepositsProcessed && (
+        <SettlementRequestList
+          onClose={() => setShowSettleList(false)}
+          onChanged={onDepositsProcessed} />
+      )}
+
+      {/* 업로드/이력/정산요청서 모드일 때는 아래 테이블/차트 숨김 (성능 최적화) */}
+      {!showUpload && !showHistory && !showSettleList && (
         <>
       {/* 📊 회수 대시보드 (기간별 KPI + 일별 차트 + 위험 총판) */}
       <CollectionDashboard />
