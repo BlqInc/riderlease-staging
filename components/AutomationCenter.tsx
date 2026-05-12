@@ -59,7 +59,8 @@ interface DispatchLog {
 
 // ===== 발송 (Solapi via Supabase Edge Function) =====
 // 이름이 컴포넌트 내부 sendSms와 겹치면 안 됨 → sendSmsApi
-async function sendSmsApi(target: string, body: string): Promise<{ ok: true; messageId?: string } | { ok: false; error: string }> {
+// (정산요청서 발행 등 다른 모듈에서도 재사용)
+export async function sendSmsApi(target: string, body: string): Promise<{ ok: true; messageId?: string } | { ok: false; error: string }> {
   if (!supabase) return { ok: false, error: 'Supabase 미초기화' };
   try {
     const { data, error } = await supabase.functions.invoke('send-sms', {

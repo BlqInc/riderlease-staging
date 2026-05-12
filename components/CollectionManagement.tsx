@@ -11,6 +11,7 @@ import { AutomationCenter } from './AutomationCenter';
 import { InfoTooltip } from './InfoTooltip';
 import { usePersistedState } from '../lib/usePersistedState';
 import { supabase } from '../lib/supabaseClient';
+import { SettlementRequestModal } from './SettlementRequestModal';
 
 interface CollectionManagementProps {
   contracts: Contract[];
@@ -58,9 +59,15 @@ interface CollectionRowProps {
     overdueDays: number;
     risk: RiskLevel;
   };
+  selected: boolean;
+  onToggle: (id: string) => void;
 }
-const CollectionRow = memo<CollectionRowProps>(({ row }) => (
+const CollectionRow = memo<CollectionRowProps>(({ row, selected, onToggle }) => (
   <tr className="border-b border-slate-700/50 hover:bg-slate-700/30 transition-colors">
+    <td className="p-3 text-center">
+      <input type="checkbox" checked={selected} onChange={() => onToggle(row.contract.id)}
+        className="h-3.5 w-3.5 rounded border-slate-500 bg-slate-700 text-indigo-600" />
+    </td>
     <td className="p-3 text-slate-300 font-mono text-xs">{row.contract.contract_number ?? '-'}</td>
     <td className="p-3 text-white">{row.contract.lessee_name || '-'}</td>
     <td className="p-3 text-slate-300">{row.contract.distributor_name || '-'}</td>
@@ -104,6 +111,16 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
   const [showExcelModal, setShowExcelModal] = useState(false);
   const [excelRange, setExcelRange] = useState(defaultRange);
   const [excelLoading, setExcelLoading] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showSettleModal, setShowSettleModal] = useState(false);
+
+  const toggleSelect = React.useCallback((id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
   const safeContracts = Array.isArray(contracts) ? contracts : [];
   // 페이지 이동 후에도 필터 유지 (localStorage)
   const [riskFilter, setRiskFilter] = usePersistedState<RiskLevel | '전체'>('cm:risk-filter', '전체');
@@ -440,6 +457,20 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-700 text-slate-400">
+              <th className="p-3 w-10 text-center">
+                <input type="checkbox"
+                  checked={filtered.length > 0 && filtered.every(r => selectedIds.has(r.contract.id))}
+                  onChange={() => {
+                    const allSelected = filtered.length > 0 && filtered.every(r => selectedIds.has(r.contract.id));
+                    setSelectedIds(prev => {
+                      const next = new Set(prev);
+                      if (allSelected) filtered.forEach(r => next.delete(r.contract.id));
+                      else filtered.forEach(r => next.add(r.contract.id));
+                      return next;
+                    });
+                  }}
+                  className="h-3.5 w-3.5 rounded border-slate-500 bg-slate-700 text-indigo-600" />
+              </th>
               <th className="text-left p-3 font-medium">계약번호</th>
               <th className="text-left p-3 font-medium">계약자</th>
               <th className="text-left p-3 font-medium">총판</th>
@@ -462,9 +493,11 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan={10} className="text-center text-slate-500 py-8">해당하는 계약이 없습니다</td></tr>
+              <tr><td colSpan={11} className="text-center text-slate-500 py-8">해당하는 계약이 없습니다</td></tr>
             ) : filtered.map(row => (
-              <CollectionRow key={row.contract.id} row={row} />
+              <CollectionRow key={row.contract.id} row={row}
+                selected={selectedIds.has(row.contract.id)}
+                onToggle={toggleSelect} />
             ))}
           </tbody>
         </table>
@@ -493,6 +526,28 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
       </>}
         </>
       )}
+
+      {/* 정산요청서 발행 — 플로팅 바 */}
+      {selectedIds.size > 0 && !showSettleModal && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-800 border border-indigo-500 rounded-xl shadow-2xl px-5 py-3 flex items-center gap-4">
+          <span className="text-sm text-white">
+            <span className="text-indigo-400 font-semibold">{selectedIds.size}건</span> 선택됨
+          </span>
+          <button onClick={() => setSelectedIds(new Set())}
+            className="text-xs text-slate-400 hover:text-white">선택 해제</button>
+          <button onClick={() => setShowSettleModal(true)}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-1.5 rounded-lg">
+            📋 정산요청서 발행
+          </button>
+        </div>
+      )}
+
+      <SettlementRequestModal
+        open={showSettleModal}
+        contracts={safeContracts.filter(c => selectedIds.has(c.id))}
+        onClose={() => setShowSettleModal(false)}
+        onPublished={() => { setSelectedIds(new Set()); onDepositsProcessed?.(); }}
+      />
     </div>
   );
 };
