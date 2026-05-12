@@ -64,6 +64,8 @@ export const SettlementRequestList: React.FC<Props> = ({ onClose, onChanged }) =
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<SettlementRequest | null>(null);
   const [selectedItems, setSelectedItems] = useState<SettlementItem[]>([]);
+  const [selectedDispatches, setSelectedDispatches] = useState<any[]>([]);
+  const [selectedPayments, setSelectedPayments] = useState<any[]>([]);
   const [paymentModal, setPaymentModal] = useState<SettlementRequest | null>(null);
 
   const load = async () => {
@@ -99,12 +101,20 @@ export const SettlementRequestList: React.FC<Props> = ({ onClose, onChanged }) =
   const openDetail = async (r: SettlementRequest) => {
     if (!supabase) return;
     setSelected(r);
-    const { data } = await (supabase.from('settlement_request_items') as any)
-      .select('*').eq('request_id', r.id).order('contract_number', { ascending: true });
-    setSelectedItems((data || []) as SettlementItem[]);
+    const [itemsRes, dispRes, payRes] = await Promise.all([
+      (supabase.from('settlement_request_items') as any)
+        .select('*').eq('request_id', r.id).order('contract_number', { ascending: true }),
+      (supabase.from('settlement_request_dispatches') as any)
+        .select('*').eq('request_id', r.id).order('sent_at', { ascending: true }),
+      (supabase.from('settlement_request_payments') as any)
+        .select('*').eq('request_id', r.id).order('applied_at', { ascending: true }),
+    ]);
+    setSelectedItems((itemsRes.data || []) as SettlementItem[]);
+    setSelectedDispatches(dispRes.data || []);
+    setSelectedPayments(payRes.data || []);
   };
 
-  const closeDetail = () => { setSelected(null); setSelectedItems([]); };
+  const closeDetail = () => { setSelected(null); setSelectedItems([]); setSelectedDispatches([]); setSelectedPayments([]); };
 
   const copyTokenUrl = (r: SettlementRequest) => {
     const url = `${window.location.origin}${window.location.pathname}?settle_token=${r.token}`;
@@ -198,7 +208,9 @@ export const SettlementRequestList: React.FC<Props> = ({ onClose, onChanged }) =
 
       {/* 상세 모달 */}
       {selected && (
-        <DetailModal request={selected} items={selectedItems} onClose={closeDetail}
+        <DetailModal request={selected} items={selectedItems}
+          dispatches={selectedDispatches} payments={selectedPayments}
+          onClose={closeDetail}
           onOpenPayment={() => { setPaymentModal(selected); closeDetail(); }} />
       )}
 
@@ -220,9 +232,11 @@ export const SettlementRequestList: React.FC<Props> = ({ onClose, onChanged }) =
 const DetailModal: React.FC<{
   request: SettlementRequest;
   items: SettlementItem[];
+  dispatches: any[];
+  payments: any[];
   onClose: () => void;
   onOpenPayment: () => void;
-}> = ({ request, items, onClose, onOpenPayment }) => {
+}> = ({ request, items, dispatches, payments, onClose, onOpenPayment }) => {
   const si = STATUS_LABEL[request.status] || { text: request.status, cls: 'bg-slate-600 text-slate-100' };
   const canPay = request.status === 'sent' || request.status === 'replied';
 
@@ -294,6 +308,69 @@ const DetailModal: React.FC<{
             </div>
           ))}
         </div>
+
+        {/* 발송 이력 */}
+        <h4 className="text-white font-medium text-sm mb-2 mt-4">발송 이력 ({dispatches.length}건)</h4>
+        <div className="space-y-1.5 mb-4">
+          {dispatches.length === 0 ? (
+            <div className="text-xs text-slate-500">발송 기록 없음</div>
+          ) : dispatches.map((d, i) => (
+            <div key={i} className="bg-slate-900/50 rounded p-2 border border-slate-700 text-xs">
+              <div className="flex justify-between items-center">
+                <div>
+                  <span className={`px-1.5 py-0.5 rounded text-[10px] mr-2 ${d.channel === 'sms' ? 'bg-blue-500/20 text-blue-300' : 'bg-slate-600 text-slate-200'}`}>
+                    {d.channel === 'sms' ? 'SMS' : '수동복사'}
+                  </span>
+                  {d.target_contact && <span className="text-slate-300">{d.target_contact}</span>}
+                  <span className={`ml-2 text-[10px] ${d.status === 'sent' ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {d.status === 'sent' ? '✓ 발송' : '✗ 실패'}
+                  </span>
+                </div>
+                <span className="text-slate-400">{d.sent_at ? new Date(d.sent_at).toLocaleString('ko-KR') : '-'}</span>
+              </div>
+              {d.error && <div className="text-red-300 mt-1">{d.error}</div>}
+            </div>
+          ))}
+        </div>
+
+        {/* 입금 분배 이력 */}
+        {payments.length > 0 && (
+          <>
+            <h4 className="text-white font-medium text-sm mb-2">입금 분배 이력 ({payments.length}건)</h4>
+            <div className="space-y-2 mb-4">
+              {payments.map((p, i) => {
+                const dist = Array.isArray(p.distribution) ? p.distribution : [];
+                return (
+                  <div key={i} className="bg-slate-900/50 rounded p-3 border border-slate-700 text-xs">
+                    <div className="flex justify-between items-center mb-2">
+                      <div>
+                        <span className="text-emerald-400 font-semibold">₩{formatCurrency(p.paid_amount)}</span>
+                        <span className="text-slate-400 ml-2">{p.paid_date || '-'}</span>
+                        {p.bank_memo && <span className="text-slate-400 ml-2">· {p.bank_memo}</span>}
+                      </div>
+                      <span className="text-slate-400">{p.applied_at ? new Date(p.applied_at).toLocaleString('ko-KR') : '-'}</span>
+                    </div>
+                    <div className="text-slate-400 mb-1">분배 내역 ({dist.length}건)</div>
+                    <div className="max-h-32 overflow-y-auto space-y-0.5">
+                      {dist.map((d: any, j: number) => (
+                        <div key={j} className="flex justify-between text-slate-300">
+                          <span>{d.deduction_date}</span>
+                          <span className="text-emerald-400">₩{formatCurrency(d.applied_amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        {request.admin_memo && (
+          <div className="mb-4 text-xs bg-amber-500/10 border border-amber-500/30 text-amber-300 rounded p-2">
+            ℹ {request.admin_memo}
+          </div>
+        )}
 
         <div className="flex justify-end gap-2">
           <button onClick={onClose} className="text-sm px-4 py-2 rounded bg-slate-700 hover:bg-slate-600 text-slate-200">닫기</button>
