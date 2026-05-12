@@ -5,6 +5,7 @@ import { Sidebar, View } from './components/Sidebar';
 import { Login } from './components/Login';
 import { ConfigurationError } from './components/ConfigurationError';
 import { DistributorUpload } from './components/DistributorUpload';
+import { SettlementReplyPage } from './components/SettlementReplyPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 // Lazy-loaded view components
@@ -93,6 +94,9 @@ const AppRouter: React.FC = () => {
   const urlParams = new URLSearchParams(window.location.search);
   if (urlParams.has('token')) {
     return <DistributorUpload />;
+  }
+  if (urlParams.has('settle_token')) {
+    return <SettlementReplyPage />;
   }
   return <App />;
 };
