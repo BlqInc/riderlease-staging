@@ -141,6 +141,7 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
   const [sortKey, setSortKey] = usePersistedState<SortKey>('cm:sort-key', 'paymentRate');
   const [sortAsc, setSortAsc] = usePersistedState<boolean>('cm:sort-asc', true);
   const [showContractList, setShowContractList] = usePersistedState<boolean>('cm:show-contract-list', false);
+  const [showAutomation, setShowAutomation] = usePersistedState<boolean>('cm:show-automation', false);
 
   // Compute per-contract stats
   const contractStats = useMemo(() => {
@@ -392,8 +393,16 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
       {/* 📊 회수 대시보드 (기간별 KPI + 일별 차트 + 위험 총판) */}
       <CollectionDashboard />
 
-      {/* 🔔 자동 조치 센터 (SMS/신정사 메일 큐) */}
-      <AutomationCenter />
+      {/* 🔔 자동 조치 센터 (SMS/신정사 메일 큐) — 토글: 펼칠 때만 RPC 조회 */}
+      <div className="border-t border-slate-700 pt-4">
+        <button onClick={() => setShowAutomation(s => !s)}
+          className="flex items-center gap-2 text-sm text-slate-300 hover:text-white transition-colors">
+          <span>{showAutomation ? '▼' : '▶'}</span>
+          <span className="font-medium">🔔 자동 조치 센터</span>
+          <span className="text-xs text-slate-500">(SMS 발송 대기 · 신정사 메일 대상 · 발송 이력)</span>
+        </button>
+      </div>
+      {showAutomation && <AutomationCenter />}
 
       {/* 🚨 미수 계약 회수 관리 (조치 체크리스트) */}
       <ExpiredCollectionActions />
