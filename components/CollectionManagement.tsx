@@ -63,13 +63,16 @@ interface CollectionRowProps {
   selected: boolean;
   onToggle: (id: string) => void;
   onSelectContract?: (contract: Contract) => void;
+  publishMode: boolean;
 }
-const CollectionRow = memo<CollectionRowProps>(({ row, selected, onToggle, onSelectContract }) => (
+const CollectionRow = memo<CollectionRowProps>(({ row, selected, onToggle, onSelectContract, publishMode }) => (
   <tr className="border-b border-slate-700/50 hover:bg-slate-700/30 transition-colors">
-    <td className="p-3 text-center">
-      <input type="checkbox" checked={selected} onChange={() => onToggle(row.contract.id)}
-        className="h-3.5 w-3.5 rounded border-slate-500 bg-slate-700 text-indigo-600" />
-    </td>
+    {publishMode && (
+      <td className="p-3 text-center">
+        <input type="checkbox" checked={selected} onChange={() => onToggle(row.contract.id)}
+          className="h-3.5 w-3.5 rounded border-slate-500 bg-slate-700 text-indigo-600" />
+      </td>
+    )}
     <td className="p-3 font-mono text-xs">
       {onSelectContract ? (
         <button onClick={() => onSelectContract(row.contract)}
@@ -124,6 +127,12 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
   const [excelLoading, setExcelLoading] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showSettleModal, setShowSettleModal] = useState(false);
+  const [publishMode, setPublishMode] = useState(false);
+
+  const exitPublishMode = React.useCallback(() => {
+    setPublishMode(false);
+    setSelectedIds(new Set());
+  }, []);
 
   const toggleSelect = React.useCallback((id: string) => {
     setSelectedIds(prev => {
@@ -434,6 +443,14 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
           className="ml-auto bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors">
           📥 엑셀 다운로드
         </button>
+        <button onClick={() => publishMode ? exitPublishMode() : setPublishMode(true)}
+          className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
+            publishMode
+              ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+              : 'bg-slate-700 hover:bg-slate-600 text-slate-200'
+          }`}>
+          📋 {publishMode ? '발행 모드 종료' : '정산요청서 발행 모드'}
+        </button>
       </div>
 
       {/* 엑셀 다운로드 모달 */}
@@ -477,20 +494,22 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-700 text-slate-400">
-              <th className="p-3 w-10 text-center">
-                <input type="checkbox"
-                  checked={filtered.length > 0 && filtered.every(r => selectedIds.has(r.contract.id))}
-                  onChange={() => {
-                    const allSelected = filtered.length > 0 && filtered.every(r => selectedIds.has(r.contract.id));
-                    setSelectedIds(prev => {
-                      const next = new Set(prev);
-                      if (allSelected) filtered.forEach(r => next.delete(r.contract.id));
-                      else filtered.forEach(r => next.add(r.contract.id));
-                      return next;
-                    });
-                  }}
-                  className="h-3.5 w-3.5 rounded border-slate-500 bg-slate-700 text-indigo-600" />
-              </th>
+              {publishMode && (
+                <th className="p-3 w-10 text-center">
+                  <input type="checkbox"
+                    checked={filtered.length > 0 && filtered.every(r => selectedIds.has(r.contract.id))}
+                    onChange={() => {
+                      const allSelected = filtered.length > 0 && filtered.every(r => selectedIds.has(r.contract.id));
+                      setSelectedIds(prev => {
+                        const next = new Set(prev);
+                        if (allSelected) filtered.forEach(r => next.delete(r.contract.id));
+                        else filtered.forEach(r => next.add(r.contract.id));
+                        return next;
+                      });
+                    }}
+                    className="h-3.5 w-3.5 rounded border-slate-500 bg-slate-700 text-indigo-600" />
+                </th>
+              )}
               <th className="text-left p-3 font-medium">계약번호</th>
               <th className="text-left p-3 font-medium">계약자</th>
               <th className="text-left p-3 font-medium">총판</th>
@@ -513,12 +532,13 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan={11} className="text-center text-slate-500 py-8">해당하는 계약이 없습니다</td></tr>
+              <tr><td colSpan={publishMode ? 11 : 10} className="text-center text-slate-500 py-8">해당하는 계약이 없습니다</td></tr>
             ) : filtered.map(row => (
               <CollectionRow key={row.contract.id} row={row}
-                selected={selectedIds.has(row.contract.id)}
+                selected={publishMode ? selectedIds.has(row.contract.id) : false}
                 onToggle={toggleSelect}
-                onSelectContract={onSelectContract} />
+                onSelectContract={onSelectContract}
+                publishMode={publishMode} />
             ))}
           </tbody>
         </table>
@@ -548,8 +568,8 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
         </>
       )}
 
-      {/* 정산요청서 발행 — 플로팅 바 */}
-      {selectedIds.size > 0 && !showSettleModal && (
+      {/* 정산요청서 발행 — 플로팅 바 (발행 모드 + 선택 1건 이상) */}
+      {publishMode && selectedIds.size > 0 && !showSettleModal && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-800 border border-indigo-500 rounded-xl shadow-2xl px-5 py-3 flex items-center gap-4">
           <span className="text-sm text-white">
             <span className="text-indigo-400 font-semibold">{selectedIds.size}건</span> 선택됨
