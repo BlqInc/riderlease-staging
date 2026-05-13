@@ -53,8 +53,8 @@ const STATUS_TABS: { key: string; label: string }[] = [
 ];
 
 interface Props {
-  onClose: () => void;
-  onChanged?: () => void;  // 입금 반영 후 외부 데이터 새로고침
+  onClose?: () => void;     // 토글 모드(회수관리 내부)에서만 닫기 버튼 노출
+  onChanged?: () => void;   // 입금 반영 후 외부 데이터 새로고침
 }
 
 export const SettlementRequestList: React.FC<Props> = ({ onClose, onChanged }) => {
@@ -129,8 +129,10 @@ export const SettlementRequestList: React.FC<Props> = ({ onClose, onChanged }) =
         <div className="flex items-center gap-2">
           <button onClick={load}
             className="text-xs text-slate-400 hover:text-white">↻ 새로고침</button>
-          <button onClick={onClose}
-            className="text-slate-400 hover:text-white text-xl leading-none">×</button>
+          {onClose && (
+            <button onClick={onClose}
+              className="text-slate-400 hover:text-white text-xl leading-none">×</button>
+          )}
         </div>
       </div>
 

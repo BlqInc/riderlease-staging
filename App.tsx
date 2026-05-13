@@ -6,6 +6,7 @@ import { Login } from './components/Login';
 import { ConfigurationError } from './components/ConfigurationError';
 import { DistributorUpload } from './components/DistributorUpload';
 import { SettlementReplyPage } from './components/SettlementReplyPage';
+import { SettlementRequestList } from './components/SettlementRequestList';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 // Lazy-loaded view components
@@ -1056,6 +1057,13 @@ const App: React.FC = () => {
                 />
               )}
               {currentView === 'collectionManagement' && <CollectionManagement contracts={contracts} partners={partners} salespeople={salespeople} settlements={creditorSettlements} onDepositsProcessed={() => fetchData({ silent: true })} onSelectContract={selectContractWithDeductions} />}
+              {currentView === 'settlementRequests' && (
+                <div className="p-8 space-y-6">
+                  <h2 className="text-3xl font-bold text-white">정산요청서</h2>
+                  <p className="text-slate-400 text-sm">발행된 청구서의 회신·대사·입금 확인을 관리합니다. (발행은 회수관리 → 계약별 상세 목록에서)</p>
+                  <SettlementRequestList onChanged={() => fetchData({ silent: true })} />
+                </div>
+              )}
               {currentView === 'deductionManagement' && (
                 <DeductionManagement
                   contracts={contracts}
