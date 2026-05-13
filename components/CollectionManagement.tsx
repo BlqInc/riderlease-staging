@@ -128,6 +128,9 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showSettleModal, setShowSettleModal] = useState(false);
   const [publishMode, setPublishMode] = useState(false);
+  const [showRawModal, setShowRawModal] = useState(false);
+  const [rawRange, setRawRange] = useState(defaultRange);
+  const [rawLoading, setRawLoading] = useState(false);
 
   const exitPublishMode = React.useCallback(() => {
     setPublishMode(false);
@@ -309,6 +312,109 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
     }
   };
 
+  // ─── 입금 raw data 다운로드 (입금일 기준) ───
+  // 한 행 = (입금일, 그 영업자가 관리하는 한 계약). 입금액 = 그 계약의 그 일자 daily_deduction.paid_amount.
+  const handleRawDownload = async () => {
+    if (rawLoading) return;
+    const { from, to } = rawRange;
+    if (!from || !to || from > to) { alert('기간을 올바르게 입력하세요.'); return; }
+    setRawLoading(true);
+    try {
+      // 1) 기간 내 bank_deposits 조회 (영업자 매칭된 것만)
+      const { data: deposits, error: depErr } = await (supabase.from('bank_deposits') as any)
+        .select('deposit_date, depositor_name, salesperson_id, amount, status')
+        .gte('deposit_date', from)
+        .lte('deposit_date', to)
+        .not('salesperson_id', 'is', null)
+        .is('reverted_at', null);
+      if (depErr) throw depErr;
+
+      // 2) (deposit_date, salesperson_id) 그룹별 depositor_name 모음
+      const byKey = new Map<string, { date: string; salespersonId: string; depositors: Set<string> }>();
+      (deposits || []).forEach((d: any) => {
+        const key = `${d.deposit_date}|${d.salesperson_id}`;
+        let g = byKey.get(key);
+        if (!g) {
+          g = { date: d.deposit_date, salespersonId: d.salesperson_id, depositors: new Set() };
+          byKey.set(key, g);
+        }
+        if (d.depositor_name) g.depositors.add(d.depositor_name);
+      });
+
+      // 3) 영업자 → 담당 partner_ids 매핑
+      const salespersonPartners = new Map<string, Set<string>>();
+      salespeople.forEach(s => salespersonPartners.set(s.id, new Set(s.partner_ids || [])));
+
+      // 4) 행 생성: 각 (date, salesperson) 그룹에서 그 영업자가 담당하는 계약들의 그 일자 차감
+      const dataRows: (string | number)[][] = [];
+      for (const group of byKey.values()) {
+        const pidSet = salespersonPartners.get(group.salespersonId);
+        if (!pidSet || pidSet.size === 0) continue;
+        const depositorsLabel = Array.from(group.depositors).join(', ');
+        for (const c of safeContracts) {
+          if (!c.partner_id || !pidSet.has(c.partner_id)) continue;
+          const dd = (c.daily_deductions || []).find(x => x.date === group.date);
+          if (!dd) continue;  // 그 일자에 차감 자체가 없는 계약은 제외
+          dataRows.push([
+            group.date,
+            c.contract_number ?? '',
+            c.lessee_name || '',
+            c.distributor_name || '',
+            depositorsLabel,
+            Number(dd.paid_amount) || 0,
+          ]);
+        }
+      }
+      // 정렬: 일자 ASC → 계약번호 ASC
+      dataRows.sort((a, b) => {
+        const da = String(a[0]), db = String(b[0]);
+        if (da !== db) return da < db ? -1 : 1;
+        return (Number(a[1]) || 0) - (Number(b[1]) || 0);
+      });
+
+      if (dataRows.length === 0) {
+        alert('기간 내 영업자가 매칭된 입금 기록이 없습니다.');
+        return;
+      }
+
+      // 엑셀 빌드
+      const XLSX = await import('xlsx-js-style');
+      const headerRow = [formatRangeLabel(from, to), '조회일자의 기준은 입금일자를 의미'];
+      const columnHeaders = ['일자', '계약번호', '계약자', '총판', '입금자명', '입금액'];
+      const aoa: any[][] = [headerRow, columnHeaders, ...dataRows];
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+      const headerStyle = {
+        fill: { fgColor: { rgb: '4472C4' } },
+        font: { bold: true, color: { rgb: 'FFFFFF' } },
+        alignment: { horizontal: 'center', vertical: 'center' },
+        border: { top:{style:'thin'}, bottom:{style:'thin'}, left:{style:'thin'}, right:{style:'thin'} },
+      };
+      for (let c = 0; c < columnHeaders.length; c++) {
+        const addr = XLSX.utils.encode_cell({ r: 1, c });
+        if (ws[addr]) ws[addr].s = headerStyle;
+      }
+      // 입금액 천단위 콤마
+      for (let r = 2; r < aoa.length; r++) {
+        const addr = XLSX.utils.encode_cell({ r, c: 5 });
+        if (ws[addr]) ws[addr].z = '#,##0';
+      }
+      ws['!cols'] = [
+        { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 20 }, { wch: 18 }, { wch: 14 },
+      ];
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, '회수 raw data');
+      XLSX.writeFile(wb, `회수_raw_${from.replace(/-/g,'')}-${to.replace(/-/g,'')}.xlsx`);
+      setShowRawModal(false);
+    } catch (e: any) {
+      console.error(e);
+      alert('다운로드 실패: ' + (e.message || e));
+    } finally {
+      setRawLoading(false);
+    }
+  };
+
   const sortIndicator = (key: SortKey) => sortKey === key ? (sortAsc ? ' ▲' : ' ▼') : '';
 
   const riskCounts = useMemo(() => {
@@ -326,6 +432,10 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
         <h2 className="text-3xl font-bold text-white">회수 관리</h2>
         {onDepositsProcessed && (
           <div className="flex gap-2">
+            <button onClick={() => setShowRawModal(true)}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-lg">
+              📥 입금 raw data
+            </button>
             <button onClick={() => { setShowHistory(!showHistory); setShowUpload(false); }}
               className="bg-slate-700 hover:bg-slate-600 text-white font-bold px-4 py-2 rounded-lg">
               {showHistory ? '닫기' : '📋 입금 이력'}
@@ -337,6 +447,42 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
           </div>
         )}
       </div>
+
+      {/* 입금 raw data 다운로드 모달 */}
+      {showRawModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => !rawLoading && setShowRawModal(false)}>
+          <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 w-[460px] max-w-[90vw]" onClick={e => e.stopPropagation()}>
+            <h3 className="text-white font-semibold mb-1">입금 raw data 다운로드</h3>
+            <p className="text-xs text-slate-400 mb-4">
+              영업자가 입금한 날 기준으로, 그 영업자가 관리하는 모든 계약 행을 펼침. 입금액 0 = 미납.
+            </p>
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-slate-400 w-12">시작일</label>
+                <input type="date" value={rawRange.from}
+                  onChange={e => setRawRange(r => ({ ...r, from: e.target.value }))}
+                  className="bg-slate-700 border border-slate-600 rounded px-2 py-1 text-sm text-white flex-1" />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-slate-400 w-12">종료일</label>
+                <input type="date" value={rawRange.to}
+                  onChange={e => setRawRange(r => ({ ...r, to: e.target.value }))}
+                  className="bg-slate-700 border border-slate-600 rounded px-2 py-1 text-sm text-white flex-1" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-5">
+              <button onClick={() => setShowRawModal(false)} disabled={rawLoading}
+                className="text-xs px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 disabled:opacity-50">
+                취소
+              </button>
+              <button onClick={handleRawDownload} disabled={rawLoading}
+                className="text-xs px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50">
+                {rawLoading ? '생성 중...' : '다운로드'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showUpload && onDepositsProcessed && (
         <BankDepositUpload
