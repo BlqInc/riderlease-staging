@@ -147,7 +147,8 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
   const [keyword, setKeyword] = usePersistedState<string>('cm:keyword', '');
   const [sortKey, setSortKey] = usePersistedState<SortKey>('cm:sort-key', 'paymentRate');
   const [sortAsc, setSortAsc] = usePersistedState<boolean>('cm:sort-asc', true);
-  const [showContractList, setShowContractList] = usePersistedState<boolean>('cm:show-contract-list', false);
+  // 계약별 상세 목록은 매 진입 시 닫힌 채로 시작 (열면 1000+ 행 테이블이 첫 페인트를 차단)
+  const [showContractList, setShowContractList] = useState<boolean>(false);
   const [showAutomation, setShowAutomation] = usePersistedState<boolean>('cm:show-automation', false);
 
   // Compute per-contract stats
@@ -158,39 +159,6 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
       return { contract: c, ...stats, risk };
     });
   }, [safeContracts]);
-
-  // Summary - 단일 패스로 reduce 결합
-  const summary = useMemo(() => {
-    let totalExpected = 0;
-    let totalPaidSum = 0;
-    let overdueContracts = 0;
-    for (let i = 0; i < contractStats.length; i++) {
-      const c = contractStats[i];
-      totalExpected += c.expectedByToday;
-      totalPaidSum += c.totalPaid;
-      // 정산완료(채권사 정산)는 회수 흐름과 무관하므로 진행중과 동일하게 카운트, 만료만 제외
-      if (c.contract.status !== ContractStatus.EXPIRED && c.overdueDays >= 8) overdueContracts++;
-    }
-    const overallRate = totalExpected > 0 ? (totalPaidSum / totalExpected) * 100 : 0;
-
-    // 이번 달 회수 예정액 - today/remainingDays는 한 번만 계산
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth();
-    const lastDay = new Date(year, month + 1, 0).getDate();
-    const today = now.getDate();
-    const remainingDays = lastDay - today;
-    let monthlyExpected = 0;
-    for (let i = 0; i < safeContracts.length; i++) {
-      const c = safeContracts[i];
-      // 정산완료도 일차감 계속되므로 포함, 만료만 제외
-      if (c.status !== ContractStatus.EXPIRED) {
-        monthlyExpected += (Number(c.daily_deduction) || 0) * remainingDays;
-      }
-    }
-
-    return { overallRate, overdueContracts, monthlyExpected };
-  }, [contractStats, safeContracts]);
 
   // 위험등급 필터 (contractStats + riskFilter)
   const riskFilteredStats = useMemo(() => {
