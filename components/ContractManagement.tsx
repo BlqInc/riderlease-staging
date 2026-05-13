@@ -488,6 +488,102 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
     });
   };
 
+  // ─── 출고상세 엑셀 추출 (현재 필터된 계약 기준) ───
+  const [exporting, setExporting] = useState(false);
+  const handleExcelExport = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      // 현재 필터된 그룹들을 평탄화하여 계약 단위로
+      const allContracts: Contract[] = [];
+      searchFilteredGroups.forEach(g => g.contracts.forEach(c => allContracts.push(c)));
+      // 계약실행일이 있는 계약만 (출고 = 계약 실행)
+      const shipped = allContracts.filter(c => !!c.execution_date);
+      if (shipped.length === 0) {
+        alert('출고된 계약(계약실행일 있는)이 없습니다.');
+        return;
+      }
+      // 정렬: 월 ASC → 계약실행일 ASC → 계약번호 ASC
+      shipped.sort((a, b) => {
+        const da = (a.execution_date || ''), db = (b.execution_date || '');
+        if (da !== db) return da < db ? -1 : 1;
+        return (a.contract_number || 0) - (b.contract_number || 0);
+      });
+
+      const dataRows: (string | number)[][] = shipped.map(c => {
+        const exec = c.execution_date || '';
+        const month = exec.slice(0, 7); // YYYY-MM
+        return [
+          month,
+          exec,
+          c.settlement_round != null ? `${c.settlement_round}차` : '',
+          c.contract_number ?? '',
+          c.lessee_name || '',
+          c.distributor_name || '',
+          c.device_name || '',
+          Number(c.units_required) || 1,
+          Number(c.total_amount) || 0,
+        ];
+      });
+
+      const XLSX = await import('xlsx-js-style');
+      const title = ['출고 상세'];
+      const subtitle = ['리스 계약 기준 출고 (계약실행일 기준)'];
+      const blank: any[] = [];
+      const sectionHeader = ['월별 출고 (계약 단위)'];
+      const columnHeaders = ['월','계약실행일','차수','계약번호','계약자명','총판명','품목','수량','납품가액'];
+      const aoa: any[][] = [title, subtitle, blank, sectionHeader, columnHeaders, ...dataRows];
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+      // 제목 행 병합 (A:I)
+      ws['!merges'] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: 8 } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: 8 } },
+        { s: { r: 3, c: 0 }, e: { r: 3, c: 8 } },
+      ];
+
+      // 제목 스타일
+      const titleStyle = { font: { bold: true, sz: 14, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: '305496' } }, alignment: { horizontal: 'center', vertical: 'center' } };
+      const subtitleStyle = { font: { sz: 10, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: '4472C4' } }, alignment: { horizontal: 'center', vertical: 'center' } };
+      const sectionStyle = { font: { bold: true, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: '8497B0' } }, alignment: { horizontal: 'left', vertical: 'center' } };
+      const headerStyle = {
+        fill: { fgColor: { rgb: '4472C4' } },
+        font: { bold: true, color: { rgb: 'FFFFFF' } },
+        alignment: { horizontal: 'center', vertical: 'center' },
+        border: { top:{style:'thin'}, bottom:{style:'thin'}, left:{style:'thin'}, right:{style:'thin'} },
+      };
+      if (ws['A1']) ws['A1'].s = titleStyle;
+      if (ws['A2']) ws['A2'].s = subtitleStyle;
+      if (ws['A4']) ws['A4'].s = sectionStyle;
+      for (let c = 0; c < columnHeaders.length; c++) {
+        const addr = XLSX.utils.encode_cell({ r: 4, c });
+        if (ws[addr]) ws[addr].s = headerStyle;
+      }
+      // 숫자 컬럼 천단위 콤마 (수량 7, 납품가액 8)
+      for (let r = 5; r < aoa.length; r++) {
+        const qtyAddr = XLSX.utils.encode_cell({ r, c: 7 });
+        const amtAddr = XLSX.utils.encode_cell({ r, c: 8 });
+        if (ws[qtyAddr]) ws[qtyAddr].z = '#,##0';
+        if (ws[amtAddr]) ws[amtAddr].z = '#,##0';
+      }
+      // 컬럼 너비
+      ws['!cols'] = [
+        { wch: 9 }, { wch: 12 }, { wch: 7 }, { wch: 12 }, { wch: 12 }, { wch: 20 }, { wch: 32 }, { wch: 7 }, { wch: 14 },
+      ];
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, '출고상세');
+      const today = new Date();
+      const ymd = `${today.getFullYear()}${String(today.getMonth()+1).padStart(2,'0')}${String(today.getDate()).padStart(2,'0')}`;
+      XLSX.writeFile(wb, `출고상세_${ymd}.xlsx`);
+    } catch (e: any) {
+      console.error(e);
+      alert('엑셀 생성 실패: ' + e.message);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const handleDeleteSelected = async () => {
     if (!onDeleteContracts || selectedForDelete.size === 0) return;
     if (!confirm(`선택한 ${selectedForDelete.size}건의 계약을 삭제하시겠습니까?`)) return;
@@ -508,6 +604,13 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
         <h2 className="text-3xl font-bold text-white">계약 관리</h2>
         <div className="flex space-x-2">
             <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx, .xls" onChange={handleFileImport} />
+            <button
+                onClick={handleExcelExport}
+                disabled={exporting}
+                className="flex items-center bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded-lg transition-colors shadow-md hover:shadow-lg disabled:opacity-50"
+            >
+                📥 {exporting ? '추출 중...' : '출고상세 추출'}
+            </button>
             <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={importStatus.loading}
