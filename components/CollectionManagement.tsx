@@ -360,21 +360,28 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
       const { data: allocs } = await (supabase.from('bulk_payment_allocations') as any)
         .select('batch_id, contract_id, due_date')
         .gte('due_date', from).lte('due_date', to);
-      let batchPartnerNames = new Map<string, string[]>();
+      const batchLabels = new Map<string, string>();  // batch_id → "총판명 (일괄, 입금자: 김수환)" 또는 "총판명 (일괄)"
       if ((allocs || []).length > 0) {
         const batchIds = Array.from(new Set((allocs || []).map((a: any) => a.batch_id)));
         const { data: batches } = await (supabase.from('bulk_payment_batches') as any)
-          .select('id, partner_names').in('id', batchIds).eq('status', 'completed');
-        (batches || []).forEach((b: any) => batchPartnerNames.set(b.id, b.partner_names || []));
+          .select('id, partner_names, depositor_name').in('id', batchIds).eq('status', 'completed');
+        (batches || []).forEach((b: any) => {
+          const partners = (b.partner_names || []).join(', ');
+          const depositor = b.depositor_name;
+          const label = depositor
+            ? `${partners} (일괄, 입금자: ${depositor})`
+            : `${partners} (일괄)`;
+          batchLabels.set(b.id, label);
+        });
       }
-      // (contract_id, due_date) → bulk 출처 partner 이름 리스트
+      // (contract_id, due_date) → bulk 출처 라벨 리스트
       const bulkByKey = new Map<string, Set<string>>();
       (allocs || []).forEach((a: any) => {
-        const partners = batchPartnerNames.get(a.batch_id);
-        if (!partners) return;
+        const label = batchLabels.get(a.batch_id);
+        if (!label) return;
         const key = `${a.contract_id}|${a.due_date}`;
         const set = bulkByKey.get(key) || new Set<string>();
-        partners.forEach(p => set.add(p));
+        set.add(label);
         bulkByKey.set(key, set);
       });
 
@@ -406,9 +413,9 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
           const set = depositorBySpDate.get(`${spId}|${date}`);
           set?.forEach(n => parts.push(n));
         }
-        // 일괄납부 출처
+        // 일괄납부 출처 (이미 라벨 형태)
         const bulkSet = bulkByKey.get(`${contractId}|${date}`);
-        bulkSet?.forEach(p => parts.push(`${p} (일괄)`));
+        bulkSet?.forEach(label => parts.push(label));
         // 수동처리: depositor_name에 계약자명 포함된 경우 매칭
         if (lessee) {
           const set = manualByDate.get(date);

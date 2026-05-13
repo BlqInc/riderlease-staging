@@ -618,7 +618,8 @@ const App: React.FC = () => {
     dateFrom: string,
     dateTo: string,
     inputAmount: number,
-    excludeContractIds: string[]
+    excludeContractIds: string[],
+    depositorName: string | null
   ) => {
     if (!supabase) return;
 
@@ -676,6 +677,7 @@ const App: React.FC = () => {
           deduction_count: plan.allocations.length,
           algorithm: plan.algorithm,
           status: 'completed',
+          depositor_name: depositorName,
         })
         .select('id')
         .single();

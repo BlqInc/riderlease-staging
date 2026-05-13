@@ -19,7 +19,7 @@ interface DeductionManagementProps {
   onToggleLawsuit: (contractId: string) => void;
   onBulkSettleDeductions: (contractId: string, deductionIds: string[]) => void;
   onBulkCancelDeductions: (contractId: string, deductionIds: string[]) => void;
-  onBulkDistributorPayment?: (distributorName: string, dateFrom: string, dateTo: string, inputAmount: number, excludeContractIds: string[]) => Promise<{ processed: number; remaining: number } | undefined>;
+  onBulkDistributorPayment?: (distributorName: string, dateFrom: string, dateTo: string, inputAmount: number, excludeContractIds: string[], depositorName: string | null) => Promise<{ processed: number; remaining: number } | undefined>;
 }
 
 const PaymentModal: React.FC<{
@@ -350,7 +350,7 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({
 
   // 총판별 일괄 납부 모달
   const [bulkPayModal, setBulkPayModal] = useState<{ partnerIds: string[]; partnerNames: string[] } | null>(null);
-  const [bulkPayForm, setBulkPayForm] = useState({ dateFrom: '', dateTo: '', amount: '' });
+  const [bulkPayForm, setBulkPayForm] = useState({ dateFrom: '', dateTo: '', amount: '', depositorName: '' });
   const [bulkPayExclude, setBulkPayExclude] = useState<Set<string>>(new Set());
   const [bulkPayProcessing, setBulkPayProcessing] = useState(false);
   const [bulkPayResult, setBulkPayResult] = useState<{ processed: number; remaining: number } | null>(null);
@@ -536,7 +536,7 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({
                 const partnerIds = Array.from(selectedPartnerIds);
                 const partnerNames = partnerIds.map(id => partners.find(p => p.id === id)?.name || '');
                 setBulkPayModal({ partnerIds, partnerNames });
-                setBulkPayForm({ dateFrom: '', dateTo: '', amount: '' });
+                setBulkPayForm({ dateFrom: '', dateTo: '', amount: '', depositorName: '' });
                 setBulkPayExclude(new Set());
                 setBulkPayResult(null);
                 setPartnerDropdownOpen(false);
@@ -682,6 +682,13 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({
                       className="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
                   </div>
                 </div>
+                <div>
+                  <label className="text-xs text-slate-400 mb-1 block">입금자명 (통장에 찍힌 이름)</label>
+                  <input type="text" value={bulkPayForm.depositorName} placeholder="예: 김수환"
+                    onChange={e => setBulkPayForm(p => ({ ...p, depositorName: e.target.value }))}
+                    className="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  <p className="text-[10px] text-slate-500 mt-1">입력 시 회수 raw data 다운로드의 '입금자/출처' 컬럼에 표시됩니다.</p>
+                </div>
                 {bulkPayForm.dateFrom && bulkPayForm.dateTo && (
                   <div className="grid grid-cols-3 gap-3 bg-slate-900/50 rounded-lg p-4">
                     <div><p className="text-xs text-slate-400">예상 청구액</p><p className="text-lg font-bold text-white">{formatCurrency(expectedTotal)}</p></div>
@@ -720,7 +727,7 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({
                       if (!bulkPayForm.dateFrom || !bulkPayForm.dateTo) { alert('정산 기간을 입력해주세요.'); return; }
                       if (!inputAmt) { alert('입금액을 입력해주세요.'); return; }
                       setBulkPayProcessing(true);
-                      const result = await onBulkDistributorPayment(bulkPayModal.partnerIds.join(','), bulkPayForm.dateFrom, bulkPayForm.dateTo, inputAmt, Array.from(bulkPayExclude));
+                      const result = await onBulkDistributorPayment(bulkPayModal.partnerIds.join(','), bulkPayForm.dateFrom, bulkPayForm.dateTo, inputAmt, Array.from(bulkPayExclude), bulkPayForm.depositorName.trim() || null);
                       setBulkPayResult(result || { processed: 0, remaining: inputAmt });
                       setBulkPayProcessing(false);
                     }}
