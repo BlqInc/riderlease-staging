@@ -312,67 +312,147 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
     }
   };
 
-  // ─── 입금 raw data 다운로드 (입금일 기준) ───
-  // 한 행 = (입금일, 그 영업자가 관리하는 한 계약). 입금액 = 그 계약의 그 일자 daily_deduction.paid_amount.
+  // ─── 입금 raw data 다운로드 ───
+  // 데이터 소스: contracts.daily_deductions.paid_amount (모든 입금 처리 경로 자동 포함)
+  // 출처 추적: bank_deposits + bulk_payment_allocations(+batches)
+  // 컬럼: 일자|계약번호|계약자|총판|영업자|입금자/출처|입금액
   const handleRawDownload = async () => {
     if (rawLoading) return;
     const { from, to } = rawRange;
     if (!from || !to || from > to) { alert('기간을 올바르게 입력하세요.'); return; }
     setRawLoading(true);
     try {
-      // 1) 기간 내 bank_deposits 조회 (영업자 매칭된 것만)
-      const { data: deposits, error: depErr } = await (supabase.from('bank_deposits') as any)
-        .select('deposit_date, depositor_name, salesperson_id, amount, status')
-        .gte('deposit_date', from)
-        .lte('deposit_date', to)
-        .not('salesperson_id', 'is', null)
-        .is('reverted_at', null);
-      if (depErr) throw depErr;
-      // 매칭 안된 (영업자 X) 입금도 별도 카운트 — 진단용
-      const { count: unmatchedCount } = await (supabase.from('bank_deposits') as any)
-        .select('id', { count: 'exact', head: true })
-        .gte('deposit_date', from)
-        .lte('deposit_date', to)
-        .is('salesperson_id', null)
+      // 1) bank_deposits — depositor_name 추적 (영업자 매칭된 것 + 수동처리 모두)
+      const { data: deposits } = await (supabase.from('bank_deposits') as any)
+        .select('deposit_date, depositor_name, salesperson_id')
+        .gte('deposit_date', from).lte('deposit_date', to)
         .is('reverted_at', null);
 
-      // 2) (deposit_date, salesperson_id) 그룹별 depositor_name 모음
-      const byKey = new Map<string, { date: string; salespersonId: string; depositors: Set<string> }>();
+      const depositorBySpDate = new Map<string, Set<string>>();    // 영업자 매칭된 경우
+      const manualByDate = new Map<string, Set<string>>();         // 수동처리(salesperson_id null) — depositor_name에 계약자명 포함
       (deposits || []).forEach((d: any) => {
-        const key = `${d.deposit_date}|${d.salesperson_id}`;
-        let g = byKey.get(key);
-        if (!g) {
-          g = { date: d.deposit_date, salespersonId: d.salesperson_id, depositors: new Set() };
-          byKey.set(key, g);
+        const name = d.depositor_name || '';
+        if (!name) return;
+        if (d.salesperson_id) {
+          const key = `${d.salesperson_id}|${d.deposit_date}`;
+          const set = depositorBySpDate.get(key) || new Set<string>();
+          set.add(name);
+          depositorBySpDate.set(key, set);
+        } else {
+          const set = manualByDate.get(d.deposit_date) || new Set<string>();
+          set.add(name);
+          manualByDate.set(d.deposit_date, set);
         }
-        if (d.depositor_name) g.depositors.add(d.depositor_name);
       });
 
-      // 3) 영업자 → 담당 partner_ids 매핑
-      const salespersonPartners = new Map<string, Set<string>>();
-      salespeople.forEach(s => salespersonPartners.set(s.id, new Set(s.partner_ids || [])));
+      // 2) bulk_payment_allocations + batches — 일괄납부 추적
+      const { data: allocs } = await (supabase.from('bulk_payment_allocations') as any)
+        .select('batch_id, contract_id, due_date')
+        .gte('due_date', from).lte('due_date', to);
+      let batchPartnerNames = new Map<string, string[]>();
+      if ((allocs || []).length > 0) {
+        const batchIds = Array.from(new Set((allocs || []).map((a: any) => a.batch_id)));
+        const { data: batches } = await (supabase.from('bulk_payment_batches') as any)
+          .select('id, partner_names').in('id', batchIds).eq('status', 'completed');
+        (batches || []).forEach((b: any) => batchPartnerNames.set(b.id, b.partner_names || []));
+      }
+      // (contract_id, due_date) → bulk 출처 partner 이름 리스트
+      const bulkByKey = new Map<string, Set<string>>();
+      (allocs || []).forEach((a: any) => {
+        const partners = batchPartnerNames.get(a.batch_id);
+        if (!partners) return;
+        const key = `${a.contract_id}|${a.due_date}`;
+        const set = bulkByKey.get(key) || new Set<string>();
+        partners.forEach(p => set.add(p));
+        bulkByKey.set(key, set);
+      });
 
-      // 4) 행 생성: 각 (date, salesperson) 그룹에서 그 영업자가 담당하는 계약들의 그 일자 차감
+      // 3) 영업자 매핑
+      const partnerToSp = new Map<string, string>();
+      const spById = new Map<string, any>();
+      salespeople.forEach(s => {
+        spById.set(s.id, s);
+        (s.partner_ids || []).forEach(pid => partnerToSp.set(pid, s.id));
+      });
+
+      // 4) 영업자별 contracts 그룹핑
+      const bySalesperson = new Map<string, Contract[]>();
+      const orphanContracts: Contract[] = [];
+      for (const c of safeContracts) {
+        const spId = c.partner_id ? partnerToSp.get(c.partner_id) : undefined;
+        if (spId) {
+          const arr = bySalesperson.get(spId) || [];
+          arr.push(c);
+          bySalesperson.set(spId, arr);
+        } else {
+          orphanContracts.push(c);
+        }
+      }
+
+      const buildSourceLabel = (spId: string | null, contractId: string, lessee: string, date: string): string => {
+        const parts: string[] = [];
+        if (spId) {
+          const set = depositorBySpDate.get(`${spId}|${date}`);
+          set?.forEach(n => parts.push(n));
+        }
+        // 일괄납부 출처
+        const bulkSet = bulkByKey.get(`${contractId}|${date}`);
+        bulkSet?.forEach(p => parts.push(`${p} (일괄)`));
+        // 수동처리: depositor_name에 계약자명 포함된 경우 매칭
+        if (lessee) {
+          const set = manualByDate.get(date);
+          set?.forEach(n => { if (n.includes(lessee)) parts.push(n); });
+        }
+        return Array.from(new Set(parts)).join(', ');
+      };
+
       const dataRows: (string | number)[][] = [];
-      for (const group of byKey.values()) {
-        const pidSet = salespersonPartners.get(group.salespersonId);
-        if (!pidSet || pidSet.size === 0) continue;
-        const depositorsLabel = Array.from(group.depositors).join(', ');
-        for (const c of safeContracts) {
-          if (!c.partner_id || !pidSet.has(c.partner_id)) continue;
-          const dd = (c.daily_deductions || []).find(x => x.date === group.date);
-          if (!dd) continue;  // 그 일자에 차감 자체가 없는 계약은 제외
+
+      // 5) 영업자 그룹별: 활동 일자(paid_amount>0인 일자) × 담당 모든 계약 펼침 (미납 0 포함)
+      for (const [spId, contractsOfSp] of bySalesperson.entries()) {
+        const spName = spById.get(spId)?.name || '';
+        const activeDates = new Set<string>();
+        for (const c of contractsOfSp) {
+          for (const dd of (c.daily_deductions || [])) {
+            if (!dd.date || dd.date < from || dd.date > to) continue;
+            if ((Number(dd.paid_amount) || 0) > 0) activeDates.add(dd.date);
+          }
+        }
+        for (const date of activeDates) {
+          for (const c of contractsOfSp) {
+            const dd = (c.daily_deductions || []).find(x => x.date === date);
+            if (!dd) continue;
+            dataRows.push([
+              date,
+              c.contract_number ?? '',
+              c.lessee_name || '',
+              c.distributor_name || '',
+              spName,
+              buildSourceLabel(spId, c.id, c.lessee_name || '', date),
+              Number(dd.paid_amount) || 0,
+            ]);
+          }
+        }
+      }
+
+      // 6) 영업자 없는 계약: 자기 자신 paid_amount>0 일자만
+      for (const c of orphanContracts) {
+        for (const dd of (c.daily_deductions || [])) {
+          if (!dd.date || dd.date < from || dd.date > to) continue;
+          const paid = Number(dd.paid_amount) || 0;
+          if (paid <= 0) continue;
           dataRows.push([
-            group.date,
+            dd.date,
             c.contract_number ?? '',
             c.lessee_name || '',
             c.distributor_name || '',
-            depositorsLabel,
-            Number(dd.paid_amount) || 0,
+            '',
+            buildSourceLabel(null, c.id, c.lessee_name || '', dd.date),
+            paid,
           ]);
         }
       }
-      // 정렬: 일자 ASC → 계약번호 ASC
+
       dataRows.sort((a, b) => {
         const da = String(a[0]), db = String(b[0]);
         if (da !== db) return da < db ? -1 : 1;
@@ -380,25 +460,20 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
       });
 
       if (dataRows.length === 0) {
-        const depCount = deposits?.length || 0;
         alert(
-          '매칭된 행이 없습니다. 진단 정보:\n' +
-          `· 영업자 매칭된 입금 (deposits): ${depCount}건\n` +
-          `· 영업자 매칭 안된 입금 (참고): ${unmatchedCount || 0}건\n` +
-          `· 영업자 그룹 수: ${byKey.size}개\n` +
-          `· 영업자→총판 매핑 수: ${salespersonPartners.size}명\n` +
-          `· 전체 계약 수: ${safeContracts.length}건\n\n` +
-          (depCount === 0
-            ? '→ 기간 내 영업자 매칭된 bank_deposits 자체가 없습니다.'
-            : '→ deposits는 있는데 영업자 담당 계약·일자 차감과 매칭 안 됨. 영업자의 partner_ids 또는 계약의 partner_id를 확인해주세요.')
+          '기간 내 입금 처리된 내역이 없습니다.\n' +
+          `· 영업자 그룹: ${bySalesperson.size}명\n` +
+          `· 영업자 없는 계약: ${orphanContracts.length}건\n` +
+          `· bank_deposits: ${deposits?.length || 0}건\n` +
+          `· bulk_payment_allocations: ${(allocs || []).length}건`
         );
         return;
       }
 
       // 엑셀 빌드
       const XLSX = await import('xlsx-js-style');
-      const headerRow = [formatRangeLabel(from, to), '조회일자의 기준은 입금일자를 의미'];
-      const columnHeaders = ['일자', '계약번호', '계약자', '총판', '입금자명', '입금액'];
+      const headerRow = [formatRangeLabel(from, to), '입금 처리 raw data — 모든 경로 통합 (통장업로드/일괄납부/수동처리)'];
+      const columnHeaders = ['일자', '계약번호', '계약자', '총판', '영업자', '입금자/출처', '입금액'];
       const aoa: any[][] = [headerRow, columnHeaders, ...dataRows];
       const ws = XLSX.utils.aoa_to_sheet(aoa);
 
@@ -412,13 +487,13 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
         const addr = XLSX.utils.encode_cell({ r: 1, c });
         if (ws[addr]) ws[addr].s = headerStyle;
       }
-      // 입금액 천단위 콤마
+      // 입금액(컬럼 6) 천단위 콤마
       for (let r = 2; r < aoa.length; r++) {
-        const addr = XLSX.utils.encode_cell({ r, c: 5 });
+        const addr = XLSX.utils.encode_cell({ r, c: 6 });
         if (ws[addr]) ws[addr].z = '#,##0';
       }
       ws['!cols'] = [
-        { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 20 }, { wch: 18 }, { wch: 14 },
+        { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 20 }, { wch: 12 }, { wch: 30 }, { wch: 14 },
       ];
 
       const wb = XLSX.utils.book_new();
