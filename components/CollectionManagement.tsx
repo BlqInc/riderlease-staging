@@ -322,6 +322,17 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
     if (!from || !to || from > to) { alert('기간을 올바르게 입력하세요.'); return; }
     setRawLoading(true);
     try {
+      // 0) contracts.daily_deductions fresh fetch
+      //    회수관리는 평소 contracts_summary_light 뷰만 받아서 daily_deductions가 비어있음
+      const [dd1, dd2] = await Promise.all([
+        (supabase.from('contracts') as any).select('id, daily_deductions').range(0, 999),
+        (supabase.from('contracts') as any).select('id, daily_deductions').range(1000, 2999),
+      ]);
+      const ddByContract = new Map<string, any[]>();
+      [...(dd1.data || []), ...(dd2.data || [])].forEach((row: any) => {
+        ddByContract.set(row.id, Array.isArray(row.daily_deductions) ? row.daily_deductions : []);
+      });
+
       // 1) bank_deposits — depositor_name 추적 (영업자 매칭된 것 + 수동처리 모두)
       const { data: deposits } = await (supabase.from('bank_deposits') as any)
         .select('deposit_date, depositor_name, salesperson_id')
@@ -413,14 +424,14 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
         const spName = spById.get(spId)?.name || '';
         const activeDates = new Set<string>();
         for (const c of contractsOfSp) {
-          for (const dd of (c.daily_deductions || [])) {
+          for (const dd of (ddByContract.get(c.id) || [])) {
             if (!dd.date || dd.date < from || dd.date > to) continue;
             if ((Number(dd.paid_amount) || 0) > 0) activeDates.add(dd.date);
           }
         }
         for (const date of activeDates) {
           for (const c of contractsOfSp) {
-            const dd = (c.daily_deductions || []).find(x => x.date === date);
+            const dd = (ddByContract.get(c.id) || []).find((x: any) => x.date === date);
             if (!dd) continue;
             dataRows.push([
               date,
@@ -437,7 +448,7 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
 
       // 6) 영업자 없는 계약: 자기 자신 paid_amount>0 일자만
       for (const c of orphanContracts) {
-        for (const dd of (c.daily_deductions || [])) {
+        for (const dd of (ddByContract.get(c.id) || [])) {
           if (!dd.date || dd.date < from || dd.date > to) continue;
           const paid = Number(dd.paid_amount) || 0;
           if (paid <= 0) continue;
