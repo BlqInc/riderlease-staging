@@ -328,6 +328,13 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
         .not('salesperson_id', 'is', null)
         .is('reverted_at', null);
       if (depErr) throw depErr;
+      // 매칭 안된 (영업자 X) 입금도 별도 카운트 — 진단용
+      const { count: unmatchedCount } = await (supabase.from('bank_deposits') as any)
+        .select('id', { count: 'exact', head: true })
+        .gte('deposit_date', from)
+        .lte('deposit_date', to)
+        .is('salesperson_id', null)
+        .is('reverted_at', null);
 
       // 2) (deposit_date, salesperson_id) 그룹별 depositor_name 모음
       const byKey = new Map<string, { date: string; salespersonId: string; depositors: Set<string> }>();
@@ -373,7 +380,18 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
       });
 
       if (dataRows.length === 0) {
-        alert('기간 내 영업자가 매칭된 입금 기록이 없습니다.');
+        const depCount = deposits?.length || 0;
+        alert(
+          '매칭된 행이 없습니다. 진단 정보:\n' +
+          `· 영업자 매칭된 입금 (deposits): ${depCount}건\n` +
+          `· 영업자 매칭 안된 입금 (참고): ${unmatchedCount || 0}건\n` +
+          `· 영업자 그룹 수: ${byKey.size}개\n` +
+          `· 영업자→총판 매핑 수: ${salespersonPartners.size}명\n` +
+          `· 전체 계약 수: ${safeContracts.length}건\n\n` +
+          (depCount === 0
+            ? '→ 기간 내 영업자 매칭된 bank_deposits 자체가 없습니다.'
+            : '→ deposits는 있는데 영업자 담당 계약·일자 차감과 매칭 안 됨. 영업자의 partner_ids 또는 계약의 partner_id를 확인해주세요.')
+        );
         return;
       }
 
