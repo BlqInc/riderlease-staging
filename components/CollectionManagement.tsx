@@ -407,7 +407,7 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
         }
       }
 
-      const buildSourceLabel = (spId: string | null, contractId: string, lessee: string, date: string): string => {
+      const buildSourceLabel = (spId: string | null, contractId: string, lessee: string, date: string, fallback: string): string => {
         const parts: string[] = [];
         if (spId) {
           const set = depositorBySpDate.get(`${spId}|${date}`);
@@ -421,7 +421,9 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
           const set = manualByDate.get(date);
           set?.forEach(n => { if (n.includes(lessee)) parts.push(n); });
         }
-        return Array.from(new Set(parts)).join(', ');
+        const label = Array.from(new Set(parts)).join(', ');
+        // 출처 매칭 없으면 fallback (영업자명 또는 총판명) 사용
+        return label || fallback || '';
       };
 
       const dataRows: (string | number)[][] = [];
@@ -440,13 +442,16 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
           for (const c of contractsOfSp) {
             const dd = (ddByContract.get(c.id) || []).find((x: any) => x.date === date);
             if (!dd) continue;
+            // fallback: 영업자명 우선
+            const fallback = spName || c.distributor_name || '';
             dataRows.push([
               date,
               c.contract_number ?? '',
               c.lessee_name || '',
               c.distributor_name || '',
               spName,
-              buildSourceLabel(spId, c.id, c.lessee_name || '', date),
+              buildSourceLabel(spId, c.id, c.lessee_name || '', date, fallback),
+              Number(dd.amount) || 0,
               Number(dd.paid_amount) || 0,
             ]);
           }
@@ -459,13 +464,16 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
           if (!dd.date || dd.date < from || dd.date > to) continue;
           const paid = Number(dd.paid_amount) || 0;
           if (paid <= 0) continue;
+          // fallback: 영업자 없으니 총판명
+          const fallback = c.distributor_name || '';
           dataRows.push([
             dd.date,
             c.contract_number ?? '',
             c.lessee_name || '',
             c.distributor_name || '',
             '',
-            buildSourceLabel(null, c.id, c.lessee_name || '', dd.date),
+            buildSourceLabel(null, c.id, c.lessee_name || '', dd.date, fallback),
+            Number(dd.amount) || 0,
             paid,
           ]);
         }
@@ -491,7 +499,7 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
       // 엑셀 빌드
       const XLSX = await import('xlsx-js-style');
       const headerRow = [formatRangeLabel(from, to), '입금 처리 raw data — 모든 경로 통합 (통장업로드/일괄납부/수동처리)'];
-      const columnHeaders = ['일자', '계약번호', '계약자', '총판', '영업자', '입금자/출처', '입금액'];
+      const columnHeaders = ['일자', '계약번호', '계약자', '총판', '영업자', '입금자/출처', '받아야할금액', '입금액'];
       const aoa: any[][] = [headerRow, columnHeaders, ...dataRows];
       const ws = XLSX.utils.aoa_to_sheet(aoa);
 
@@ -505,13 +513,15 @@ export const CollectionManagement: React.FC<CollectionManagementProps> = ({ cont
         const addr = XLSX.utils.encode_cell({ r: 1, c });
         if (ws[addr]) ws[addr].s = headerStyle;
       }
-      // 입금액(컬럼 6) 천단위 콤마
+      // 받아야할금액(컬럼 6) + 입금액(컬럼 7) 천단위 콤마
       for (let r = 2; r < aoa.length; r++) {
-        const addr = XLSX.utils.encode_cell({ r, c: 6 });
-        if (ws[addr]) ws[addr].z = '#,##0';
+        for (const colIdx of [6, 7]) {
+          const addr = XLSX.utils.encode_cell({ r, c: colIdx });
+          if (ws[addr]) ws[addr].z = '#,##0';
+        }
       }
       ws['!cols'] = [
-        { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 20 }, { wch: 12 }, { wch: 30 }, { wch: 14 },
+        { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 20 }, { wch: 12 }, { wch: 30 }, { wch: 14 }, { wch: 14 },
       ];
 
       const wb = XLSX.utils.book_new();
