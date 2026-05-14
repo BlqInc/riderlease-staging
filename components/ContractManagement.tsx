@@ -399,12 +399,29 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
         out.push(group);
         continue;
       }
+      // 사업자번호/휴대전화는 구분자(-, 공백)가 들어있을 수 있어 숫자만 비교
+      const searchDigits = searchTerm.replace(/\D/g, '');
+      const digitsOnly = (s: string | null | undefined) => (s || '').replace(/\D/g, '');
       // 개별 계약 매치 검사 (early exit via some)
       const contractMatch = group.contracts.some(c => {
         if (c.device_name.toLowerCase().includes(lowerSearchTerm)) return true;
         if (String(c.contract_number).includes(searchTerm)) return true;
         const partnerName = partnerMap.get(c.partner_id);
-        return partnerName ? partnerName.toLowerCase().includes(lowerSearchTerm) : false;
+        if (partnerName && partnerName.toLowerCase().includes(lowerSearchTerm)) return true;
+        // 사업자번호 (양쪽)
+        if ((c.lessee_business_number || '').toLowerCase().includes(lowerSearchTerm)) return true;
+        if ((c.distributor_business_number || '').toLowerCase().includes(lowerSearchTerm)) return true;
+        // 휴대전화 (양쪽)
+        if ((c.lessee_contact || '').toLowerCase().includes(lowerSearchTerm)) return true;
+        if ((c.distributor_contact || '').toLowerCase().includes(lowerSearchTerm)) return true;
+        // 숫자만 비교 (구분자 무관, 4자리 이상 입력 시)
+        if (searchDigits.length >= 4) {
+          if (digitsOnly(c.lessee_business_number).includes(searchDigits)) return true;
+          if (digitsOnly(c.distributor_business_number).includes(searchDigits)) return true;
+          if (digitsOnly(c.lessee_contact).includes(searchDigits)) return true;
+          if (digitsOnly(c.distributor_contact).includes(searchDigits)) return true;
+        }
+        return false;
       });
       if (contractMatch) out.push(group);
     }
@@ -652,7 +669,7 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
       <div className="flex items-center space-x-4 bg-slate-800 p-4 rounded-lg mb-6">
         <input
           type="text"
-          placeholder="계약번호, 기기명, 파트너사, 총판명, 계약자명 검색..."
+          placeholder="계약번호, 기기명, 파트너사, 총판명, 계약자명, 사업자번호, 휴대전화 검색..."
           className="bg-slate-700 text-white placeholder-slate-400 rounded-lg px-4 py-2 w-full md:w-2/5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
