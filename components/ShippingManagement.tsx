@@ -87,7 +87,7 @@ export const ShippingManagement: React.FC<ShippingManagementProps> = ({ contract
                   <td className="p-4 text-center font-mono text-indigo-400">#{contract.contract_number}</td>
                   <td className="p-4">{contract.lessee_name}</td>
                   <td className="p-4 font-medium text-white">{contract.device_name}</td>
-                  <td className="p-4 text-slate-300">{contract.color || '-'}</td>
+                  <td className="p-4 text-slate-300">{contract.color || '색상 무관'}</td>
                   <td className="p-4 text-center"><ProcurementStatusBadge status={contract.procurement_status} /></td>
                   <td className="p-4 text-center">{contract.units_secured || 0} / {contract.units_required || 0}</td>
                   <td className="p-4">

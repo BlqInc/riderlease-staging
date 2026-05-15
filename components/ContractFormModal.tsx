@@ -317,7 +317,7 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({ isOpen, on
                     </select>
                 </FormField>
                 <FormField label="색상">
-                    <input type="text" name="color" value={formState.color || ''} onChange={handleChange} required placeholder="예: 네츄럴 티타늄" className={inputClass} />
+                    <input type="text" name="color" value={formState.color || ''} onChange={handleChange} placeholder="비워두면 '색상 무관'으로 표시됩니다" className={inputClass} />
                 </FormField>
             </FormSection>
 
