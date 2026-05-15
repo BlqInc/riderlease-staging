@@ -33,6 +33,7 @@ import { PartnerDetailModal } from './components/PartnerDetailModal';
 import { EventFormModal } from './components/EventFormModal';
 
 import { Contract, Partner, CalendarEvent, Creditor, CreditorSettlementRound, DeductionStatus, PriceTier, SettlementStatus, ContractStatus } from './types';
+import { fetchPagedRows } from './lib/fetchPagedRows';
 
 // --- Pure helper functions (outside component for stable references) ---
 
@@ -157,10 +158,9 @@ const App: React.FC = () => {
     setFetchError(null);
     try {
       // 계약 데이터: contracts_summary_light 뷰 사용 (daily_deductions 제외, 사전계산된 집계값 포함)
-      // 1000건 제한 우회 → 2회 병렬 조회
-      const [contractsRes1, contractsRes2, partnersRes, eventsRes, creditorsRes, creditorSettlementsRes, salespeopleRes, spPartnersRes] = await Promise.all([
-        (supabase.from('contracts_summary_light') as any).select('*').order('contract_number', { ascending: false }).range(0, 999),
-        (supabase.from('contracts_summary_light') as any).select('*').order('contract_number', { ascending: false }).range(1000, 2999),
+      // 1000건 제한 우회 → 페이지네이션 (3000건 초과해도 안전)
+      const [allContracts, partnersRes, eventsRes, creditorsRes, creditorSettlementsRes, salespeopleRes, spPartnersRes] = await Promise.all([
+        fetchPagedRows<any>('contracts_summary_light', '*', q => q.order('contract_number', { ascending: false })),
         supabase.from('partners').select('*').order('name', { ascending: true }),
         supabase.from('events').select('*').order('date', { ascending: true }),
         (supabase.from('creditors') as any).select('*').order('display_order', { ascending: true }),
@@ -168,7 +168,6 @@ const App: React.FC = () => {
         (supabase.from('salespeople') as any).select('*').order('name'),
         (supabase.from('salesperson_partners') as any).select('*'),
       ]);
-      const allContracts = [...(contractsRes1.data || []), ...(contractsRes2.data || [])];
       if (partnersRes.error) throw new Error(`파트너 데이터 로드 실패: ${partnersRes.error.message}`);
       if (eventsRes.error) throw new Error(`일정 데이터 로드 실패: ${eventsRes.error.message}`);
       setContracts(processContracts(allContracts));
@@ -382,13 +381,15 @@ const App: React.FC = () => {
           setContracts(prev => prev.map(c => c.id === id ? processContracts([updated])[0] : c));
         }
       } else {
-        const maxNumber = contracts.reduce((max, c) => Math.max(max, c.contract_number || 0), 0);
+        // 계약번호: DB sequence로 발급 (동시 사용자 환경에서 중복 방지)
+        const { data: nextNumber, error: numErr } = await (supabase.rpc as any)('next_contract_number');
+        if (numErr || !nextNumber) throw new Error('계약번호 발급 실패: ' + (numErr?.message || 'no data'));
         const newStart = dataToSave.execution_date || dataToSave.contract_date;
         const duration = Number(dataToSave.duration_days || 0);
         const newDeductions = generateDeductions(newStart, duration, totalDailyDeduction);
         const payload = {
           ...dataToSave,
-          contract_number: maxNumber + 1,
+          contract_number: Number(nextNumber),
           daily_deductions: newDeductions,
         };
 
@@ -422,11 +423,7 @@ const App: React.FC = () => {
   const [deductionsLoaded, setDeductionsLoaded] = useState(false);
   const loadAllDeductions = useCallback(async () => {
     if (deductionsLoaded || !supabase) return;
-    const [r1, r2] = await Promise.all([
-      (supabase.from('contracts') as any).select('id, daily_deductions').range(0, 999),
-      (supabase.from('contracts') as any).select('id, daily_deductions').range(1000, 2999),
-    ]);
-    const all = [...(r1.data || []), ...(r2.data || [])];
+    const all = await fetchPagedRows<any>('contracts', 'id, daily_deductions');
     const map = new Map(all.map((c: any) => [c.id, c.daily_deductions]));
     setContracts(prev => prev.map(c => ({ ...c, daily_deductions: map.get(c.id) || c.daily_deductions || [] })));
     setDeductionsLoaded(true);
@@ -455,11 +452,13 @@ const App: React.FC = () => {
 
   const handleImportContracts = useCallback(async (newContracts: any[]) => {
     if (!supabase) return;
-    let currentMaxNumber = contracts.reduce((max, c) => Math.max(max, c.contract_number || 0), 0);
-    const contractsWithNumbers = newContracts.map(c => {
-      currentMaxNumber += 1;
-      return { ...c, contract_number: currentMaxNumber };
-    });
+    // 계약번호: DB sequence로 각 행마다 발급 (동시 import 시에도 안전)
+    const contractsWithNumbers: any[] = [];
+    for (const c of newContracts) {
+      const { data: nextNumber, error: numErr } = await (supabase.rpc as any)('next_contract_number');
+      if (numErr || !nextNumber) throw new Error('계약번호 발급 실패: ' + (numErr?.message || 'no data'));
+      contractsWithNumbers.push({ ...c, contract_number: Number(nextNumber) });
+    }
     try {
       const { error } = await (supabase.from('contracts') as any).insert(contractsWithNumbers);
       if (error) throw error;
@@ -468,7 +467,7 @@ const App: React.FC = () => {
       console.error('Error importing contracts:', error);
       throw error;
     }
-  }, [contracts, fetchData]);
+  }, [fetchData]);
 
   // --- Partner Handlers ---
 
