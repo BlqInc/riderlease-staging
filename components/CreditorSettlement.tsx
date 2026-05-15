@@ -53,18 +53,18 @@ export const CreditorSettlement: React.FC<CreditorSettlementProps> = ({
     const roundContracts = contracts.filter(c => c.creditor_id === selectedCreditorId && c.settlement_round === roundNumber);
 
     return roundContracts.reduce((sum, c) => {
-      // 날짜 기준 필터: 해당 계약이 asOfDate 기준으로 아직 정산 중인지
+      // 날짜 기준 필터: 각 계약의 duration_days로 종료일을 직접 계산 (가장 정확)
+      // - end_date_180 / end_date_210 데이터 누락이나 분기 오매칭 영향 X
+      // - duration_days가 180/210 외 값(예: 200, 240)이어도 정확히 반영
       if (asOfDate && settlement.start_date) {
-        let contractEndDate: string;
-        if (settlementType === '180_only') {
-          // 그린위치: 모든 계약 180일 기준
-          contractEndDate = settlement.end_date_180 || settlement.end_date;
-        } else {
-          // 다른 채권사: duration_days에 따라 180/210 종료일
-          contractEndDate = (c.duration_days === 210 && settlement.end_date_210)
-            ? settlement.end_date_210
-            : (settlement.end_date_180 || settlement.end_date);
-        }
+        const dur = Number(c.duration_days) || 180;
+        const start = new Date(settlement.start_date + 'T00:00:00');
+        const end = new Date(start);
+        end.setDate(start.getDate() + dur - 1);  // 시작일 포함 dur일
+        const ey = end.getFullYear();
+        const em = String(end.getMonth() + 1).padStart(2, '0');
+        const ed = String(end.getDate()).padStart(2, '0');
+        const contractEndDate = `${ey}-${em}-${ed}`;
         if (asOfDate < settlement.start_date || asOfDate > contractEndDate) return sum;
       }
 
