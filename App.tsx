@@ -625,14 +625,24 @@ const App: React.FC = () => {
 
     const today = getToday();
     const partnerIdSet = new Set(partnerId.split(','));
-    // 필터: 같은 파트너 + 고소건 제외 + 실행일 도래 + 미수액 > 0 (이미 완납된 계약은 대상 아님)
-    const targetContracts = contracts.filter(c =>
-      partnerIdSet.has(c.partner_id) &&
-      !excludeContractIds.includes(c.id) &&
-      !c.is_lawsuit &&
-      (!c.execution_date || c.execution_date <= today) &&
-      (Number(c.unpaid_balance) || 0) > 0
-    );
+    // 필터: 모달과 동일한 기준 — 기존 통과 케이스 + 신규(미래 실행일이지만 정산 기간 안 미납 있는 경우)
+    const targetContracts = contracts.filter(c => {
+      if (!partnerIdSet.has(c.partner_id)) return false;
+      if (excludeContractIds.includes(c.id)) return false;
+      if (c.is_lawsuit) return false;
+      // [기존 조건] 실행일이 today 이전 + 전체 미수액 > 0
+      const wasIncluded =
+        (!c.execution_date || c.execution_date <= today) &&
+        (Number(c.unpaid_balance) || 0) > 0;
+      if (wasIncluded) return true;
+      // [신규 조건] 실행일이 정산 시작일 이전 + 정산 기간 안 미납 차감 존재
+      const passExecDate = !c.execution_date || c.execution_date <= dateFrom;
+      if (!passExecDate) return false;
+      return (c.daily_deductions || []).some(d =>
+        d.date >= dateFrom && d.date <= dateTo &&
+        (Number(d.amount) || 0) > (Number(d.paid_amount) || 0)
+      );
+    });
 
     // 항상 DB에서 최신 daily_deductions 가져옴 (race condition 방지: 사용자가 직전에 수동 처리한 결과 보존)
     const contractsToProcess: Contract[] = [];

@@ -620,17 +620,28 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({
       {bulkPayModal && onBulkDistributorPayment && (() => {
         const today = new Date().toISOString().slice(0, 10);
         const partnerIdSet = new Set(bulkPayModal.partnerIds);
-        // 필터:
-        // - 같은 파트너
-        // - 고소건 제외 (별도 회수 절차)
-        // - 실행일 도래
-        // - 미수액 > 0 (이미 다 갚은 계약은 분배할 게 없음 → 대상 아님)
-        const distContracts = contracts.filter(c =>
-          partnerIdSet.has(c.partner_id) &&
-          !c.is_lawsuit &&
-          (!c.execution_date || c.execution_date <= today) &&
-          (Number(c.unpaid_balance) || 0) > 0
-        );
+        const dFrom = bulkPayForm.dateFrom;
+        const dTo = bulkPayForm.dateTo;
+        // 필터: 기존 통과 케이스는 그대로 + 신규(미래 실행일이지만 정산 기간 안 미납 있는 경우)만 추가
+        const distContracts = contracts.filter(c => {
+          if (!partnerIdSet.has(c.partner_id)) return false;
+          if (c.is_lawsuit) return false;
+          // [기존 조건] 실행일이 today 이전 + 전체 미수액 > 0
+          const wasIncluded =
+            (!c.execution_date || c.execution_date <= today) &&
+            (Number(c.unpaid_balance) || 0) > 0;
+          if (wasIncluded) return true;
+          // [신규 조건] 실행일이 정산 시작일 이전 + 정산 기간 안 미납 차감 존재
+          if (dFrom && dTo) {
+            const passExecDate = !c.execution_date || c.execution_date <= dFrom;
+            if (!passExecDate) return false;
+            return (c.daily_deductions || []).some(d =>
+              d.date >= dFrom && d.date <= dTo &&
+              (Number(d.amount) || 0) > (Number(d.paid_amount) || 0)
+            );
+          }
+          return false;
+        });
         const inputAmt = Number(bulkPayForm.amount) || 0;
         const expectedTotal = distContracts
           .filter(c => !bulkPayExclude.has(c.id))
@@ -689,6 +700,13 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({
                     className="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
                   <p className="text-[10px] text-slate-500 mt-1">입력 시 회수 raw data 다운로드의 '입금자/출처' 컬럼에 표시됩니다.</p>
                 </div>
+                {bulkPayForm.dateFrom && bulkPayForm.dateFrom > today && (
+                  <div className="bg-amber-900/30 border border-amber-700/50 rounded-lg p-3 text-xs text-amber-200">
+                    ⚠ 정산 시작일({bulkPayForm.dateFrom})이 오늘({today})보다 미래입니다.
+                    실행하면 아직 도래하지 않은 차감을 <b>선납 처리</b>합니다.
+                    실제 입금이 발생했는지 확인하세요.
+                  </div>
+                )}
                 {bulkPayForm.dateFrom && bulkPayForm.dateTo && (
                   <div className="grid grid-cols-3 gap-3 bg-slate-900/50 rounded-lg p-4">
                     <div><p className="text-xs text-slate-400">예상 청구액</p><p className="text-lg font-bold text-white">{formatCurrency(expectedTotal)}</p></div>
@@ -726,6 +744,15 @@ export const DeductionManagement: React.FC<DeductionManagementProps> = ({
                   <button onClick={async () => {
                       if (!bulkPayForm.dateFrom || !bulkPayForm.dateTo) { alert('정산 기간을 입력해주세요.'); return; }
                       if (!inputAmt) { alert('입금액을 입력해주세요.'); return; }
+                      // 미래 정산 시작일 = 선납 처리. 한 번 더 확인
+                      if (bulkPayForm.dateFrom > today) {
+                        const ok = confirm(
+                          `정산 시작일(${bulkPayForm.dateFrom})이 오늘(${today})보다 미래입니다.\n` +
+                          `아직 도래하지 않은 차감을 선납 처리하게 됩니다.\n\n` +
+                          `실제 입금이 발생한 것이 맞다면 계속 진행하세요.\n진행할까요?`
+                        );
+                        if (!ok) return;
+                      }
                       setBulkPayProcessing(true);
                       const result = await onBulkDistributorPayment(bulkPayModal.partnerIds.join(','), bulkPayForm.dateFrom, bulkPayForm.dateTo, inputAmt, Array.from(bulkPayExclude), bulkPayForm.depositorName.trim() || null);
                       setBulkPayResult(result || { processed: 0, remaining: inputAmt });
