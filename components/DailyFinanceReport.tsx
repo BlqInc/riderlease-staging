@@ -3,6 +3,7 @@ import { Contract } from '../types';
 import { supabase } from '../lib/supabaseClient';
 import { fetchPagedRows } from '../lib/fetchPagedRows';
 import { formatCurrency } from '../lib/utils';
+import { DailyDepositUpload } from './DailyDepositUpload';
 
 interface Props {
   contracts: Contract[];
@@ -56,6 +57,8 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts }) => {
   const [deposits, setDeposits] = useState<BankDepositRow[]>([]);
   const [expandedDate, setExpandedDate] = useState<string | null>(null);
   const [salespeopleMap, setSalespeopleMap] = useState<Map<string, string>>(new Map());
+  const [salespeople, setSalespeople] = useState<any[]>([]);
+  const [showUpload, setShowUpload] = useState(false);
 
   // 1) daily_deductions 페이지네이션 로드 (페이지 진입 시 1회)
   useEffect(() => {
@@ -68,11 +71,13 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts }) => {
         all.forEach((c: any) => map.set(c.id, Array.isArray(c.daily_deductions) ? c.daily_deductions : []));
         setDdByContract(map);
         setDdLoaded(true);
-        // 영업자 매핑도 같이 (드릴다운에서 표시용)
+        // 영업자 매핑도 같이 (드릴다운 표시용 + 업로드 모달의 자동매칭용)
         if (supabase) {
-          const { data: sp } = await (supabase.from('salespeople') as any).select('id, name');
+          const { data: sp } = await (supabase.from('salespeople') as any).select('id, name, bank_aliases');
+          const spList = (sp || []) as any[];
+          setSalespeople(spList);
           const spMap = new Map<string, string>();
-          (sp || []).forEach((s: any) => spMap.set(s.id, s.name));
+          spList.forEach((s: any) => spMap.set(s.id, s.name));
           setSalespeopleMap(spMap);
         }
       } catch (e: any) {
@@ -83,20 +88,19 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts }) => {
     })();
   }, [ddLoaded]);
 
-  // 2) 기간 적용 시 bank_deposits 조회
+  // 2) 기간 적용 시 daily_bank_deposits 조회 (회수관리 bank_deposits와 완전 분리)
   const reloadDeposits = useCallback(async (from: string, to: string) => {
     if (!supabase) return;
     setLoading(true);
     setError(null);
     try {
-      const { data, error: depErr } = await (supabase.from('bank_deposits') as any)
+      const { data, error: depErr } = await (supabase.from('daily_bank_deposits') as any)
         .select('id, deposit_date, depositor_name, amount, salesperson_id')
-        .gte('deposit_date', from).lte('deposit_date', to)
-        .is('reverted_at', null);
+        .gte('deposit_date', from).lte('deposit_date', to);
       if (depErr) throw depErr;
       setDeposits((data || []) as BankDepositRow[]);
     } catch (e: any) {
-      setError('bank_deposits 조회 실패: ' + e.message);
+      setError('daily_bank_deposits 조회 실패: ' + e.message);
     } finally {
       setLoading(false);
     }
@@ -255,13 +259,26 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts }) => {
       <div className="flex justify-between items-start">
         <div>
           <h2 className="text-3xl font-bold text-white">일별 회수 현황 <span className="text-sm font-normal text-slate-400 ml-2">(현금주의 — 그날 들어온 건 그날만 카운트)</span></h2>
-          <p className="text-slate-400 text-sm mt-1">모회사 보고용. 받아야 할 일자와 실제 통장 입금 일자를 1:1로 매칭. 과거 미납에 분배하지 않음.</p>
+          <p className="text-slate-400 text-sm mt-1">받아야 할 일자와 실제 통장 입금 일자를 1:1로 매칭. 과거 미납에 분배하지 않음.</p>
         </div>
-        <button onClick={handleExport} disabled={exporting || dailyRows.length === 0}
-          className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold py-2 px-4 rounded-lg">
-          📥 {exporting ? '생성 중...' : '엑셀 다운로드'}
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => setShowUpload(true)}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg">
+            📤 은행 입금내역 업로드
+          </button>
+          <button onClick={handleExport} disabled={exporting || dailyRows.length === 0}
+            className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold py-2 px-4 rounded-lg">
+            📥 {exporting ? '생성 중...' : '엑셀 다운로드'}
+          </button>
+        </div>
       </div>
+
+      <DailyDepositUpload
+        open={showUpload}
+        onClose={() => setShowUpload(false)}
+        onUploaded={() => reloadDeposits(appliedRange.from, appliedRange.to)}
+        salespeople={salespeople}
+      />
 
       {/* 기간 선택 */}
       <div className="bg-slate-800 border border-slate-700 rounded-lg p-4 flex items-center gap-3">
