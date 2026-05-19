@@ -23,6 +23,7 @@ const DatabaseManagement = React.lazy(() => import('./components/DatabaseManagem
 const CreditorSettlement = React.lazy(() => import('./components/CreditorSettlement').then(m => ({ default: m.CreditorSettlement })));
 const CreditorBatch = React.lazy(() => import('./components/CreditorBatch').then(m => ({ default: m.CreditorBatch })));
 const CollectionManagement = React.lazy(() => import('./components/CollectionManagement').then(m => ({ default: m.CollectionManagement })));
+const DailyFinanceReport = React.lazy(() => import('./components/DailyFinanceReport').then(m => ({ default: m.DailyFinanceReport })));
 const ContractDocGenerator = React.lazy(() => import('./components/ContractDocGenerator').then(m => ({ default: m.ContractDocGenerator })));
 const DocumentStatus = React.lazy(() => import('./components/DocumentStatus').then(m => ({ default: m.DocumentStatus })));
 import { ContractFormModal } from './components/ContractFormModal';
@@ -1068,6 +1069,7 @@ const App: React.FC = () => {
                 />
               )}
               {currentView === 'collectionManagement' && <CollectionManagement contracts={contracts} partners={partners} salespeople={salespeople} settlements={creditorSettlements} onDepositsProcessed={() => fetchData({ silent: true })} onSelectContract={selectContractWithDeductions} />}
+              {currentView === 'dailyFinanceReport' && <DailyFinanceReport contracts={contracts} />}
               {currentView === 'settlementRequests' && (
                 <div className="p-8 space-y-6">
                   <h2 className="text-3xl font-bold text-white">정산요청서</h2>
