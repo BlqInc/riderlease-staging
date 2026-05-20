@@ -21,8 +21,9 @@ interface BankDepositRow {
 interface DailyRow {
   date: string;
   receivable: number;  // 받아야 할
-  received: number;    // 실제 들어온
+  received: number;    // 실제 들어온 (영업자 매칭된 것만)
   diff: number;        // 들어온 - 받아야 할 (음수=미수, 양수=과입금)
+  unpaid: number;      // max(0, 받아야 할 - 들어온) — 진짜 못 받은 돈
 }
 
 // ─── 헬퍼 ───
@@ -130,10 +131,11 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts }) => {
         receivableByDate.set(dd.date, (receivableByDate.get(dd.date) || 0) + amt);
       }
     }
-    // 들어온: bank_deposits.amount 합
+    // 들어온: daily_bank_deposits.amount 합 (영업자 매칭된 것만)
     const receivedByDate = new Map<string, number>();
     for (const d of deposits) {
       if (!d.deposit_date) continue;
+      if (!d.salesperson_id) continue;  // 미매칭 제외
       receivedByDate.set(d.deposit_date, (receivedByDate.get(d.deposit_date) || 0) + (Number(d.amount) || 0));
     }
     // 기간 내 모든 일자 행 생성 (둘 다 0이면 제외)
@@ -143,7 +145,9 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts }) => {
       const receivable = receivableByDate.get(date) || 0;
       const received = receivedByDate.get(date) || 0;
       if (receivable === 0 && received === 0) continue;
-      rows.push({ date, receivable, received, diff: received - receivable });
+      const diff = received - receivable;
+      const unpaid = Math.max(0, receivable - received);
+      rows.push({ date, receivable, received, diff, unpaid });
     }
     // 최근 일자가 위
     rows.sort((a, b) => a.date < b.date ? 1 : -1);
@@ -154,9 +158,17 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts }) => {
   const kpi = useMemo(() => {
     const totalReceivable = dailyRows.reduce((s, r) => s + r.receivable, 0);
     const totalReceived = dailyRows.reduce((s, r) => s + r.received, 0);
-    const totalUnpaid = totalReceivable - totalReceived;  // 단순 차이
+    // 진짜 못 받은 돈: 일자별 미수의 합 (과입금이 미수 상쇄하지 않음)
+    const totalUnpaid = dailyRows.reduce((s, r) => s + r.unpaid, 0);
     return { totalReceivable, totalReceived, totalUnpaid };
   }, [dailyRows]);
+
+  // 미매칭 입금 (영업자 매칭 안 됨) 합계 — 별도 표시용
+  const unmatchedDeposits = useMemo(() => {
+    const rows = deposits.filter(d => !d.salesperson_id);
+    const total = rows.reduce((s, d) => s + (Number(d.amount) || 0), 0);
+    return { count: rows.length, total };
+  }, [deposits]);
 
   // 5) 드릴다운 데이터: 그 일자의 raw 내역
   const drilldown = useMemo(() => {
@@ -194,10 +206,13 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts }) => {
       // Sheet 1: 일자별 집계
       const summaryRows: any[][] = [
         [`기간: ${appliedRange.from} ~ ${appliedRange.to}`, '일별 회수 현황 (현금주의)'],
-        ['일자', '받아야 할', '들어온', '차액', '구분'],
-        ...dailyRows.map(r => [r.date, r.receivable, r.received, r.diff, r.diff < 0 ? '미수' : r.diff > 0 ? '과입금' : '일치']),
+        ['일자', '받아야 할', '들어온', '차액', '미수', '구분'],
+        ...dailyRows.map(r => [
+          r.date, r.receivable, r.received, r.diff, r.unpaid,
+          r.diff < 0 ? '미수' : r.diff > 0 ? '과입금' : '일치',
+        ]),
         [],
-        ['합계', kpi.totalReceivable, kpi.totalReceived, kpi.totalReceived - kpi.totalReceivable, kpi.totalUnpaid > 0 ? '미수' : '완납'],
+        ['합계', kpi.totalReceivable, kpi.totalReceived, kpi.totalReceived - kpi.totalReceivable, kpi.totalUnpaid, kpi.totalUnpaid > 0 ? '미수' : '완납'],
       ];
       const ws1 = XLSX.utils.aoa_to_sheet(summaryRows);
       const headerStyle = {
@@ -206,18 +221,18 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts }) => {
         alignment: { horizontal: 'center' },
         border: { top:{style:'thin'}, bottom:{style:'thin'}, left:{style:'thin'}, right:{style:'thin'} },
       };
-      for (let c = 0; c < 5; c++) {
+      for (let c = 0; c < 6; c++) {
         const addr = XLSX.utils.encode_cell({ r: 1, c });
         if (ws1[addr]) ws1[addr].s = headerStyle;
       }
       // 숫자 콤마
       for (let r = 2; r < summaryRows.length; r++) {
-        for (const c of [1, 2, 3]) {
+        for (const c of [1, 2, 3, 4]) {
           const addr = XLSX.utils.encode_cell({ r, c });
           if (ws1[addr] && typeof ws1[addr].v === 'number') ws1[addr].z = '#,##0';
         }
       }
-      ws1['!cols'] = [{ wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 10 }];
+      ws1['!cols'] = [{ wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 10 }];
 
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws1, '일별 집계');
@@ -327,6 +342,15 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts }) => {
         </div>
       </div>
 
+      {/* 미매칭 경고 배너 */}
+      {unmatchedDeposits.count > 0 && (
+        <div className="bg-amber-900/20 border border-amber-700/50 rounded-lg p-3 text-xs text-amber-200">
+          ⚠ 영업자 매칭 안 된 입금 <b>{unmatchedDeposits.count}건 · ₩{formatCurrency(unmatchedDeposits.total)}</b>
+          이 KPI/일자별 합계에서 제외됩니다. 영업자 관리에서 해당 입금자명을 bank_aliases에 추가하면 다음 조회부터 잡힙니다.
+          <span className="text-amber-300/70 ml-1">(드릴다운 raw 내역에는 그대로 표시)</span>
+        </div>
+      )}
+
       {/* 일자별 표 */}
       <div className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden">
         <table className="w-full text-sm">
@@ -337,12 +361,13 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts }) => {
               <th className="p-3 text-right">받아야 할</th>
               <th className="p-3 text-right">들어온</th>
               <th className="p-3 text-right">차액</th>
+              <th className="p-3 text-right">미수</th>
               <th className="p-3 text-center">구분</th>
             </tr>
           </thead>
           <tbody>
             {dailyRows.length === 0 ? (
-              <tr><td colSpan={6} className="text-center text-slate-500 py-8">기간 내 데이터가 없습니다</td></tr>
+              <tr><td colSpan={7} className="text-center text-slate-500 py-8">기간 내 데이터가 없습니다</td></tr>
             ) : dailyRows.map(r => {
               const isExpanded = expandedDate === r.date;
               return (
@@ -356,6 +381,11 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts }) => {
                     <td className={`p-3 text-right font-semibold ${r.diff < 0 ? 'text-red-400' : r.diff > 0 ? 'text-blue-400' : 'text-slate-400'}`}>
                       ₩{formatCurrency(r.diff)}
                     </td>
+                    <td className="p-3 text-right">
+                      {r.unpaid > 0
+                        ? <span className="text-red-400 font-semibold">₩{formatCurrency(r.unpaid)}</span>
+                        : <span className="text-slate-600">-</span>}
+                    </td>
                     <td className="p-3 text-center">
                       {r.diff < 0 ? <span className="text-red-400 text-xs">미수</span>
                         : r.diff > 0 ? <span className="text-blue-400 text-xs">과입금</span>
@@ -363,11 +393,13 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts }) => {
                     </td>
                   </tr>
                   {isExpanded && drilldown && (
-                    <tr><td colSpan={6} className="bg-slate-900/50 p-4">
+                    <tr><td colSpan={7} className="bg-slate-900/50 p-4">
                       <div className="grid grid-cols-2 gap-4">
-                        {/* 들어온 raw */}
+                        {/* 들어온 raw (매칭된 것만 합계 — 미매칭 행도 표시되지만 합계 X) */}
                         <div>
-                          <h4 className="text-sm font-medium text-emerald-300 mb-2">들어온 ({drilldown.incoming.length}건 · ₩{formatCurrency(drilldown.incoming.reduce((s, d) => s + (Number(d.amount) || 0), 0))})</h4>
+                          <h4 className="text-sm font-medium text-emerald-300 mb-2">
+                            들어온 ({drilldown.incoming.length}건 · 매칭 ₩{formatCurrency(drilldown.incoming.filter(d => d.salesperson_id).reduce((s, d) => s + (Number(d.amount) || 0), 0))})
+                          </h4>
                           <div className="bg-slate-900 rounded border border-slate-700 max-h-64 overflow-y-auto">
                             {drilldown.incoming.length === 0 ? (
                               <div className="text-xs text-slate-500 p-3 text-center">입금 없음</div>
