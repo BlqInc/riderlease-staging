@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabaseClient';
 import { fetchPagedRows } from '../lib/fetchPagedRows';
 import { formatCurrency } from '../lib/utils';
 import { DailyDepositUpload } from './DailyDepositUpload';
+import { DailyDepositHistory } from './DailyDepositHistory';
 
 interface Props {
   contracts: Contract[];
@@ -59,6 +60,7 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts }) => {
   const [salespeopleMap, setSalespeopleMap] = useState<Map<string, string>>(new Map());
   const [salespeople, setSalespeople] = useState<any[]>([]);
   const [showUpload, setShowUpload] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
 
   // 1) daily_deductions 페이지네이션 로드 (페이지 진입 시 1회)
   useEffect(() => {
@@ -96,7 +98,8 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts }) => {
     try {
       const { data, error: depErr } = await (supabase.from('daily_bank_deposits') as any)
         .select('id, deposit_date, depositor_name, amount, salesperson_id')
-        .gte('deposit_date', from).lte('deposit_date', to);
+        .gte('deposit_date', from).lte('deposit_date', to)
+        .is('reverted_at', null);  // 롤백된 batch는 제외
       if (depErr) throw depErr;
       setDeposits((data || []) as BankDepositRow[]);
     } catch (e: any) {
@@ -262,6 +265,10 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts }) => {
           <p className="text-slate-400 text-sm mt-1">받아야 할 일자와 실제 통장 입금 일자를 1:1로 매칭. 과거 미납에 분배하지 않음.</p>
         </div>
         <div className="flex gap-2">
+          <button onClick={() => setShowHistory(true)}
+            className="bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-4 rounded-lg">
+            📋 업로드 이력
+          </button>
           <button onClick={() => setShowUpload(true)}
             className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg">
             📤 은행 입금내역 업로드
@@ -278,6 +285,11 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts }) => {
         onClose={() => setShowUpload(false)}
         onUploaded={() => reloadDeposits(appliedRange.from, appliedRange.to)}
         salespeople={salespeople}
+      />
+      <DailyDepositHistory
+        open={showHistory}
+        onClose={() => setShowHistory(false)}
+        onReverted={() => reloadDeposits(appliedRange.from, appliedRange.to)}
       />
 
       {/* 기간 선택 */}
