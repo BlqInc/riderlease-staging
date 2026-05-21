@@ -3,10 +3,13 @@ import { Contract, ContractStatus, Partner, DeductionStatus, SettlementStatus, S
 import { formatDate, formatCurrency } from '../lib/utils';
 import { PlusIcon, ChevronDownIcon, DuplicateIcon, UserPlusIcon, UploadIcon } from './icons/IconComponents';
 import { classifyRisk, riskColors, RiskLevel } from '../lib/riskUtils';
+import { ContractMasterDownloadModal } from './ContractMasterDownloadModal';
 
 interface ContractManagementProps {
   contracts: Contract[];
   partners: Partner[];
+  creditors?: { id: string; name: string }[];
+  salespeople?: { id: string; name: string; bank_aliases?: string[]; partner_ids?: string[] }[];
   onSelectContract: (contract: Contract) => void;
   onAddContract: (template?: Partial<Contract>) => void;
   onImportContracts: (contracts: Partial<Omit<Contract, 'id' | 'contract_number' | 'unpaid_balance'>>[]) => Promise<void>;
@@ -39,7 +42,7 @@ const MiniRiskBadge: React.FC<{ level: RiskLevel }> = ({ level }) => {
   return <span className={`ml-2 px-1.5 py-0.5 text-[10px] font-semibold rounded ${riskColors[level]}`}>{level}</span>;
 };
 
-export const ContractManagement: React.FC<ContractManagementProps> = ({ contracts, partners, onSelectContract, onAddContract, onImportContracts, onDeleteContracts }) => {
+export const ContractManagement: React.FC<ContractManagementProps> = ({ contracts, partners, creditors = [], salespeople = [], onSelectContract, onAddContract, onImportContracts, onDeleteContracts }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<ContractStatus | 'all'>('all');
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
@@ -505,6 +508,9 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
     });
   };
 
+  // ─── 계약 마스터 엑셀 다운로드 모달 ───
+  const [showMasterModal, setShowMasterModal] = useState(false);
+
   // ─── 출고상세 엑셀 추출 (현재 필터된 계약 기준) ───
   const [exporting, setExporting] = useState(false);
   const handleExcelExport = async () => {
@@ -627,6 +633,12 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
                 className="flex items-center bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded-lg transition-colors shadow-md hover:shadow-lg disabled:opacity-50"
             >
                 📥 {exporting ? '추출 중...' : '출고상세 추출'}
+            </button>
+            <button
+                onClick={() => setShowMasterModal(true)}
+                className="flex items-center bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded-lg transition-colors shadow-md hover:shadow-lg"
+            >
+                📥 엑셀 다운로드
             </button>
             <button
                 onClick={() => fileInputRef.current?.click()}
@@ -864,6 +876,14 @@ export const ContractManagement: React.FC<ContractManagementProps> = ({ contract
           </table>
         </div>
       </div>
+
+      <ContractMasterDownloadModal
+        open={showMasterModal}
+        onClose={() => setShowMasterModal(false)}
+        contracts={contracts}
+        creditors={creditors}
+        salespeople={salespeople}
+      />
     </div>
   );
 };

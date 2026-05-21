@@ -1052,6 +1052,8 @@ const App: React.FC = () => {
                 <ContractManagement
                   contracts={contracts}
                   partners={partners}
+                  creditors={creditors}
+                  salespeople={salespeople}
                   onSelectContract={selectContractWithDeductions}
                   onAddContract={(template) => {
                     setEditingContract(null);
