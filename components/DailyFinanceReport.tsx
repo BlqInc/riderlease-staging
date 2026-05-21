@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Contract } from '../types';
+import { Contract, ContractStatus } from '../types';
 import { supabase } from '../lib/supabaseClient';
 import { fetchPagedRows } from '../lib/fetchPagedRows';
 import { formatCurrency } from '../lib/utils';
@@ -31,7 +31,8 @@ interface DailyRow {
   receivable: number;  // 받아야 할
   received: number;    // 실제 들어온 (영업자 매칭된 것만)
   diff: number;        // 들어온 - 받아야 할 (음수=미수, 양수=과입금)
-  unpaid: number;      // max(0, 받아야 할 - 들어온) — 진짜 못 받은 돈
+  unpaid: number;      // max(0, 받아야 할 - 들어온) — 그날 못 받은 돈
+  balance: number;     // 누적 잔액 = 누적 받아야 할 - 누적 들어온 (양수=미수, 음수=과입금)
 }
 
 // ─── 헬퍼 ───
@@ -128,8 +129,10 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts, salespeople: sa
     if (!from || !to || from > to) return [];
 
     // 받아야 할: contracts의 daily_deductions[date].amount 합
+    // 만료(EXPIRED) 계약은 제외 — 차감 데이터가 남아있어도 더 이상 회수 대상 아님
     const receivableByDate = new Map<string, number>();
     for (const c of contracts) {
+      if (c.status === ContractStatus.EXPIRED) continue;
       const dds = ddByContract.get(c.id) || [];
       for (const dd of dds) {
         if (!dd?.date) continue;
@@ -145,18 +148,20 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts, salespeople: sa
       if (!d.salesperson_id) continue;  // 미매칭 제외
       receivedByDate.set(d.deposit_date, (receivedByDate.get(d.deposit_date) || 0) + (Number(d.amount) || 0));
     }
-    // 기간 내 모든 일자 행 생성 (둘 다 0이면 제외)
+    // 기간 내 모든 일자 행 생성 — 일자 ASC로 먼저 만들면서 누적 잔액 계산
     const rows: DailyRow[] = [];
     const dates = eachDateInRange(from, to);
+    let runningBalance = 0;
     for (const date of dates) {
       const receivable = receivableByDate.get(date) || 0;
       const received = receivedByDate.get(date) || 0;
       if (receivable === 0 && received === 0) continue;
       const diff = received - receivable;
       const unpaid = Math.max(0, receivable - received);
-      rows.push({ date, receivable, received, diff, unpaid });
+      runningBalance += (receivable - received);  // 받아야 할 누적 - 들어온 누적
+      rows.push({ date, receivable, received, diff, unpaid, balance: runningBalance });
     }
-    // 최근 일자가 위
+    // 표시는 최근 일자 위 (balance는 위에서 ASC로 계산했으므로 정렬 후에도 정확)
     rows.sort((a, b) => a.date < b.date ? 1 : -1);
     return rows;
   }, [ddLoaded, ddByContract, contracts, deposits, appliedRange]);
@@ -292,13 +297,13 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts, salespeople: sa
       // Sheet 1: 일자별 집계
       const summaryRows: any[][] = [
         [`기간: ${appliedRange.from} ~ ${appliedRange.to}`, '일별 회수 현황 (현금주의)'],
-        ['일자', '받아야 할', '들어온', '차액', '미수', '구분'],
+        ['일자', '받아야 할', '들어온', '차액', '미수', '누적 잔액', '구분'],
         ...dailyRows.map(r => [
-          r.date, r.receivable, r.received, r.diff, r.unpaid,
+          r.date, r.receivable, r.received, r.diff, r.unpaid, r.balance,
           r.diff < 0 ? '미수' : r.diff > 0 ? '과입금' : '일치',
         ]),
         [],
-        ['합계', kpi.totalReceivable, kpi.totalReceived, kpi.totalReceived - kpi.totalReceivable, kpi.totalUnpaid, kpi.totalUnpaid > 0 ? '미수' : '완납'],
+        ['합계', kpi.totalReceivable, kpi.totalReceived, kpi.totalReceived - kpi.totalReceivable, kpi.totalUnpaid, '', kpi.totalUnpaid > 0 ? '미수' : '완납'],
       ];
       const ws1 = XLSX.utils.aoa_to_sheet(summaryRows);
       const headerStyle = {
@@ -307,18 +312,18 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts, salespeople: sa
         alignment: { horizontal: 'center' },
         border: { top:{style:'thin'}, bottom:{style:'thin'}, left:{style:'thin'}, right:{style:'thin'} },
       };
-      for (let c = 0; c < 6; c++) {
+      for (let c = 0; c < 7; c++) {
         const addr = XLSX.utils.encode_cell({ r: 1, c });
         if (ws1[addr]) ws1[addr].s = headerStyle;
       }
       // 숫자 콤마
       for (let r = 2; r < summaryRows.length; r++) {
-        for (const c of [1, 2, 3, 4]) {
+        for (const c of [1, 2, 3, 4, 5]) {
           const addr = XLSX.utils.encode_cell({ r, c });
           if (ws1[addr] && typeof ws1[addr].v === 'number') ws1[addr].z = '#,##0';
         }
       }
-      ws1['!cols'] = [{ wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 10 }];
+      ws1['!cols'] = [{ wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 10 }];
 
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws1, '일별 집계');
@@ -448,12 +453,13 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts, salespeople: sa
               <th className="p-3 text-right">들어온</th>
               <th className="p-3 text-right">차액</th>
               <th className="p-3 text-right">미수</th>
+              <th className="p-3 text-right">누적 잔액</th>
               <th className="p-3 text-center">구분</th>
             </tr>
           </thead>
           <tbody>
             {dailyRows.length === 0 ? (
-              <tr><td colSpan={7} className="text-center text-slate-500 py-8">기간 내 데이터가 없습니다</td></tr>
+              <tr><td colSpan={8} className="text-center text-slate-500 py-8">기간 내 데이터가 없습니다</td></tr>
             ) : dailyRows.map(r => {
               const isExpanded = expandedDate === r.date;
               return (
@@ -472,6 +478,9 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts, salespeople: sa
                         ? <span className="text-red-400 font-semibold">₩{formatCurrency(r.unpaid)}</span>
                         : <span className="text-slate-600">-</span>}
                     </td>
+                    <td className={`p-3 text-right font-semibold ${r.balance > 0 ? 'text-red-400' : r.balance < 0 ? 'text-blue-400' : 'text-slate-400'}`}>
+                      ₩{formatCurrency(r.balance)}
+                    </td>
                     <td className="p-3 text-center">
                       {r.diff < 0 ? <span className="text-red-400 text-xs">미수</span>
                         : r.diff > 0 ? <span className="text-blue-400 text-xs">과입금</span>
@@ -479,7 +488,7 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts, salespeople: sa
                     </td>
                   </tr>
                   {isExpanded && drilldown && (
-                    <tr><td colSpan={7} className="bg-slate-900/50 p-4 space-y-4">
+                    <tr><td colSpan={8} className="bg-slate-900/50 p-4 space-y-4">
                       {/* 영업자별 분배 시뮬레이션 (계약번호 오름차순) */}
                       <div className="bg-slate-900 rounded border border-slate-700 p-3">
                         <h4 className="text-sm font-medium text-indigo-300 mb-2">
