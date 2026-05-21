@@ -1069,7 +1069,7 @@ const App: React.FC = () => {
                 />
               )}
               {currentView === 'collectionManagement' && <CollectionManagement contracts={contracts} partners={partners} salespeople={salespeople} settlements={creditorSettlements} onDepositsProcessed={() => fetchData({ silent: true })} onSelectContract={selectContractWithDeductions} />}
-              {currentView === 'dailyFinanceReport' && <DailyFinanceReport contracts={contracts} />}
+              {currentView === 'dailyFinanceReport' && <DailyFinanceReport contracts={contracts} salespeople={salespeople} />}
               {currentView === 'settlementRequests' && (
                 <div className="p-8 space-y-6">
                   <h2 className="text-3xl font-bold text-white">정산요청서</h2>

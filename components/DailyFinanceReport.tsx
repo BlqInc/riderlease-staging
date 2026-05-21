@@ -6,8 +6,16 @@ import { formatCurrency } from '../lib/utils';
 import { DailyDepositUpload } from './DailyDepositUpload';
 import { DailyDepositHistory } from './DailyDepositHistory';
 
+interface SalespersonProp {
+  id: string;
+  name: string;
+  bank_aliases?: string[];
+  partner_ids?: string[];
+}
+
 interface Props {
   contracts: Contract[];
+  salespeople: SalespersonProp[];
 }
 
 interface BankDepositRow {
@@ -48,7 +56,7 @@ function eachDateInRange(from: string, to: string): string[] {
   return dates;
 }
 
-export const DailyFinanceReport: React.FC<Props> = ({ contracts }) => {
+export const DailyFinanceReport: React.FC<Props> = ({ contracts, salespeople: salespeopleProp }) => {
   const [range, setRange] = useState(defaultRange);
   const [appliedRange, setAppliedRange] = useState(defaultRange);
   const [loading, setLoading] = useState(false);
@@ -58,10 +66,18 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts }) => {
   const [ddLoaded, setDdLoaded] = useState(false);
   const [deposits, setDeposits] = useState<BankDepositRow[]>([]);
   const [expandedDate, setExpandedDate] = useState<string | null>(null);
-  const [salespeopleMap, setSalespeopleMap] = useState<Map<string, string>>(new Map());
-  const [salespeople, setSalespeople] = useState<any[]>([]);
   const [showUpload, setShowUpload] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [expandedSalesperson, setExpandedSalesperson] = useState<string | null>(null);
+
+  // props로 받은 salespeople을 그대로 사용 (partner_ids 포함)
+  const salespeople = salespeopleProp;
+  // 영업자명 빠른 조회 맵
+  const salespeopleMap = useMemo(() => {
+    const m = new Map<string, string>();
+    salespeople.forEach(s => m.set(s.id, s.name));
+    return m;
+  }, [salespeople]);
 
   // 1) daily_deductions 페이지네이션 로드 (페이지 진입 시 1회)
   useEffect(() => {
@@ -74,15 +90,6 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts }) => {
         all.forEach((c: any) => map.set(c.id, Array.isArray(c.daily_deductions) ? c.daily_deductions : []));
         setDdByContract(map);
         setDdLoaded(true);
-        // 영업자 매핑도 같이 (드릴다운 표시용 + 업로드 모달의 자동매칭용)
-        if (supabase) {
-          const { data: sp } = await (supabase.from('salespeople') as any).select('id, name, bank_aliases');
-          const spList = (sp || []) as any[];
-          setSalespeople(spList);
-          const spMap = new Map<string, string>();
-          spList.forEach((s: any) => spMap.set(s.id, s.name));
-          setSalespeopleMap(spMap);
-        }
       } catch (e: any) {
         setError('daily_deductions 로드 실패: ' + e.message);
       } finally {
@@ -158,8 +165,9 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts }) => {
   const kpi = useMemo(() => {
     const totalReceivable = dailyRows.reduce((s, r) => s + r.receivable, 0);
     const totalReceived = dailyRows.reduce((s, r) => s + r.received, 0);
-    // 진짜 못 받은 돈: 일자별 미수의 합 (과입금이 미수 상쇄하지 않음)
-    const totalUnpaid = dailyRows.reduce((s, r) => s + r.unpaid, 0);
+    // 기간 미수: 단순 차이. 과입금이 미수를 차감.
+    // (일자별 미수 컬럼은 그대로 표시 — 그날만 보는 관점)
+    const totalUnpaid = Math.max(0, totalReceivable - totalReceived);
     return { totalReceivable, totalReceived, totalUnpaid };
   }, [dailyRows]);
 
@@ -170,14 +178,36 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts }) => {
     return { count: rows.length, total };
   }, [deposits]);
 
-  // 5) 드릴다운 데이터: 그 일자의 raw 내역
+  // partner_id → salesperson_id 매핑 (영업자별 그룹핑용)
+  const partnerToSp = useMemo(() => {
+    const m = new Map<string, string>();
+    salespeople.forEach(s => (s.partner_ids || []).forEach(pid => m.set(pid, s.id)));
+    return m;
+  }, [salespeople]);
+
+  // 5) 드릴다운 데이터: 그 일자의 raw 내역 + 영업자별 분배 시뮬레이션
+  type SpGroup = {
+    sp_id: string;
+    sp_name: string;
+    incoming: number;       // 그날 그 영업자 입금 합 (매칭된 것만)
+    receivable: number;     // 그날 담당 계약의 차감 합
+    unpaid: number;         // max(0, receivable - incoming)
+    contracts: {
+      contract_number: number;
+      lessee_name: string;
+      distributor_name: string;
+      amount: number;
+      filled: number;        // 분배된 금액
+      remaining: number;     // 미납 잔여
+      status: '완납' | '일부' | '미납';
+    }[];
+  };
   const drilldown = useMemo(() => {
     if (!expandedDate) return null;
-    // 들어온 raw
     const incoming = deposits.filter(d => d.deposit_date === expandedDate);
     // 받아야 할 raw (그 일자 차감 있는 계약)
-    const receivable: { contract_number: number; lessee_name: string; distributor_name: string; salesperson_name: string; amount: number }[] = [];
-    // 계약→영업자 매핑은 컴포넌트 prop 한계로 그 일자 deposits.salesperson_id 사용. 좀 더 정확하려면 salesperson_partners 필요. 단순화: 빈칸.
+    type RawReceivable = { contract_number: number; lessee_name: string; distributor_name: string; partner_id: string | null; amount: number };
+    const receivable: RawReceivable[] = [];
     for (const c of contracts) {
       const dds = ddByContract.get(c.id) || [];
       const dd = dds.find((x: any) => x?.date === expandedDate);
@@ -188,13 +218,69 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts }) => {
         contract_number: Number(c.contract_number) || 0,
         lessee_name: c.lessee_name || '',
         distributor_name: c.distributor_name || '',
-        salesperson_name: '',  // partner_id로 역추적 필요 — 추후
+        partner_id: c.partner_id || null,
         amount: amt,
       });
     }
     receivable.sort((a, b) => a.contract_number - b.contract_number);
-    return { incoming, receivable };
-  }, [expandedDate, deposits, contracts, ddByContract]);
+
+    // 영업자별 그룹핑 + 분배 시뮬레이션
+    // 1) 영업자별 그날 입금 합
+    const spIncoming = new Map<string, number>();
+    for (const d of incoming) {
+      if (!d.salesperson_id) continue;
+      spIncoming.set(d.salesperson_id, (spIncoming.get(d.salesperson_id) || 0) + (Number(d.amount) || 0));
+    }
+    // 2) 영업자별 담당 계약
+    const spContracts = new Map<string, RawReceivable[]>();
+    const orphanReceivable: RawReceivable[] = [];  // 영업자 매칭 안 된 받아야 할
+    for (const r of receivable) {
+      const spId = r.partner_id ? partnerToSp.get(r.partner_id) : undefined;
+      if (spId) {
+        const arr = spContracts.get(spId) || [];
+        arr.push(r);
+        spContracts.set(spId, arr);
+      } else {
+        orphanReceivable.push(r);
+      }
+    }
+    // 3) 각 영업자별 분배: 계약번호 오름차순으로 입금 채움
+    const spGroups: SpGroup[] = [];
+    const allSpIds = new Set<string>([...spIncoming.keys(), ...spContracts.keys()]);
+    for (const spId of allSpIds) {
+      const incomingTotal = spIncoming.get(spId) || 0;
+      const cs = (spContracts.get(spId) || []).slice().sort((a, b) => a.contract_number - b.contract_number);
+      let remaining = incomingTotal;
+      const distributed = cs.map(c => {
+        let filled = 0;
+        if (remaining <= 0) {
+          filled = 0;
+        } else if (remaining >= c.amount) {
+          filled = c.amount;
+          remaining -= c.amount;
+        } else {
+          filled = remaining;
+          remaining = 0;
+        }
+        const rem = c.amount - filled;
+        const status: '완납' | '일부' | '미납' = rem === 0 ? '완납' : filled === 0 ? '미납' : '일부';
+        return { ...c, filled, remaining: rem, status };
+      });
+      const receivableTotal = cs.reduce((s, x) => s + x.amount, 0);
+      spGroups.push({
+        sp_id: spId,
+        sp_name: salespeopleMap.get(spId) || '?',
+        incoming: incomingTotal,
+        receivable: receivableTotal,
+        unpaid: Math.max(0, receivableTotal - incomingTotal),
+        contracts: distributed,
+      });
+    }
+    // 정렬: 미수 많은 영업자 먼저
+    spGroups.sort((a, b) => b.unpaid - a.unpaid);
+
+    return { incoming, receivable, spGroups, orphanReceivable };
+  }, [expandedDate, deposits, contracts, ddByContract, partnerToSp, salespeopleMap]);
 
   // 6) 엑셀 다운로드
   const [exporting, setExporting] = useState(false);
@@ -393,7 +479,104 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts }) => {
                     </td>
                   </tr>
                   {isExpanded && drilldown && (
-                    <tr><td colSpan={7} className="bg-slate-900/50 p-4">
+                    <tr><td colSpan={7} className="bg-slate-900/50 p-4 space-y-4">
+                      {/* 영업자별 분배 시뮬레이션 (계약번호 오름차순) */}
+                      <div className="bg-slate-900 rounded border border-slate-700 p-3">
+                        <h4 className="text-sm font-medium text-indigo-300 mb-2">
+                          영업자별 분배 ({drilldown.spGroups.length}명)
+                          <span className="text-xs text-slate-500 ml-2">— 그날 입금을 담당 계약에 계약번호 오름차순으로 채움</span>
+                        </h4>
+                        {drilldown.spGroups.length === 0 ? (
+                          <div className="text-xs text-slate-500 p-3 text-center">영업자 매칭된 데이터 없음</div>
+                        ) : (
+                          <table className="w-full text-xs">
+                            <thead className="bg-slate-800 text-slate-400">
+                              <tr>
+                                <th className="p-2 text-left w-8"></th>
+                                <th className="p-2 text-left">영업자</th>
+                                <th className="p-2 text-right">그날 입금</th>
+                                <th className="p-2 text-right">담당 받아야 할</th>
+                                <th className="p-2 text-right">미수</th>
+                                <th className="p-2 text-center">상태</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {drilldown.spGroups.map(g => {
+                                const key = `${r.date}|${g.sp_id}`;
+                                const spExp = expandedSalesperson === key;
+                                return (
+                                  <React.Fragment key={g.sp_id}>
+                                    <tr className="border-t border-slate-700/50 hover:bg-slate-700/30 cursor-pointer"
+                                        onClick={() => setExpandedSalesperson(spExp ? null : key)}>
+                                      <td className="p-2 text-slate-400">{spExp ? '▼' : '▶'}</td>
+                                      <td className="p-2 text-white">{g.sp_name}</td>
+                                      <td className="p-2 text-right text-emerald-400">₩{formatCurrency(g.incoming)}</td>
+                                      <td className="p-2 text-right text-slate-200">₩{formatCurrency(g.receivable)}</td>
+                                      <td className={`p-2 text-right font-semibold ${g.unpaid > 0 ? 'text-red-400' : 'text-slate-500'}`}>
+                                        {g.unpaid > 0 ? `₩${formatCurrency(g.unpaid)}` : '-'}
+                                      </td>
+                                      <td className="p-2 text-center">
+                                        {g.unpaid > 0
+                                          ? <span className="text-red-400">미수</span>
+                                          : g.incoming > g.receivable
+                                            ? <span className="text-blue-400">과입금</span>
+                                            : <span className="text-emerald-400">완납</span>}
+                                      </td>
+                                    </tr>
+                                    {spExp && (
+                                      <tr><td colSpan={6} className="bg-slate-900 p-3">
+                                        {g.contracts.length === 0 ? (
+                                          <div className="text-xs text-slate-500 text-center py-2">담당 계약 없음 (입금만 있음)</div>
+                                        ) : (
+                                          <table className="w-full text-[11px]">
+                                            <thead className="text-slate-500">
+                                              <tr>
+                                                <th className="p-1 text-left">#</th>
+                                                <th className="p-1 text-left">계약자</th>
+                                                <th className="p-1 text-left">총판</th>
+                                                <th className="p-1 text-right">받아야 할</th>
+                                                <th className="p-1 text-right">채워진</th>
+                                                <th className="p-1 text-right">미수</th>
+                                                <th className="p-1 text-center">상태</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody>
+                                              {g.contracts.map(c => (
+                                                <tr key={c.contract_number} className="border-t border-slate-700/30">
+                                                  <td className="p-1 font-mono text-indigo-300">{c.contract_number}</td>
+                                                  <td className="p-1 text-slate-200">{c.lessee_name}</td>
+                                                  <td className="p-1 text-slate-500">{c.distributor_name}</td>
+                                                  <td className="p-1 text-right text-slate-300">₩{formatCurrency(c.amount)}</td>
+                                                  <td className="p-1 text-right text-emerald-400">₩{formatCurrency(c.filled)}</td>
+                                                  <td className="p-1 text-right text-red-400">{c.remaining > 0 ? `₩${formatCurrency(c.remaining)}` : '-'}</td>
+                                                  <td className="p-1 text-center">
+                                                    {c.status === '완납' ? <span className="text-emerald-400">완납</span>
+                                                      : c.status === '일부' ? <span className="text-amber-400">일부</span>
+                                                      : <span className="text-red-400">미납</span>}
+                                                  </td>
+                                                </tr>
+                                              ))}
+                                            </tbody>
+                                          </table>
+                                        )}
+                                      </td></tr>
+                                    )}
+                                  </React.Fragment>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        )}
+                      </div>
+
+                      {/* 영업자 매칭 안 된 받아야 할 (있을 때만) */}
+                      {drilldown.orphanReceivable.length > 0 && (
+                        <div className="bg-amber-900/10 border border-amber-700/30 rounded p-3 text-xs">
+                          <span className="text-amber-300">⚠ 영업자 매칭 안 된 계약 {drilldown.orphanReceivable.length}건 · 받아야 할 ₩{formatCurrency(drilldown.orphanReceivable.reduce((s, x) => s + x.amount, 0))}</span>
+                          <span className="text-slate-500 ml-2">(파트너→영업자 매핑 없음. 영업자 관리에서 매핑 필요)</span>
+                        </div>
+                      )}
+
                       <div className="grid grid-cols-2 gap-4">
                         {/* 들어온 raw (매칭된 것만 합계 — 미매칭 행도 표시되지만 합계 X) */}
                         <div>
