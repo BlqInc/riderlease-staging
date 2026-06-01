@@ -50,20 +50,28 @@ function toNumber(v: any): number {
   return Number(s) || 0;
 }
 
-// 영업자 자동 매칭: name 또는 bank_aliases와 depositor 매칭
+// 영업자 자동 매칭: name + bank_aliases, 양방향 부분 매칭 (BankDepositUpload와 동일 방식)
+// 우선순위: 정확 일치 → 양방향 부분 매칭 (name 또는 alias)
 function matchSalesperson(depositor: string, salespeople: Salesperson[]): string | null {
   const dep = (depositor || '').trim().toLowerCase();
   if (!dep) return null;
+  // 1) 정확 일치
   for (const sp of salespeople) {
-    if ((sp.name || '').trim().toLowerCase() === dep) return sp.id;
-    const aliases = sp.bank_aliases || [];
-    for (const a of aliases) {
-      if ((a || '').trim().toLowerCase() === dep) return sp.id;
+    const name = (sp.name || '').trim().toLowerCase();
+    if (name && name === dep) return sp.id;
+    for (const a of sp.bank_aliases || []) {
+      const al = (a || '').trim().toLowerCase();
+      if (al && al === dep) return sp.id;
     }
   }
-  // 부분 매칭 (fallback)
+  // 2) 양방향 부분 매칭 — '조성현' ↔ '조성현(생각대로)' 같은 어바웃 매칭
   for (const sp of salespeople) {
-    if (dep.includes((sp.name || '').trim().toLowerCase())) return sp.id;
+    const name = (sp.name || '').trim().toLowerCase();
+    if (name && (dep.includes(name) || name.includes(dep))) return sp.id;
+    for (const a of sp.bank_aliases || []) {
+      const al = (a || '').trim().toLowerCase();
+      if (al && (dep.includes(al) || al.includes(dep))) return sp.id;
+    }
   }
   return null;
 }
