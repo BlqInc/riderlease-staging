@@ -100,17 +100,18 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts, salespeople: sa
   }, [ddLoaded]);
 
   // 2) 기간 적용 시 daily_bank_deposits 조회 (회수관리 bank_deposits와 완전 분리)
+  //    페이지네이션으로 1000건 초과해도 안전
   const reloadDeposits = useCallback(async (from: string, to: string) => {
     if (!supabase) return;
     setLoading(true);
     setError(null);
     try {
-      const { data, error: depErr } = await (supabase.from('daily_bank_deposits') as any)
-        .select('id, deposit_date, depositor_name, amount, salesperson_id')
-        .gte('deposit_date', from).lte('deposit_date', to)
-        .is('reverted_at', null);  // 롤백된 batch는 제외
-      if (depErr) throw depErr;
-      setDeposits((data || []) as BankDepositRow[]);
+      const data = await fetchPagedRows<BankDepositRow>(
+        'daily_bank_deposits',
+        'id, deposit_date, depositor_name, amount, salesperson_id',
+        q => q.gte('deposit_date', from).lte('deposit_date', to).is('reverted_at', null),
+      );
+      setDeposits(data);
     } catch (e: any) {
       setError('daily_bank_deposits 조회 실패: ' + e.message);
     } finally {

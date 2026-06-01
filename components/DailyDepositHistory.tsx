@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabaseClient';
+import { fetchPagedRows } from '../lib/fetchPagedRows';
 import { formatCurrency } from '../lib/utils';
 
 interface Props {
@@ -47,13 +48,13 @@ export const DailyDepositHistory: React.FC<Props> = ({ open, onClose, onReverted
     if (!supabase) return;
     setLoading(true);
     try {
-      const { data, error } = await (supabase.from('daily_bank_deposits') as any)
-        .select('batch_id, deposit_date, amount, salesperson_id, uploaded_at')
-        .is('reverted_at', null)
-        .order('uploaded_at', { ascending: false })
-        .limit(5000);
-      if (error) throw error;
-      setRows((data || []) as Row[]);
+      // 페이지네이션 — 1000건 초과해도 안전
+      const data = await fetchPagedRows<Row>(
+        'daily_bank_deposits',
+        'batch_id, deposit_date, amount, salesperson_id, uploaded_at',
+        q => q.is('reverted_at', null).order('uploaded_at', { ascending: false }),
+      );
+      setRows(data);
     } catch (e: any) {
       alert('이력 로드 실패: ' + e.message);
     } finally {
