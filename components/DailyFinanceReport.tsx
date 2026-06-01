@@ -36,6 +36,10 @@ interface DailyRow {
 }
 
 // ─── 헬퍼 ───
+// 회수관리 RPC(get_daily_recovery_metrics)와 동일한 코호트 필터.
+// 2025-10-01 이전 실행 계약은 회수 대상에서 제외.
+const COHORT_EXEC_FROM = '2025-10-01';
+
 function defaultRange(): { from: string; to: string } {
   const now = new Date();
   const y = now.getFullYear();
@@ -130,10 +134,12 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts, salespeople: sa
     if (!from || !to || from > to) return [];
 
     // 받아야 할: contracts의 daily_deductions[date].amount 합
-    // 만료(EXPIRED) 계약은 제외 — 차감 데이터가 남아있어도 더 이상 회수 대상 아님
+    // - 만료(EXPIRED) 계약 제외
+    // - 회수관리 기준과 일치시키기 위해 execution_date >= 2025-10-01 코호트 필터 적용
     const receivableByDate = new Map<string, number>();
     for (const c of contracts) {
       if (c.status === ContractStatus.EXPIRED) continue;
+      if (!c.execution_date || c.execution_date < COHORT_EXEC_FROM) continue;  // 코호트 필터
       const dds = ddByContract.get(c.id) || [];
       for (const dd of dds) {
         if (!dd?.date) continue;
@@ -211,10 +217,12 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts, salespeople: sa
   const drilldown = useMemo(() => {
     if (!expandedDate) return null;
     const incoming = deposits.filter(d => d.deposit_date === expandedDate);
-    // 받아야 할 raw (그 일자 차감 있는 계약)
+    // 받아야 할 raw (그 일자 차감 있는 계약) — 동일한 코호트 필터 적용
     type RawReceivable = { contract_number: number; lessee_name: string; distributor_name: string; partner_id: string | null; amount: number };
     const receivable: RawReceivable[] = [];
     for (const c of contracts) {
+      if (c.status === ContractStatus.EXPIRED) continue;
+      if (!c.execution_date || c.execution_date < COHORT_EXEC_FROM) continue;
       const dds = ddByContract.get(c.id) || [];
       const dd = dds.find((x: any) => x?.date === expandedDate);
       if (!dd) continue;
