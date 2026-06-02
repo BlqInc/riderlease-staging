@@ -647,21 +647,54 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts, salespeople: sa
                                   </React.Fragment>
                                 );
                               })}
-                              {/* 영업자 미매칭 합계 행 — 표 합 = KPI 받아야 할 일치하도록 */}
-                              {drilldown.orphanReceivable.length > 0 && (
-                                <tr className="border-t border-amber-700/40 bg-amber-900/10">
-                                  <td className="p-2"></td>
-                                  <td className="p-2 text-amber-300">⚠ 영업자 미매칭 ({drilldown.orphanReceivable.length}건)</td>
-                                  <td className="p-2 text-right text-slate-500">-</td>
-                                  <td className="p-2 text-right text-amber-300 font-semibold">
-                                    ₩{formatCurrency(drilldown.orphanReceivable.reduce((s, x) => s + x.amount, 0))}
-                                  </td>
-                                  <td className="p-2 text-right text-amber-300 font-semibold">
-                                    ₩{formatCurrency(drilldown.orphanReceivable.reduce((s, x) => s + x.amount, 0))}
-                                  </td>
-                                  <td className="p-2 text-center text-amber-300 text-[10px]">매핑 필요</td>
-                                </tr>
-                              )}
+                              {/* 영업자 미매칭 합계 행 — 표 합 = KPI 받아야 할 일치하도록. 클릭 시 계약 목록 펼침 */}
+                              {drilldown.orphanReceivable.length > 0 && (() => {
+                                const orphanKey = `${r.date}|__orphan__`;
+                                const orphanExp = expandedSalesperson === orphanKey;
+                                const orphanSum = drilldown.orphanReceivable.reduce((s, x) => s + x.amount, 0);
+                                return (
+                                  <React.Fragment>
+                                    <tr className="border-t border-amber-700/40 bg-amber-900/10 hover:bg-amber-900/20 cursor-pointer"
+                                        onClick={() => setExpandedSalesperson(orphanExp ? null : orphanKey)}>
+                                      <td className="p-2 text-amber-400">{orphanExp ? '▼' : '▶'}</td>
+                                      <td className="p-2 text-amber-300">⚠ 영업자 미매칭 ({drilldown.orphanReceivable.length}건)</td>
+                                      <td className="p-2 text-right text-slate-500">-</td>
+                                      <td className="p-2 text-right text-amber-300 font-semibold">₩{formatCurrency(orphanSum)}</td>
+                                      <td className="p-2 text-right text-amber-300 font-semibold">₩{formatCurrency(orphanSum)}</td>
+                                      <td className="p-2 text-center text-amber-300 text-[10px]">매핑 필요</td>
+                                    </tr>
+                                    {orphanExp && (
+                                      <tr><td colSpan={6} className="bg-slate-900 p-3">
+                                        <p className="text-[11px] text-amber-300 mb-2">
+                                          아래 계약의 총판이 영업자 관리에 등록되지 않음. 등록하면 다음 조회부터 위 영업자 행에 자동 합산됩니다.
+                                        </p>
+                                        <table className="w-full text-[11px]">
+                                          <thead className="text-slate-500">
+                                            <tr>
+                                              <th className="p-1 text-left">#</th>
+                                              <th className="p-1 text-left">계약자</th>
+                                              <th className="p-1 text-left">총판</th>
+                                              <th className="p-1 text-left">partner_id</th>
+                                              <th className="p-1 text-right">받아야 할</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {drilldown.orphanReceivable.map(x => (
+                                              <tr key={x.contract_number} className="border-t border-slate-700/30">
+                                                <td className="p-1 font-mono text-indigo-300">{x.contract_number}</td>
+                                                <td className="p-1 text-slate-200">{x.lessee_name}</td>
+                                                <td className="p-1 text-slate-400">{x.distributor_name}</td>
+                                                <td className="p-1 font-mono text-[10px] text-slate-500">{x.partner_id || '(null)'}</td>
+                                                <td className="p-1 text-right text-amber-400">₩{formatCurrency(x.amount)}</td>
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      </td></tr>
+                                    )}
+                                  </React.Fragment>
+                                );
+                              })()}
                             </tbody>
                           </table>
                         )}
