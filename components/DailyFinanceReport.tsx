@@ -647,16 +647,30 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts, salespeople: sa
                                   </React.Fragment>
                                 );
                               })}
+                              {/* 영업자 미매칭 합계 행 — 표 합 = KPI 받아야 할 일치하도록 */}
+                              {drilldown.orphanReceivable.length > 0 && (
+                                <tr className="border-t border-amber-700/40 bg-amber-900/10">
+                                  <td className="p-2"></td>
+                                  <td className="p-2 text-amber-300">⚠ 영업자 미매칭 ({drilldown.orphanReceivable.length}건)</td>
+                                  <td className="p-2 text-right text-slate-500">-</td>
+                                  <td className="p-2 text-right text-amber-300 font-semibold">
+                                    ₩{formatCurrency(drilldown.orphanReceivable.reduce((s, x) => s + x.amount, 0))}
+                                  </td>
+                                  <td className="p-2 text-right text-amber-300 font-semibold">
+                                    ₩{formatCurrency(drilldown.orphanReceivable.reduce((s, x) => s + x.amount, 0))}
+                                  </td>
+                                  <td className="p-2 text-center text-amber-300 text-[10px]">매핑 필요</td>
+                                </tr>
+                              )}
                             </tbody>
                           </table>
                         )}
                       </div>
 
-                      {/* 영업자 매칭 안 된 받아야 할 (있을 때만) */}
+                      {/* 영업자 매칭 안 된 받아야 할 — 위 표에 한 행 추가했으므로 별도 배너는 (있을 때만) 상세 안내용으로 유지 */}
                       {drilldown.orphanReceivable.length > 0 && (
                         <div className="bg-amber-900/10 border border-amber-700/30 rounded p-3 text-xs">
-                          <span className="text-amber-300">⚠ 영업자 매칭 안 된 계약 {drilldown.orphanReceivable.length}건 · 받아야 할 ₩{formatCurrency(drilldown.orphanReceivable.reduce((s, x) => s + x.amount, 0))}</span>
-                          <span className="text-slate-500 ml-2">(파트너→영업자 매핑 없음. 영업자 관리에서 매핑 필요)</span>
+                          <span className="text-slate-500">파트너→영업자 매핑 없음. 영업자 관리에서 매핑하면 다음 조회부터 위 영업자별 표에 정상 포함됩니다.</span>
                         </div>
                       )}
 
