@@ -135,15 +135,19 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts, salespeople: sa
 
     // 받아야 할: contracts의 daily_deductions[date].amount 합
     // - 만료(EXPIRED) 계약 제외
-    // - 회수관리 기준과 일치시키기 위해 execution_date >= 2025-10-01 코호트 필터 적용
+    // - 회수관리 기준과 일치: execution_date >= 2025-10-01 코호트 필터
+    // - 소송(is_lawsuit=true) 계약 제외
+    // - dd.status === '납부완료'인 차감 제외 (이미 회수된 차감)
     const receivableByDate = new Map<string, number>();
     for (const c of contracts) {
       if (c.status === ContractStatus.EXPIRED) continue;
-      if (!c.execution_date || c.execution_date < COHORT_EXEC_FROM) continue;  // 코호트 필터
+      if (c.is_lawsuit) continue;  // 소송 계약 제외
+      if (!c.execution_date || c.execution_date < COHORT_EXEC_FROM) continue;
       const dds = ddByContract.get(c.id) || [];
       for (const dd of dds) {
         if (!dd?.date) continue;
         if (dd.date < from || dd.date > to) continue;
+        if (dd.status === '납부완료') continue;  // 완납된 차감 제외
         const amt = Number(dd.amount) || 0;
         receivableByDate.set(dd.date, (receivableByDate.get(dd.date) || 0) + amt);
       }
@@ -217,15 +221,17 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts, salespeople: sa
   const drilldown = useMemo(() => {
     if (!expandedDate) return null;
     const incoming = deposits.filter(d => d.deposit_date === expandedDate);
-    // 받아야 할 raw (그 일자 차감 있는 계약) — 동일한 코호트 필터 적용
+    // 받아야 할 raw (그 일자 차감 있는 계약) — 받아야 할 합산과 동일한 필터 적용
     type RawReceivable = { contract_number: number; lessee_name: string; distributor_name: string; partner_id: string | null; amount: number };
     const receivable: RawReceivable[] = [];
     for (const c of contracts) {
       if (c.status === ContractStatus.EXPIRED) continue;
+      if (c.is_lawsuit) continue;  // 소송 제외
       if (!c.execution_date || c.execution_date < COHORT_EXEC_FROM) continue;
       const dds = ddByContract.get(c.id) || [];
       const dd = dds.find((x: any) => x?.date === expandedDate);
       if (!dd) continue;
+      if (dd.status === '납부완료') continue;  // 완납된 차감 제외
       const amt = Number(dd.amount) || 0;
       if (amt === 0) continue;
       receivable.push({
