@@ -363,6 +363,65 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts, salespeople: sa
       ws2['!cols'] = [{ wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
       XLSX.utils.book_append_sheet(wb, ws2, '들어온 raw');
 
+      // Sheet 3: 받아야 할 raw — 일자×계약 행 단위 (검증용)
+      // 받아야 할 합산과 동일한 필터 적용
+      const receivableRawHeader = [
+        '일자', '계약번호', '계약자', '총판', '영업자',
+        'contract_status', 'is_lawsuit', 'execution_date', 'expiry_date',
+        'dd_status', 'amount', 'paid_amount',
+      ];
+      const receivableRaw: any[][] = [['받아야 할 raw — 시스템이 받아야 할에 포함시킨 모든 계약×일자'], receivableRawHeader];
+      const { from: rFrom, to: rTo } = appliedRange;
+      for (const c of contracts) {
+        if (c.status === 'EXPIRED' as any) continue;
+        if (!c.execution_date || c.execution_date < COHORT_EXEC_FROM) continue;
+        const dds = ddByContract.get(c.id) || [];
+        const sp = c.partner_id ? partnerToSp.get(c.partner_id) : undefined;
+        const spName = sp ? salespeopleMap.get(sp) || '' : '';
+        for (const dd of dds) {
+          if (!dd?.date) continue;
+          if (dd.date < rFrom || dd.date > rTo) continue;
+          const amt = Number(dd.amount) || 0;
+          receivableRaw.push([
+            dd.date,
+            c.contract_number ?? '',
+            c.lessee_name || '',
+            c.distributor_name || '',
+            spName,
+            c.status || '',
+            c.is_lawsuit === true ? 'true' : c.is_lawsuit === false ? 'false' : '',
+            c.execution_date || '',
+            c.expiry_date || '',
+            dd.status || '',
+            amt,
+            Number(dd.paid_amount) || 0,
+          ]);
+        }
+      }
+      // 정렬: 일자 ASC → 계약번호 ASC
+      receivableRaw.splice(2, receivableRaw.length - 2, ...receivableRaw.slice(2).sort((a, b) => {
+        const da = String(a[0]), db = String(b[0]);
+        if (da !== db) return da < db ? -1 : 1;
+        return (Number(a[1]) || 0) - (Number(b[1]) || 0);
+      }));
+      const ws3 = XLSX.utils.aoa_to_sheet(receivableRaw);
+      for (let c = 0; c < receivableRawHeader.length; c++) {
+        const addr = XLSX.utils.encode_cell({ r: 1, c });
+        if (ws3[addr]) ws3[addr].s = headerStyle;
+      }
+      for (let r = 2; r < receivableRaw.length; r++) {
+        for (const col of [10, 11]) {
+          const addr = XLSX.utils.encode_cell({ r, c: col });
+          if (ws3[addr] && typeof ws3[addr].v === 'number') ws3[addr].z = '#,##0';
+        }
+      }
+      ws3['!cols'] = [
+        { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 20 }, { wch: 12 },
+        { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 12 },
+        { wch: 10 }, { wch: 12 }, { wch: 12 },
+      ];
+      XLSX.utils.book_append_sheet(wb, ws3, '받아야 할 raw');
+
       const fname = `일별회수현황_${appliedRange.from.replace(/-/g,'')}-${appliedRange.to.replace(/-/g,'')}.xlsx`;
       XLSX.writeFile(wb, fname);
     } catch (e: any) {
