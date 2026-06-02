@@ -370,10 +370,11 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts, salespeople: sa
         'contract_status', 'is_lawsuit', 'execution_date', 'expiry_date',
         'dd_status', 'amount', 'paid_amount',
       ];
-      const receivableRaw: any[][] = [['받아야 할 raw — 시스템이 받아야 할에 포함시킨 모든 계약×일자'], receivableRawHeader];
+      // 받아야 할 합산 로직과 100% 동일한 필터 적용 (ContractStatus.EXPIRED enum 값 '만료')
+      const dataRowsForRaw: any[][] = [];
       const { from: rFrom, to: rTo } = appliedRange;
       for (const c of contracts) {
-        if (c.status === 'EXPIRED' as any) continue;
+        if (c.status === ContractStatus.EXPIRED) continue;
         if (!c.execution_date || c.execution_date < COHORT_EXEC_FROM) continue;
         const dds = ddByContract.get(c.id) || [];
         const sp = c.partner_id ? partnerToSp.get(c.partner_id) : undefined;
@@ -382,7 +383,7 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts, salespeople: sa
           if (!dd?.date) continue;
           if (dd.date < rFrom || dd.date > rTo) continue;
           const amt = Number(dd.amount) || 0;
-          receivableRaw.push([
+          dataRowsForRaw.push([
             dd.date,
             c.contract_number ?? '',
             c.lessee_name || '',
@@ -398,12 +399,17 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts, salespeople: sa
           ]);
         }
       }
-      // 정렬: 일자 ASC → 계약번호 ASC
-      receivableRaw.splice(2, receivableRaw.length - 2, ...receivableRaw.slice(2).sort((a, b) => {
+      // 정렬: 일자 ASC → 계약번호 ASC (큰 spread 위험 회피 위해 별도 배열에서 정렬 후 합침)
+      dataRowsForRaw.sort((a, b) => {
         const da = String(a[0]), db = String(b[0]);
         if (da !== db) return da < db ? -1 : 1;
         return (Number(a[1]) || 0) - (Number(b[1]) || 0);
-      }));
+      });
+      const receivableRaw: any[][] = [
+        ['받아야 할 raw — 시스템이 받아야 할에 포함시킨 모든 계약×일자'],
+        receivableRawHeader,
+        ...dataRowsForRaw,
+      ];
       const ws3 = XLSX.utils.aoa_to_sheet(receivableRaw);
       for (let c = 0; c < receivableRawHeader.length; c++) {
         const addr = XLSX.utils.encode_cell({ r: 1, c });
