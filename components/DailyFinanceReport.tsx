@@ -136,9 +136,6 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts, salespeople: sa
     // 받아야 할: contracts의 daily_deductions[date].amount 합
     // - 만료(EXPIRED) 계약 제외
     // - 회수관리 기준과 일치: execution_date >= 2025-10-01 코호트 필터
-    // - 만기(expiry_date) 이후 차감 일자 제외 (소송이라도 만기 안 됐으면 포함)
-    // - 완납된 차감 제외 (dd.status='납부완료' 또는 paid >= amount)
-    //   사용자 정의: 완납 처리 = 시스템상 받은 거. 더 이상 받아야 할 X.
     const receivableByDate = new Map<string, number>();
     for (const c of contracts) {
       if (c.status === ContractStatus.EXPIRED) continue;
@@ -147,11 +144,7 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts, salespeople: sa
       for (const dd of dds) {
         if (!dd?.date) continue;
         if (dd.date < from || dd.date > to) continue;
-        if (c.expiry_date && dd.date > c.expiry_date) continue;  // 만기 이후 제외
         const amt = Number(dd.amount) || 0;
-        const paid = Number(dd.paid_amount) || 0;
-        if (amt === 0) continue;
-        if (dd.status === '납부완료' || paid >= amt) continue;  // 완납 차감 제외
         receivableByDate.set(dd.date, (receivableByDate.get(dd.date) || 0) + amt);
       }
     }
@@ -230,14 +223,11 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts, salespeople: sa
     for (const c of contracts) {
       if (c.status === ContractStatus.EXPIRED) continue;
       if (!c.execution_date || c.execution_date < COHORT_EXEC_FROM) continue;
-      if (c.expiry_date && expandedDate > c.expiry_date) continue;  // 만기 이후 제외
       const dds = ddByContract.get(c.id) || [];
       const dd = dds.find((x: any) => x?.date === expandedDate);
       if (!dd) continue;
       const amt = Number(dd.amount) || 0;
-      const paid = Number(dd.paid_amount) || 0;
       if (amt === 0) continue;
-      if (dd.status === '납부완료' || paid >= amt) continue;  // 완납 차감 제외
       receivable.push({
         contract_number: Number(c.contract_number) || 0,
         lessee_name: c.lessee_name || '',
