@@ -136,18 +136,16 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts, salespeople: sa
     // 받아야 할: contracts의 daily_deductions[date].amount 합
     // - 만료(EXPIRED) 계약 제외
     // - 회수관리 기준과 일치: execution_date >= 2025-10-01 코호트 필터
-    // - 소송(is_lawsuit=true) 계약 제외
-    // - dd.status === '납부완료'인 차감 제외 (이미 회수된 차감)
+    // - 만기(expiry_date) 이후 차감 일자 제외 (소송 여부 무관 — 만기 안 된 소송은 회수 대상)
     const receivableByDate = new Map<string, number>();
     for (const c of contracts) {
       if (c.status === ContractStatus.EXPIRED) continue;
-      if (c.is_lawsuit) continue;  // 소송 계약 제외
       if (!c.execution_date || c.execution_date < COHORT_EXEC_FROM) continue;
       const dds = ddByContract.get(c.id) || [];
       for (const dd of dds) {
         if (!dd?.date) continue;
         if (dd.date < from || dd.date > to) continue;
-        if (dd.status === '납부완료') continue;  // 완납된 차감 제외
+        if (c.expiry_date && dd.date > c.expiry_date) continue;  // 만기 이후 차감 제외
         const amt = Number(dd.amount) || 0;
         receivableByDate.set(dd.date, (receivableByDate.get(dd.date) || 0) + amt);
       }
@@ -226,12 +224,11 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts, salespeople: sa
     const receivable: RawReceivable[] = [];
     for (const c of contracts) {
       if (c.status === ContractStatus.EXPIRED) continue;
-      if (c.is_lawsuit) continue;  // 소송 제외
       if (!c.execution_date || c.execution_date < COHORT_EXEC_FROM) continue;
+      if (c.expiry_date && expandedDate > c.expiry_date) continue;  // 만기 이후 제외
       const dds = ddByContract.get(c.id) || [];
       const dd = dds.find((x: any) => x?.date === expandedDate);
       if (!dd) continue;
-      if (dd.status === '납부완료') continue;  // 완납된 차감 제외
       const amt = Number(dd.amount) || 0;
       if (amt === 0) continue;
       receivable.push({
