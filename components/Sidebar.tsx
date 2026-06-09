@@ -33,7 +33,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, onLog
     { view: 'dashboard', label: '대시보드', Icon: DashboardIcon },
     { view: 'contractManagement', label: '계약 관리', Icon: ContractsIcon },
     { view: 'collectionManagement', label: '회수 관리', Icon: CollectionIcon },
-    // { view: 'dailyFinanceReport', label: '일별 회수 현황', Icon: CollectionIcon },  // 개발중 — 데이터 완성 후 활성화 (URL #dailyFinanceReport로 직접 접근 가능)
+    { view: 'dailyFinanceReport', label: '일별 회수 현황', Icon: CollectionIcon },
     { view: 'settlementRequests', label: '정산요청서', Icon: SettlementIcon },
     { view: 'deductionManagement', label: '일차감 관리', Icon: DeductionIcon },
     { view: 'shippingManagement', label: '조달 및 배송 현황', Icon: ShippingIcon },
