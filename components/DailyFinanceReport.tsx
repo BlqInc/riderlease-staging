@@ -84,40 +84,47 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts, salespeople: sa
     return m;
   }, [salespeople]);
 
-  // 1) daily_deductions 페이지네이션 로드 (페이지 진입 시 1회)
-  useEffect(() => {
-    if (ddLoaded) return;
-    (async () => {
-      setLoading(true);
-      try {
-        const all = await fetchPagedRows<any>('contracts', 'id, daily_deductions');
-        const map = new Map<string, any[]>();
-        all.forEach((c: any) => map.set(c.id, Array.isArray(c.daily_deductions) ? c.daily_deductions : []));
-        setDdByContract(map);
-        setDdLoaded(true);
-      } catch (e: any) {
-        setError('daily_deductions 로드 실패: ' + e.message);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [ddLoaded]);
+  // 진입 시 JSONB 전체 fetch는 제거 — daily_deductions JSONB가 큰 페이로드라 timeout 발생.
+  //   대신 기간 적용 시점에 daily_deductions 테이블(트리거 동기화된 별도 테이블)에서 기간 내 행만 select.
+  //   훨씬 가볍고 timeout 위험 없음.
 
-  // 2) 기간 적용 시 daily_bank_deposits 조회 (회수관리 bank_deposits와 완전 분리)
-  //    페이지네이션으로 1000건 초과해도 안전
+  // 기간 적용 시 daily_bank_deposits + daily_deductions(기간만) 동시 조회
   const reloadDeposits = useCallback(async (from: string, to: string) => {
     if (!supabase) return;
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchPagedRows<BankDepositRow>(
-        'daily_bank_deposits',
-        'id, deposit_date, depositor_name, amount, salesperson_id',
-        q => q.gte('deposit_date', from).lte('deposit_date', to).is('reverted_at', null),
-      );
-      setDeposits(data);
+      const [depositsData, ddData] = await Promise.all([
+        fetchPagedRows<BankDepositRow>(
+          'daily_bank_deposits',
+          'id, deposit_date, depositor_name, amount, salesperson_id',
+          q => q.gte('deposit_date', from).lte('deposit_date', to).is('reverted_at', null),
+        ),
+        fetchPagedRows<any>(
+          'daily_deductions',
+          'contract_id, due_date, amount, paid_amount, status',
+          q => q.gte('due_date', from).lte('due_date', to),
+        ),
+      ]);
+      setDeposits(depositsData);
+      // ddByContract: contract_id → 기간 내 차감 배열 (날짜·금액·상태)
+      const map = new Map<string, any[]>();
+      ddData.forEach((row: any) => {
+        const id = row.contract_id;
+        if (!id) return;
+        const arr = map.get(id) || [];
+        arr.push({
+          date: row.due_date,
+          amount: Number(row.amount) || 0,
+          paid_amount: Number(row.paid_amount) || 0,
+          status: row.status || '',
+        });
+        map.set(id, arr);
+      });
+      setDdByContract(map);
+      setDdLoaded(true);
     } catch (e: any) {
-      setError('daily_bank_deposits 조회 실패: ' + e.message);
+      setError('데이터 조회 실패: ' + e.message);
     } finally {
       setLoading(false);
     }
