@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Contract, ContractStatus } from '../types';
 import { supabase } from '../lib/supabaseClient';
 import { fetchPagedRows } from '../lib/fetchPagedRows';
@@ -130,7 +130,14 @@ export const DailyFinanceReport: React.FC<Props> = ({ contracts, salespeople: sa
     }
   }, []);
 
+  // 진입 시 자동 fetch 막음 — daily_deductions 테이블 크기가 클 수 있어 timeout 위험.
+  // 사용자가 [조회] 버튼 누르면 setAppliedRange 호출 → 그때만 fetch.
+  const mountedRef = useRef(false);
   useEffect(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      return;  // 첫 마운트 skip
+    }
     reloadDeposits(appliedRange.from, appliedRange.to);
   }, [appliedRange.from, appliedRange.to, reloadDeposits]);
 
