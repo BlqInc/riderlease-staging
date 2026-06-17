@@ -1,7 +1,7 @@
 import React from 'react';
 import { DashboardIcon, ContractsIcon, PartnersIcon, SettlementIcon, DeductionIcon, ShippingIcon, CreditorDataIcon, CalendarIcon, DatabaseIcon, LogoutIcon, ShieldIcon, CollectionIcon, DocGeneratorIcon } from './icons/IconComponents';
 
-export type View = 'dashboard' | 'contractManagement' | 'collectionManagement' | 'dailyFinanceReport' | 'settlementRequests' | 'deductionManagement' | 'shippingManagement' | 'settlementManagement' | 'creditorSettlementData' | 'creditorBatch' | 'contractDocGenerator' | 'documentStatus' | 'partners' | 'salespeople' | 'database' | 'calendar' | 'creditorSettlement' | 'privacyMasking';
+export type View = 'dashboard' | 'contractManagement' | 'collectionManagement' | 'dailyFinanceReport' | 'settlementRequests' | 'deductionManagement' | 'shippingManagement' | 'settlementManagement' | 'creditorSettlementData' | 'creditorBatch' | 'contractDocGenerator' | 'documentStatus' | 'partners' | 'salespeople' | 'database' | 'calendar' | 'creditorSettlement' | 'taxInvoiceRevenue' | 'privacyMasking';
 
 interface SidebarProps {
   currentView: View;
@@ -43,6 +43,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, onLog
     { view: 'documentStatus', label: '서류 접수 현황', Icon: ShieldIcon },
     { view: 'contractDocGenerator', label: '계약서 자동 생성', Icon: DocGeneratorIcon },
     { view: 'creditorSettlement', label: '채권사 정산', Icon: CreditorDataIcon },
+    { view: 'taxInvoiceRevenue', label: '세금계산서 매출', Icon: CreditorDataIcon },
     { view: 'privacyMasking', label: '개인정보 마스킹', Icon: ShieldIcon },
     { view: 'partners', label: '파트너사', Icon: PartnersIcon },
     { view: 'salespeople', label: '영업자 관리', Icon: PartnersIcon },

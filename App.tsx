@@ -21,6 +21,7 @@ const SalespeopleManagement = React.lazy(() => import('./components/SalespeopleM
 const Calendar = React.lazy(() => import('./components/Calendar').then(m => ({ default: m.Calendar })));
 const DatabaseManagement = React.lazy(() => import('./components/DatabaseManagement').then(m => ({ default: m.DatabaseManagement })));
 const CreditorSettlement = React.lazy(() => import('./components/CreditorSettlement').then(m => ({ default: m.CreditorSettlement })));
+const TaxInvoiceRevenue = React.lazy(() => import('./components/TaxInvoiceRevenue').then(m => ({ default: m.TaxInvoiceRevenue })));
 const CreditorBatch = React.lazy(() => import('./components/CreditorBatch').then(m => ({ default: m.CreditorBatch })));
 const CollectionManagement = React.lazy(() => import('./components/CollectionManagement').then(m => ({ default: m.CollectionManagement })));
 const DailyFinanceReport = React.lazy(() => import('./components/DailyFinanceReport').then(m => ({ default: m.DailyFinanceReport })));
@@ -1139,6 +1140,14 @@ const App: React.FC = () => {
                   onDeleteSettlement={handleDeleteCreditorSettlement}
                   onSaveCreditor={handleSaveCreditor}
                   onDeleteCreditor={handleDeleteCreditor}
+                />
+              )}
+              {currentView === 'taxInvoiceRevenue' && (
+                <TaxInvoiceRevenue
+                  contracts={contracts}
+                  creditors={creditors}
+                  settlements={creditorSettlements}
+                  onCreditorUpdated={() => fetchData({ silent: true })}
                 />
               )}
             </React.Suspense>
