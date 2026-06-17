@@ -1,6 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Contract, Creditor, CreditorSettlementRound } from '../types';
 import { supabase } from '../lib/supabaseClient';
+import { fetchPagedRows } from '../lib/fetchPagedRows';
 import { formatCurrency } from '../lib/utils';
 
 interface Props {
@@ -31,6 +32,23 @@ interface Row {
   vat: number;              // 부가세 = 채권액 - 매출
 }
 
+function defaultRange(): { from: string; to: string } {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  return { from: `${y}-${m}-01`, to: `${y}-${m}-${String(now.getDate()).padStart(2, '0')}` };
+}
+
+interface DateRow {
+  date: string;
+  creditor: Creditor;
+  contractCount: number;
+  debtAmount: number;
+  revenueRate: number | null;
+  revenue: number;
+  vat: number;
+}
+
 export const TaxInvoiceRevenue: React.FC<Props> = ({ contracts, creditors, settlements, onCreditorUpdated }) => {
   const [editingCreditorId, setEditingCreditorId] = useState<string | null>(null);
   const [editRate, setEditRate] = useState<string>('');
@@ -38,6 +56,25 @@ export const TaxInvoiceRevenue: React.FC<Props> = ({ contracts, creditors, settl
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [selectedCreditorId, setSelectedCreditorId] = useState<string>('');  // '' = 전체
+  const [selectedRounds, setSelectedRounds] = useState<Set<number>>(new Set());  // 차수 다중 선택, 빈 set = 전체
+  const [mode, setMode] = useState<'round' | 'date'>('round');
+
+  // 일자별 모드 state
+  const [dateRange, setDateRange] = useState(defaultRange);
+  const [appliedDateRange, setAppliedDateRange] = useState(defaultRange);
+  const [dateRows, setDateRows] = useState<DateRow[]>([]);
+  const [dateLoading, setDateLoading] = useState(false);
+  const [dateError, setDateError] = useState<string | null>(null);
+
+  // 정산 차수 옵션 (선택된 채권사 한정 또는 전체)
+  const roundOptions = useMemo(() => {
+    const set = new Set<number>();
+    for (const s of settlements) {
+      if (selectedCreditorId && s.creditor_id !== selectedCreditorId) continue;
+      set.add(s.settlement_round);
+    }
+    return Array.from(set).sort((a, b) => b - a);
+  }, [settlements, selectedCreditorId]);
 
   // 채권사별 정산 차수 × 채권액 계산
   const rows = useMemo<Row[]>(() => {
@@ -46,6 +83,7 @@ export const TaxInvoiceRevenue: React.FC<Props> = ({ contracts, creditors, settl
       const creditor = creditors.find(c => c.id === s.creditor_id);
       if (!creditor) continue;
       if (selectedCreditorId && creditor.id !== selectedCreditorId) continue;
+      if (selectedRounds.size > 0 && !selectedRounds.has(s.settlement_round)) continue;
       const roundContracts = contracts.filter(
         c => (c as any).creditor_id === s.creditor_id && c.settlement_round === s.settlement_round
       );
@@ -70,19 +108,88 @@ export const TaxInvoiceRevenue: React.FC<Props> = ({ contracts, creditors, settl
       return b.settlement.settlement_round - a.settlement.settlement_round;
     });
     return out;
-  }, [contracts, creditors, settlements, selectedCreditorId]);
+  }, [contracts, creditors, settlements, selectedCreditorId, selectedRounds]);
 
-  // KPI: 표시 중 합계
+  // 일자별 매출 fetch — daily_deductions 테이블에서 기간 내 행 가져옴
+  const reloadDateMode = useCallback(async (from: string, to: string) => {
+    if (!supabase) return;
+    setDateLoading(true);
+    setDateError(null);
+    try {
+      const dds = await fetchPagedRows<any>(
+        'daily_deductions',
+        'contract_id, due_date, amount',
+        q => q.gte('due_date', from).lte('due_date', to),
+      );
+      // contract_id → contract 조회 맵
+      const contractMap = new Map<string, Contract>();
+      contracts.forEach(c => contractMap.set(c.id, c));
+      // 일자 × 채권사별 그룹핑
+      type Key = string;  // `${date}|${creditor_id}`
+      const grouped = new Map<Key, { amount: number; contractIds: Set<string> }>();
+      for (const dd of dds) {
+        const c = contractMap.get(dd.contract_id);
+        if (!c) continue;
+        const cid = (c as any).creditor_id;
+        if (!cid) continue;
+        if (selectedCreditorId && cid !== selectedCreditorId) continue;
+        const key = `${dd.due_date}|${cid}`;
+        const g = grouped.get(key) || { amount: 0, contractIds: new Set<string>() };
+        g.amount += Number(dd.amount) || 0;
+        g.contractIds.add(dd.contract_id);
+        grouped.set(key, g);
+      }
+      const out: DateRow[] = [];
+      for (const [key, g] of grouped.entries()) {
+        const [date, creditorId] = key.split('|');
+        const creditor = creditors.find(c => c.id === creditorId);
+        if (!creditor) continue;
+        const rate = (creditor as any).revenue_rate != null ? Number((creditor as any).revenue_rate) : null;
+        const revenue = rate != null ? Math.round(g.amount * rate) : 0;
+        const vat = rate != null ? g.amount - revenue : 0;
+        out.push({
+          date,
+          creditor,
+          contractCount: g.contractIds.size,
+          debtAmount: g.amount,
+          revenueRate: rate,
+          revenue,
+          vat,
+        });
+      }
+      // 정렬: 최근 일자 → 채권사명
+      out.sort((a, b) => {
+        if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+        return a.creditor.name.localeCompare(b.creditor.name);
+      });
+      setDateRows(out);
+    } catch (e: any) {
+      setDateError('일자별 매출 조회 실패: ' + e.message);
+    } finally {
+      setDateLoading(false);
+    }
+  }, [contracts, creditors, selectedCreditorId]);
+
+  // KPI: 표시 중 합계 (모드별)
   const totals = useMemo(() => {
-    return rows.reduce(
-      (acc, r) => ({
+    const src = mode === 'round' ? rows : dateRows;
+    return src.reduce(
+      (acc: { debt: number; revenue: number; vat: number }, r: any) => ({
         debt: acc.debt + r.debtAmount,
         revenue: acc.revenue + r.revenue,
         vat: acc.vat + r.vat,
       }),
       { debt: 0, revenue: 0, vat: 0 }
     );
-  }, [rows]);
+  }, [mode, rows, dateRows]);
+
+  const toggleRound = (n: number) => {
+    setSelectedRounds(prev => {
+      const next = new Set(prev);
+      if (next.has(n)) next.delete(n); else next.add(n);
+      return next;
+    });
+  };
 
   const openEdit = (creditor: Creditor) => {
     setEditingCreditorId(creditor.id);
@@ -120,27 +227,48 @@ export const TaxInvoiceRevenue: React.FC<Props> = ({ contracts, creditors, settl
   };
 
   const handleExport = async () => {
-    if (exporting || rows.length === 0) return;
+    const isRound = mode === 'round';
+    if (exporting) return;
+    if (isRound && rows.length === 0) return;
+    if (!isRound && dateRows.length === 0) return;
     setExporting(true);
     try {
       const XLSX = await import('xlsx-js-style');
-      const header = ['채권사', '정산 차수', '기간', '계약 수', '채권액', '비율(rate)', '매출(공급가액)', '부가세'];
-      const dataRows = rows.map(r => [
-        r.creditor.name,
-        `${r.settlement.settlement_round}차`,
-        `${r.settlement.start_date} ~ ${r.settlement.end_date}`,
-        r.contractCount,
-        r.debtAmount,
-        r.revenueRate ?? '',
-        r.revenueRate != null ? r.revenue : '(비율 미설정)',
-        r.revenueRate != null ? r.vat : '',
-      ]);
+      const header = isRound
+        ? ['채권사', '정산 차수', '기간', '계약 수', '채권액', '비율(rate)', '매출(공급가액)', '부가세']
+        : ['일자', '채권사', '계약 수', '채권액', '비율(rate)', '매출(공급가액)', '부가세'];
+      const dataRows = isRound
+        ? rows.map(r => [
+            r.creditor.name,
+            `${r.settlement.settlement_round}차`,
+            `${r.settlement.start_date} ~ ${r.settlement.end_date}`,
+            r.contractCount,
+            r.debtAmount,
+            r.revenueRate ?? '',
+            r.revenueRate != null ? r.revenue : '(비율 미설정)',
+            r.revenueRate != null ? r.vat : '',
+          ])
+        : dateRows.map(r => [
+            r.date,
+            r.creditor.name,
+            r.contractCount,
+            r.debtAmount,
+            r.revenueRate ?? '',
+            r.revenueRate != null ? r.revenue : '(비율 미설정)',
+            r.revenueRate != null ? r.vat : '',
+          ]);
+      const title = isRound
+        ? '세금계산서 매출 — 채권사 × 정산 차수별'
+        : `세금계산서 매출 — 일자별 (${appliedDateRange.from} ~ ${appliedDateRange.to})`;
+      const totalRow = isRound
+        ? ['합계', '', '', '', totals.debt, '', totals.revenue, totals.vat]
+        : ['합계', '', '', totals.debt, '', totals.revenue, totals.vat];
       const aoa: any[][] = [
-        ['세금계산서 매출 — 채권사 × 정산 차수별'],
+        [title],
         header,
         ...dataRows,
         [],
-        ['합계', '', '', '', totals.debt, '', totals.revenue, totals.vat],
+        totalRow,
       ];
       const ws = XLSX.utils.aoa_to_sheet(aoa);
       const headerStyle = {
@@ -153,21 +281,24 @@ export const TaxInvoiceRevenue: React.FC<Props> = ({ contracts, creditors, settl
         const addr = XLSX.utils.encode_cell({ r: 1, c });
         if (ws[addr]) ws[addr].s = headerStyle;
       }
-      // 숫자 콤마
+      // 숫자 콤마 (모드별 컬럼 인덱스 다름)
+      const numericCols = isRound ? [3, 4, 6, 7] : [2, 3, 5, 6];
       for (let r = 2; r < aoa.length; r++) {
-        for (const c of [3, 4, 6, 7]) {
+        for (const c of numericCols) {
           const addr = XLSX.utils.encode_cell({ r, c });
           if (ws[addr] && typeof ws[addr].v === 'number') ws[addr].z = '#,##0';
         }
       }
-      ws['!cols'] = [
-        { wch: 14 }, { wch: 10 }, { wch: 22 }, { wch: 8 },
-        { wch: 14 }, { wch: 10 }, { wch: 14 }, { wch: 12 },
-      ];
+      ws['!cols'] = isRound
+        ? [{ wch: 14 }, { wch: 10 }, { wch: 22 }, { wch: 8 }, { wch: 14 }, { wch: 10 }, { wch: 14 }, { wch: 12 }]
+        : [{ wch: 12 }, { wch: 14 }, { wch: 8 }, { wch: 14 }, { wch: 10 }, { wch: 14 }, { wch: 12 }];
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, '세금계산서 매출');
+      XLSX.utils.book_append_sheet(wb, ws, isRound ? '정산 차수별' : '일자별');
       const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-      XLSX.writeFile(wb, `세금계산서매출_${today}.xlsx`);
+      const fname = isRound
+        ? `세금계산서매출_차수_${today}.xlsx`
+        : `세금계산서매출_일자_${appliedDateRange.from.replace(/-/g,'')}-${appliedDateRange.to.replace(/-/g,'')}.xlsx`;
+      XLSX.writeFile(wb, fname);
     } catch (e: any) {
       alert('엑셀 생성 실패: ' + e.message);
     } finally {
@@ -187,13 +318,30 @@ export const TaxInvoiceRevenue: React.FC<Props> = ({ contracts, creditors, settl
             <span className="text-slate-500"> 매출 = 채권액 × 비율, 부가세 = 채권액 − 매출</span>
           </p>
         </div>
-        <button onClick={handleExport} disabled={exporting || rows.length === 0}
+        <button onClick={handleExport}
+          disabled={exporting || (mode === 'round' ? rows.length === 0 : dateRows.length === 0)}
           className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold py-2 px-4 rounded-lg">
           📥 {exporting ? '생성 중...' : '엑셀 다운로드'}
         </button>
       </div>
 
-      {/* 채권사 필터 */}
+      {/* 모드 탭 */}
+      <div className="flex gap-1 border-b border-slate-700">
+        <button onClick={() => setMode('round')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            mode === 'round' ? 'border-indigo-500 text-white' : 'border-transparent text-slate-400 hover:text-white'
+          }`}>
+          정산 차수별
+        </button>
+        <button onClick={() => setMode('date')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            mode === 'date' ? 'border-indigo-500 text-white' : 'border-transparent text-slate-400 hover:text-white'
+          }`}>
+          일자별
+        </button>
+      </div>
+
+      {/* 채권사 필터 (양쪽 모드 공통) */}
       <div className="bg-slate-800 border border-slate-700 rounded-lg p-4 flex items-center gap-3 flex-wrap">
         <label className="text-xs text-slate-400">채권사 필터</label>
         <button onClick={() => setSelectedCreditorId('')}
@@ -211,6 +359,42 @@ export const TaxInvoiceRevenue: React.FC<Props> = ({ contracts, creditors, settl
         ))}
       </div>
 
+      {/* 정산 차수별 모드 — 차수 필터 */}
+      {mode === 'round' && roundOptions.length > 0 && (
+        <div className="bg-slate-800 border border-slate-700 rounded-lg p-4 flex items-center gap-3 flex-wrap">
+          <label className="text-xs text-slate-400">정산 차수 필터</label>
+          <button onClick={() => setSelectedRounds(new Set())}
+            className={`text-xs px-3 py-1 rounded ${selectedRounds.size === 0 ? 'bg-indigo-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>
+            전체
+          </button>
+          {roundOptions.map(n => (
+            <button key={n} onClick={() => toggleRound(n)}
+              className={`text-xs px-3 py-1 rounded ${selectedRounds.has(n) ? 'bg-indigo-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>
+              {n}차
+            </button>
+          ))}
+          {selectedRounds.size > 0 && (
+            <span className="text-xs text-slate-500 ml-auto">{selectedRounds.size}개 선택</span>
+          )}
+        </div>
+      )}
+
+      {/* 일자별 모드 — 기간 선택 */}
+      {mode === 'date' && (
+        <div className="bg-slate-800 border border-slate-700 rounded-lg p-4 flex items-center gap-3 flex-wrap">
+          <label className="text-xs text-slate-400">기간</label>
+          <input type="date" value={dateRange.from} onChange={e => setDateRange(r => ({ ...r, from: e.target.value }))}
+            className="bg-slate-700 border border-slate-600 rounded px-2 py-1 text-sm text-white" />
+          <span className="text-slate-400">~</span>
+          <input type="date" value={dateRange.to} onChange={e => setDateRange(r => ({ ...r, to: e.target.value }))}
+            className="bg-slate-700 border border-slate-600 rounded px-2 py-1 text-sm text-white" />
+          <button onClick={() => { setAppliedDateRange(dateRange); reloadDateMode(dateRange.from, dateRange.to); }}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm px-3 py-1 rounded">조회</button>
+          {dateLoading && <span className="text-xs text-slate-400">로딩 중...</span>}
+          {dateError && <span className="text-xs text-red-400">{dateError}</span>}
+        </div>
+      )}
+
       {/* KPI */}
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-slate-800 border border-slate-700 rounded-lg p-5">
@@ -227,56 +411,107 @@ export const TaxInvoiceRevenue: React.FC<Props> = ({ contracts, creditors, settl
         </div>
       </div>
 
-      {/* 표 */}
-      <div className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-700/50">
-            <tr className="text-slate-400">
-              <th className="p-3 text-left">채권사</th>
-              <th className="p-3 text-center">차수</th>
-              <th className="p-3 text-left">기간</th>
-              <th className="p-3 text-right">계약</th>
-              <th className="p-3 text-right">채권액</th>
-              <th className="p-3 text-center">비율</th>
-              <th className="p-3 text-right">매출</th>
-              <th className="p-3 text-right">부가세</th>
-              <th className="p-3 text-center">편집</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 ? (
-              <tr><td colSpan={9} className="text-center text-slate-500 py-8">정산 차수가 없습니다</td></tr>
-            ) : rows.map(r => (
-              <tr key={`${r.creditor.id}|${r.settlement.id}`} className="border-t border-slate-700/50 hover:bg-slate-700/30">
-                <td className="p-3 text-white">{r.creditor.name}</td>
-                <td className="p-3 text-center text-slate-300">{r.settlement.settlement_round}차</td>
-                <td className="p-3 text-xs text-slate-400">{r.settlement.start_date} ~ {r.settlement.end_date}</td>
-                <td className="p-3 text-right text-slate-300">{r.contractCount}건</td>
-                <td className="p-3 text-right text-slate-200">₩{formatCurrency(r.debtAmount)}</td>
-                <td className="p-3 text-center">
-                  {r.revenueRate != null ? (
-                    <span className="text-emerald-300 font-mono text-xs">{r.revenueRate}</span>
-                  ) : (
-                    <span className="text-red-400 text-xs">미설정</span>
-                  )}
-                </td>
-                <td className="p-3 text-right text-emerald-400">
-                  {r.revenueRate != null ? `₩${formatCurrency(r.revenue)}` : '-'}
-                </td>
-                <td className="p-3 text-right text-amber-400">
-                  {r.revenueRate != null ? `₩${formatCurrency(r.vat)}` : '-'}
-                </td>
-                <td className="p-3 text-center">
-                  <button onClick={() => openEdit(r.creditor)}
-                    className="text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 px-2 py-1 rounded">
-                    비율 편집
-                  </button>
-                </td>
+      {/* 표 — 정산 차수별 */}
+      {mode === 'round' && (
+        <div className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-700/50">
+              <tr className="text-slate-400">
+                <th className="p-3 text-left">채권사</th>
+                <th className="p-3 text-center">차수</th>
+                <th className="p-3 text-left">기간</th>
+                <th className="p-3 text-right">계약</th>
+                <th className="p-3 text-right">채권액</th>
+                <th className="p-3 text-center">비율</th>
+                <th className="p-3 text-right">매출</th>
+                <th className="p-3 text-right">부가세</th>
+                <th className="p-3 text-center">편집</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <tr><td colSpan={9} className="text-center text-slate-500 py-8">정산 차수가 없습니다</td></tr>
+              ) : rows.map(r => (
+                <tr key={`${r.creditor.id}|${r.settlement.id}`} className="border-t border-slate-700/50 hover:bg-slate-700/30">
+                  <td className="p-3 text-white">{r.creditor.name}</td>
+                  <td className="p-3 text-center text-slate-300">{r.settlement.settlement_round}차</td>
+                  <td className="p-3 text-xs text-slate-400">{r.settlement.start_date} ~ {r.settlement.end_date}</td>
+                  <td className="p-3 text-right text-slate-300">{r.contractCount}건</td>
+                  <td className="p-3 text-right text-slate-200">₩{formatCurrency(r.debtAmount)}</td>
+                  <td className="p-3 text-center">
+                    {r.revenueRate != null ? (
+                      <span className="text-emerald-300 font-mono text-xs">{r.revenueRate}</span>
+                    ) : (
+                      <span className="text-red-400 text-xs">미설정</span>
+                    )}
+                  </td>
+                  <td className="p-3 text-right text-emerald-400">
+                    {r.revenueRate != null ? `₩${formatCurrency(r.revenue)}` : '-'}
+                  </td>
+                  <td className="p-3 text-right text-amber-400">
+                    {r.revenueRate != null ? `₩${formatCurrency(r.vat)}` : '-'}
+                  </td>
+                  <td className="p-3 text-center">
+                    <button onClick={() => openEdit(r.creditor)}
+                      className="text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 px-2 py-1 rounded">
+                      비율 편집
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* 표 — 일자별 */}
+      {mode === 'date' && (
+        <div className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden">
+          <div className="px-4 py-2 border-b border-slate-700 text-xs text-slate-400">
+            기간: {appliedDateRange.from} ~ {appliedDateRange.to} · 일별 회수 예정 채권액 기준 (daily_deductions)
+          </div>
+          <table className="w-full text-sm">
+            <thead className="bg-slate-700/50">
+              <tr className="text-slate-400">
+                <th className="p-3 text-left">일자</th>
+                <th className="p-3 text-left">채권사</th>
+                <th className="p-3 text-right">계약</th>
+                <th className="p-3 text-right">채권액</th>
+                <th className="p-3 text-center">비율</th>
+                <th className="p-3 text-right">매출</th>
+                <th className="p-3 text-right">부가세</th>
+              </tr>
+            </thead>
+            <tbody>
+              {dateLoading ? (
+                <tr><td colSpan={7} className="text-center text-slate-500 py-8">로딩 중...</td></tr>
+              ) : dateRows.length === 0 ? (
+                <tr><td colSpan={7} className="text-center text-slate-500 py-8">조회 결과가 없습니다. [조회] 버튼을 눌러주세요.</td></tr>
+              ) : dateRows.map(r => (
+                <tr key={`${r.date}|${r.creditor.id}`} className="border-t border-slate-700/50 hover:bg-slate-700/30">
+                  <td className="p-3 text-slate-300">{r.date}</td>
+                  <td className="p-3 text-white">{r.creditor.name}</td>
+                  <td className="p-3 text-right text-slate-300">{r.contractCount}건</td>
+                  <td className="p-3 text-right text-slate-200">₩{formatCurrency(r.debtAmount)}</td>
+                  <td className="p-3 text-center">
+                    {r.revenueRate != null ? (
+                      <span className="text-emerald-300 font-mono text-xs">{r.revenueRate}</span>
+                    ) : (
+                      <span className="text-red-400 text-xs">미설정</span>
+                    )}
+                  </td>
+                  <td className="p-3 text-right text-emerald-400">
+                    {r.revenueRate != null ? `₩${formatCurrency(r.revenue)}` : '-'}
+                  </td>
+                  <td className="p-3 text-right text-amber-400">
+                    {r.revenueRate != null ? `₩${formatCurrency(r.vat)}` : '-'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* 비율 편집 모달 */}
       {editingCreditor && (
