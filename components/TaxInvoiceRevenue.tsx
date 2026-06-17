@@ -22,14 +22,39 @@ function contractDebtAmount(c: Contract): number {
   return dailyTotal * dur;
 }
 
+// 채권사별 매출 계산 — 채권사마다 공식이 다름
+// - 그린위치: roundup(채권액 × 0.95 × (1 − 0.113))
+// - 그 외: simple rate (creditors.revenue_rate × 채권액)
+// 부가세 = 채권액 − 매출
+function computeRevenue(creditor: Creditor, debtAmount: number): {
+  revenue: number;
+  vat: number;
+  rate: number | null;
+  formula: string;       // 표 비율 컬럼 표기용
+  hasFormula: boolean;   // 공식 적용 여부 (true면 매출/부가세 표시 가능)
+} {
+  const name = (creditor.name || '').toLowerCase();
+  if (name.includes('그린위치') || name.includes('greenwich')) {
+    const revenue = Math.ceil(debtAmount * 0.95 * (1 - 0.113));
+    return { revenue, vat: debtAmount - revenue, rate: null, formula: '그린위치 공식', hasFormula: true };
+  }
+  const rateRaw = (creditor as any).revenue_rate;
+  if (rateRaw == null) return { revenue: 0, vat: 0, rate: null, formula: '', hasFormula: false };
+  const rate = Number(rateRaw);
+  const revenue = Math.round(debtAmount * rate);
+  return { revenue, vat: debtAmount - revenue, rate, formula: String(rate), hasFormula: true };
+}
+
 interface Row {
   creditor: Creditor;
   settlement: CreditorSettlementRound;
   contractCount: number;
   debtAmount: number;       // 채권액
-  revenueRate: number | null;  // 채권사 비율
+  revenueRate: number | null;  // 채권사 비율 (공식 채권사면 null)
   revenue: number;          // 매출 (공급가액)
   vat: number;              // 부가세 = 채권액 - 매출
+  hasFormula: boolean;
+  formulaLabel: string;
 }
 
 function defaultRange(): { from: string; to: string } {
@@ -47,6 +72,8 @@ interface DateRow {
   revenueRate: number | null;
   revenue: number;
   vat: number;
+  hasFormula: boolean;
+  formulaLabel: string;
 }
 
 export const TaxInvoiceRevenue: React.FC<Props> = ({ contracts, creditors, settlements, onCreditorUpdated }) => {
@@ -88,17 +115,17 @@ export const TaxInvoiceRevenue: React.FC<Props> = ({ contracts, creditors, settl
         c => (c as any).creditor_id === s.creditor_id && c.settlement_round === s.settlement_round
       );
       const debtAmount = roundContracts.reduce((sum, c) => sum + contractDebtAmount(c), 0);
-      const rate = (creditor as any).revenue_rate != null ? Number((creditor as any).revenue_rate) : null;
-      const revenue = rate != null ? Math.round(debtAmount * rate) : 0;
-      const vat = rate != null ? debtAmount - revenue : 0;
+      const calc = computeRevenue(creditor, debtAmount);
       out.push({
         creditor,
         settlement: s,
         contractCount: roundContracts.length,
         debtAmount,
-        revenueRate: rate,
-        revenue,
-        vat,
+        revenueRate: calc.rate,
+        revenue: calc.revenue,
+        vat: calc.vat,
+        hasFormula: calc.hasFormula,
+        formulaLabel: calc.formula,
       });
     }
     // 채권사 이름 → 차수 desc 정렬
@@ -144,17 +171,17 @@ export const TaxInvoiceRevenue: React.FC<Props> = ({ contracts, creditors, settl
         const [date, creditorId] = key.split('|');
         const creditor = creditors.find(c => c.id === creditorId);
         if (!creditor) continue;
-        const rate = (creditor as any).revenue_rate != null ? Number((creditor as any).revenue_rate) : null;
-        const revenue = rate != null ? Math.round(g.amount * rate) : 0;
-        const vat = rate != null ? g.amount - revenue : 0;
+        const calc = computeRevenue(creditor, g.amount);
         out.push({
           date,
           creditor,
           contractCount: g.contractIds.size,
           debtAmount: g.amount,
-          revenueRate: rate,
-          revenue,
-          vat,
+          revenueRate: calc.rate,
+          revenue: calc.revenue,
+          vat: calc.vat,
+          hasFormula: calc.hasFormula,
+          formulaLabel: calc.formula,
         });
       }
       // 정렬: 최근 일자 → 채권사명
@@ -244,18 +271,18 @@ export const TaxInvoiceRevenue: React.FC<Props> = ({ contracts, creditors, settl
             `${r.settlement.start_date} ~ ${r.settlement.end_date}`,
             r.contractCount,
             r.debtAmount,
-            r.revenueRate ?? '',
-            r.revenueRate != null ? r.revenue : '(비율 미설정)',
-            r.revenueRate != null ? r.vat : '',
+            r.hasFormula ? r.formulaLabel : '',
+            r.hasFormula ? r.revenue : '(공식 미설정)',
+            r.hasFormula ? r.vat : '',
           ])
         : dateRows.map(r => [
             r.date,
             r.creditor.name,
             r.contractCount,
             r.debtAmount,
-            r.revenueRate ?? '',
-            r.revenueRate != null ? r.revenue : '(비율 미설정)',
-            r.revenueRate != null ? r.vat : '',
+            r.hasFormula ? r.formulaLabel : '',
+            r.hasFormula ? r.revenue : '(공식 미설정)',
+            r.hasFormula ? r.vat : '',
           ]);
       const title = isRound
         ? '세금계산서 매출 — 채권사 × 정산 차수별'
@@ -348,15 +375,18 @@ export const TaxInvoiceRevenue: React.FC<Props> = ({ contracts, creditors, settl
           className={`text-xs px-3 py-1 rounded ${selectedCreditorId === '' ? 'bg-indigo-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>
           전체
         </button>
-        {creditors.map(c => (
-          <button key={c.id} onClick={() => setSelectedCreditorId(c.id)}
-            className={`text-xs px-3 py-1 rounded ${selectedCreditorId === c.id ? 'bg-indigo-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>
-            {c.name}
-            {(c as any).revenue_rate != null
-              ? <span className="ml-1 text-emerald-400">· {(c as any).revenue_rate}</span>
-              : <span className="ml-1 text-red-400">· 미설정</span>}
-          </button>
-        ))}
+        {creditors.map(c => {
+          const calc = computeRevenue(c, 0);
+          return (
+            <button key={c.id} onClick={() => setSelectedCreditorId(c.id)}
+              className={`text-xs px-3 py-1 rounded ${selectedCreditorId === c.id ? 'bg-indigo-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>
+              {c.name}
+              {calc.hasFormula
+                ? <span className={`ml-1 ${calc.rate == null ? 'text-sky-300' : 'text-emerald-400'}`}>· {calc.formula}</span>
+                : <span className="ml-1 text-red-400">· 미설정</span>}
+            </button>
+          );
+        })}
       </div>
 
       {/* 정산 차수별 모드 — 차수 필터 */}
@@ -439,17 +469,17 @@ export const TaxInvoiceRevenue: React.FC<Props> = ({ contracts, creditors, settl
                   <td className="p-3 text-right text-slate-300">{r.contractCount}건</td>
                   <td className="p-3 text-right text-slate-200">₩{formatCurrency(r.debtAmount)}</td>
                   <td className="p-3 text-center">
-                    {r.revenueRate != null ? (
-                      <span className="text-emerald-300 font-mono text-xs">{r.revenueRate}</span>
+                    {r.hasFormula ? (
+                      <span className={`font-mono text-xs ${r.revenueRate == null ? 'text-sky-300' : 'text-emerald-300'}`}>{r.formulaLabel}</span>
                     ) : (
                       <span className="text-red-400 text-xs">미설정</span>
                     )}
                   </td>
                   <td className="p-3 text-right text-emerald-400">
-                    {r.revenueRate != null ? `₩${formatCurrency(r.revenue)}` : '-'}
+                    {r.hasFormula ? `₩${formatCurrency(r.revenue)}` : '-'}
                   </td>
                   <td className="p-3 text-right text-amber-400">
-                    {r.revenueRate != null ? `₩${formatCurrency(r.vat)}` : '-'}
+                    {r.hasFormula ? `₩${formatCurrency(r.vat)}` : '-'}
                   </td>
                   <td className="p-3 text-center">
                     <button onClick={() => openEdit(r.creditor)}
@@ -494,17 +524,17 @@ export const TaxInvoiceRevenue: React.FC<Props> = ({ contracts, creditors, settl
                   <td className="p-3 text-right text-slate-300">{r.contractCount}건</td>
                   <td className="p-3 text-right text-slate-200">₩{formatCurrency(r.debtAmount)}</td>
                   <td className="p-3 text-center">
-                    {r.revenueRate != null ? (
-                      <span className="text-emerald-300 font-mono text-xs">{r.revenueRate}</span>
+                    {r.hasFormula ? (
+                      <span className={`font-mono text-xs ${r.revenueRate == null ? 'text-sky-300' : 'text-emerald-300'}`}>{r.formulaLabel}</span>
                     ) : (
                       <span className="text-red-400 text-xs">미설정</span>
                     )}
                   </td>
                   <td className="p-3 text-right text-emerald-400">
-                    {r.revenueRate != null ? `₩${formatCurrency(r.revenue)}` : '-'}
+                    {r.hasFormula ? `₩${formatCurrency(r.revenue)}` : '-'}
                   </td>
                   <td className="p-3 text-right text-amber-400">
-                    {r.revenueRate != null ? `₩${formatCurrency(r.vat)}` : '-'}
+                    {r.hasFormula ? `₩${formatCurrency(r.vat)}` : '-'}
                   </td>
                 </tr>
               ))}
@@ -524,6 +554,12 @@ export const TaxInvoiceRevenue: React.FC<Props> = ({ contracts, creditors, settl
               </div>
               <button onClick={closeEdit} disabled={saving} className="text-slate-400 hover:text-white text-xl leading-none">×</button>
             </div>
+            {computeRevenue(editingCreditor, 0).rate == null && computeRevenue(editingCreditor, 0).hasFormula && (
+              <div className="bg-sky-900/30 border border-sky-700/50 rounded p-3 mb-3 text-xs text-sky-200">
+                <strong>{editingCreditor.name}</strong>은 전용 공식이 적용됩니다. (비율 입력은 무시됨)<br/>
+                <code className="text-sky-300">매출 = roundup(채권액 × 0.95 × (1 − 0.113))</code>
+              </div>
+            )}
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-slate-400 block mb-1">비율 (revenue_rate)</label>
