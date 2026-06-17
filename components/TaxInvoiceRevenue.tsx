@@ -22,34 +22,33 @@ function contractDebtAmount(c: Contract): number {
   return dailyTotal * dur;
 }
 
-// 계약 단위 매출 계산 — 자비스가 계약 duration(180/210일)에 따라 비율이 다르므로 계약별로 계산해야 함
-// - 그린위치: 공급가액 = roundup(채권액 × 0.95 × (1 − 0.113)). 11.3% = 그린위치 수수료. 부가세 별도 정의 없음 → 0
-// - 자비스: VAT 포함 매출 = 채권액 × (180일 0.90 / 210일 0.89). 공급가액 = 매출/1.1, 부가세 = 매출 − 공급가액
-// - 그 외: simple rate (creditors.revenue_rate × 채권액 = 공급가액, 부가세 = 채권액 − 공급가액)
+// 계약 단위 매출 계산
+// 공통 모델: 매출(VAT 10% 포함) = 채권액 − 수수료. 공급가액 = 매출/1.1, 부가세 = 매출/11
+// - 그린위치: 매출 = roundup(채권액 × 0.95 × (1 − 0.113))  /* 11.3% = 그린위치 수수료 */
+// - 자비스: 매출 = 채권액 × (180일 0.90 / 210일 0.89)  /* 10%/11% = 자비스 수수료 */
+// - 그 외: simple rate (creditors.revenue_rate = 채권액 대비 매출(VAT 포함) 비율)
 function contractRevenue(creditor: Creditor, contract: Contract | null, debtAmount: number): {
-  supply: number;   // 매출(공급가액)
-  vat: number;      // 부가세
-  total: number;    // 매출(VAT 포함) = supply + vat
+  supply: number;   // 공급가액 = 매출 / 1.1
+  vat: number;      // 부가세 = 매출 − 공급가액
+  total: number;    // 매출(VAT 10% 포함)
   hasFormula: boolean;
 } {
   const name = (creditor?.name || '').toLowerCase();
+  let total: number | null = null;
   if (name.includes('그린위치') || name.includes('greenwich')) {
-    const supply = Math.ceil(debtAmount * 0.95 * (1 - 0.113));
-    return { supply, vat: 0, total: supply, hasFormula: true };
-  }
-  if (name.includes('자비스') || name.includes('jarvis')) {
+    total = Math.ceil(debtAmount * 0.95 * (1 - 0.113));
+  } else if (name.includes('자비스') || name.includes('jarvis')) {
     const days = contract ? (Number(contract.duration_days) || 180) : 180;
     const totalRate = days >= 210 ? 0.89 : 0.90;
-    const total = Math.round(debtAmount * totalRate);
-    const supply = Math.round(total / 1.1);
-    return { supply, vat: total - supply, total, hasFormula: true };
+    total = Math.round(debtAmount * totalRate);
+  } else {
+    const rateRaw = (creditor as any)?.revenue_rate;
+    if (rateRaw == null) return { supply: 0, vat: 0, total: 0, hasFormula: false };
+    total = Math.round(debtAmount * Number(rateRaw));
   }
-  const rateRaw = (creditor as any)?.revenue_rate;
-  if (rateRaw == null) return { supply: 0, vat: 0, total: 0, hasFormula: false };
-  const rate = Number(rateRaw);
-  const supply = Math.round(debtAmount * rate);
-  const vat = debtAmount - supply;
-  return { supply, vat, total: debtAmount, hasFormula: true };
+  const supply = Math.round(total / 1.1);
+  const vat = total - supply;
+  return { supply, vat, total, hasFormula: true };
 }
 
 // 채권사 단위 공식 라벨 (표시용)
@@ -382,8 +381,8 @@ export const TaxInvoiceRevenue: React.FC<Props> = ({ contracts, creditors, settl
         <div>
           <h2 className="text-3xl font-bold text-white">세금계산서 매출</h2>
           <p className="text-slate-400 text-sm mt-1">
-            채권사별 공식으로 채권액을 매출(공급가액·부가세) 환산.
-            <span className="text-slate-500"> 그린위치 = roundup(채권액 × 0.95 × 0.887), 자비스 = 채권액 × 0.90(180일)/0.89(210일) (VAT 포함)</span>
+            매출(VAT 10% 포함) = 채권액 − 수수료. 공급가액 = 매출/1.1, 부가세 = 매출 − 공급가액.
+            <span className="text-slate-500"> 그린위치 = roundup(채권액 × 0.95 × 0.887), 자비스 = 채권액 × 0.90(180일)/0.89(210일)</span>
           </p>
         </div>
         <button onClick={handleExport}
@@ -617,13 +616,11 @@ export const TaxInvoiceRevenue: React.FC<Props> = ({ contracts, creditors, settl
               <div className="bg-sky-900/30 border border-sky-700/50 rounded p-3 mb-3 text-xs text-sky-200 space-y-1">
                 <div><strong>{editingCreditor.name}</strong>은 전용 공식이 적용됩니다. (비율 입력은 무시됨)</div>
                 {editingCreditor.name.toLowerCase().includes('그린위치') || editingCreditor.name.toLowerCase().includes('greenwich') ? (
-                  <code className="text-sky-300 block">공급가액 = roundup(채권액 × 0.95 × (1 − 0.113))  /* 11.3% = 그린위치 수수료 */</code>
+                  <code className="text-sky-300 block">매출(VAT 포함) = roundup(채권액 × 0.95 × (1 − 0.113))  /* 11.3% = 그린위치 수수료 */</code>
                 ) : (
-                  <>
-                    <code className="text-sky-300 block">매출(VAT 포함) = 채권액 × (180일 0.90 / 210일 0.89)</code>
-                    <code className="text-sky-300 block">공급가액 = 매출 / 1.1, 부가세 = 매출 / 11</code>
-                  </>
+                  <code className="text-sky-300 block">매출(VAT 포함) = 채권액 × (180일 0.90 / 210일 0.89)  /* 10%/11% = 자비스 수수료 */</code>
                 )}
+                <code className="text-sky-300 block">공급가액 = 매출 / 1.1, 부가세 = 매출 − 공급가액</code>
               </div>
             )}
             <div className="space-y-3">
@@ -631,12 +628,14 @@ export const TaxInvoiceRevenue: React.FC<Props> = ({ contracts, creditors, settl
                 <label className="text-xs text-slate-400 block mb-1">비율 (revenue_rate)</label>
                 <input type="number" step="0.0001" value={editRate}
                   onChange={e => setEditRate(e.target.value)}
-                  placeholder="예: 0.909 (VAT 10% 분리 = 1/1.1) 또는 0.95 (수수료 5% 차감)"
+                  placeholder="예: 0.90 (수수료 10% 차감) 또는 0.95 (수수료 5% 차감)"
                   className="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-sm text-white" />
                 <p className="text-[10px] text-slate-500 mt-1">
-                  · VAT 10% 분리: 0.9091 (≈ 1/1.1) — 매출/부가세 분리<br/>
-                  · 수수료 5% 차감: 0.95 — 채권액의 95%가 매출<br/>
-                  · 비워두면 미설정 — 표에서 매출/부가세 표시 안 됨
+                  채권액 대비 <strong>매출(VAT 10% 포함)</strong> 비율. 매출 = 채권액 × 비율.<br/>
+                  · 수수료 10% 차감: 0.90 — 매출 = 채권액 × 0.90<br/>
+                  · 수수료 5% 차감: 0.95 — 매출 = 채권액 × 0.95<br/>
+                  · 공급가액 = 매출/1.1, 부가세 = 매출 − 공급가액 (자동 분리)<br/>
+                  · 비워두면 미설정 — 표에서 매출 표시 안 됨
                 </p>
               </div>
               <div>
